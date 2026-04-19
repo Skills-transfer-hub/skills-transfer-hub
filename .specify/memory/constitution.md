@@ -1,50 +1,95 @@
-# [PROJECT_NAME] Constitution
-<!-- Example: Spec Constitution, TaskFlow Constitution, etc. -->
+<!--
+SYNC IMPACT REPORT
+Version change: (template) → 1.0.0
+Added sections: Core Principles (×4), Contraintes Techniques, Style de Code, Governance
+Removed sections: N/A (initial fill)
+Templates updated:
+  ✅ constitution.md — filled
+  ✅ plan-template.md — Constitution Check section already present; principles now defined
+  ✅ spec-template.md — no constitution-specific changes required
+  ✅ tasks-template.md — no constitution-specific changes required
+Follow-up TODOs: none
+-->
 
-## Core Principles
+# LoreSkills Constitution
 
-### [PRINCIPLE_1_NAME]
-<!-- Example: I. Library-First -->
-[PRINCIPLE_1_DESCRIPTION]
-<!-- Example: Every feature starts as a standalone library; Libraries must be self-contained, independently testable, documented; Clear purpose required - no organizational-only libraries -->
+## Principes Fondamentaux
 
-### [PRINCIPLE_2_NAME]
-<!-- Example: II. CLI Interface -->
-[PRINCIPLE_2_DESCRIPTION]
-<!-- Example: Every library exposes functionality via CLI; Text in/out protocol: stdin/args → stdout, errors → stderr; Support JSON + human-readable formats -->
+### I. Zéro Dépendance Externe (NON-NÉGOCIABLE)
 
-### [PRINCIPLE_3_NAME]
-<!-- Example: III. Test-First (NON-NEGOTIABLE) -->
-[PRINCIPLE_3_DESCRIPTION]
-<!-- Example: TDD mandatory: Tests written → User approved → Tests fail → Then implement; Red-Green-Refactor cycle strictly enforced -->
+Le projet DOIT utiliser exclusivement la bibliothèque standard de Go (`os`, `net/http`,
+`path/filepath`, `encoding/json`, etc.). Aucun module tiers (Cobra, Viper, resty…) n'est
+autorisé. Chaque nouvelle dépendance proposée DOIT être rejetée à la revue sauf si elle
+est fournie par la stdlib Go.
 
-### [PRINCIPLE_4_NAME]
-<!-- Example: IV. Integration Testing -->
-[PRINCIPLE_4_DESCRIPTION]
-<!-- Example: Focus areas requiring integration tests: New library contract tests, Contract changes, Inter-service communication, Shared schemas -->
+**Raison** : garantir un binaire final minuscule, sans chaîne d'approvisionnement externe
+et reproductible par `go build` seul.
 
-### [PRINCIPLE_5_NAME]
-<!-- Example: V. Observability, VI. Versioning & Breaking Changes, VII. Simplicity -->
-[PRINCIPLE_5_DESCRIPTION]
-<!-- Example: Text I/O ensures debuggability; Structured logging required; Or: MAJOR.MINOR.BUILD format; Or: Start simple, YAGNI principles -->
+### II. Agnostique — Aucune Valeur Codée en Dur
 
-## [SECTION_2_NAME]
-<!-- Example: Additional Constraints, Security Requirements, Performance Standards, etc. -->
+Le code source NE DOIT contenir aucune URL, aucun chemin de fichier ou identifiant de
+dépôt spécifique. Toutes les valeurs de configuration (remote URL, dossier cible, etc.)
+DOIVENT être lues depuis le fichier de configuration utilisateur au moment de l'exécution.
 
-[SECTION_2_CONTENT]
-<!-- Example: Technology stack requirements, compliance standards, deployment policies, etc. -->
+**Raison** : l'outil doit pouvoir pointer vers n'importe quel dépôt sans recompilation.
 
-## [SECTION_3_NAME]
-<!-- Example: Development Workflow, Review Process, Quality Gates, etc. -->
+### III. Cross-Platform — CGO Désactivé
 
-[SECTION_3_CONTENT]
-<!-- Example: Code review requirements, testing gates, deployment approval process, etc. -->
+Le code DOIT compiler sans modification sur Windows, macOS et Linux. `CGO_ENABLED=0`
+DOIT être positionné pour tous les artefacts de build. Aucune API spécifique à un OS ne
+peut être utilisée sans branche de compilation (`//go:build`).
+
+**Raison** : le CLI doit être distribué sous forme de binaire statique unique pour chaque
+plateforme cible.
+
+### IV. Découpage Modulaire Strict
+
+La logique DOIT être séparée en trois couches indépendantes :
+
+- **`cmd/`** : routage des sous-commandes CLI, parsing des arguments — aucune logique métier.
+- **`internal/http/`** : toutes les communications réseau (téléchargement, listing) —
+  aucune écriture disque directe.
+- **`internal/fs/`** : toutes les opérations I/O fichier/dossier — aucun appel réseau direct.
+
+Chaque couche peut être testée indépendamment. Les dépendances entre couches descendent
+uniquement vers le bas (cmd → http/fs, jamais l'inverse).
+
+**Raison** : facilite les tests unitaires, la lisibilité et l'évolution indépendante de
+chaque couche.
+
+## Contraintes Techniques
+
+- **Langage** : Go (dernière version stable).
+- **Build** : `go build ./...` DOIT réussir sans warning avec `go vet ./...`.
+- **Tests** : `go test ./...` DOIT passer sur les trois OS cibles.
+- **Binaire** : produit par `CGO_ENABLED=0 go build` — aucune dépendance dynamique.
+- **Configuration** : fichier JSON ou TOML dans un emplacement standard (`~/.config/loreskills/`
+  ou variable d'environnement `LORESKILLS_CONFIG`).
+
+## Style de Code
+
+- **Idiomatique Go** : nommage, gestion des erreurs et organisation des packages suivent
+  les conventions de `Effective Go` et du Go Style Guide officiel.
+- **Gestion d'erreurs** : pas de `panic` sauf en cas de bug de programmation avéré ; toujours
+  renvoyer des messages d'erreur exploitables par l'utilisateur final (contexte + cause).
+- **Commentaires** : concis, en français, expliquant le _pourquoi_ des blocs non évidents ;
+  les godoc sur les symboles exportés DOIVENT être en anglais.
+- **YAGNI** : pas d'abstraction prématurée ; la complexité DOIT être justifiée.
 
 ## Governance
-<!-- Example: Constitution supersedes all other practices; Amendments require documentation, approval, migration plan -->
 
-[GOVERNANCE_RULES]
-<!-- Example: All PRs/reviews must verify compliance; Complexity must be justified; Use [GUIDANCE_FILE] for runtime development guidance -->
+- Cette constitution prime sur tout autre document de pratiques de l'équipe.
+- Toute violation détectée en revue de code DOIT bloquer le merge.
+- Les amendements DOIVENT être documentés dans ce fichier avec bump de version sémantique :
+  - MAJOR : suppression ou redéfinition incompatible d'un principe.
+  - MINOR : ajout d'un nouveau principe ou d'une section.
+  - PATCH : clarification, reformulation, correction de coquilles.
+- Toute PR DOIT vérifier la conformité avec les quatre principes fondamentaux avant approbation.
 
-**Version**: [CONSTITUTION_VERSION] | **Ratified**: [RATIFICATION_DATE] | **Last Amended**: [LAST_AMENDED_DATE]
-<!-- Example: Version: 2.1.1 | Ratified: 2025-06-13 | Last Amended: 2025-07-16 -->
+**Version**: 1.0.0 | **Ratified**: 2026-04-19 | **Last Amended**: 2026-04-19
+
+## Règles de Qualité et Tests (TDD Strict)
+1. **Couverture Obligatoire :** TOUTE nouvelle fonctionnalité, commande CLI ou fonction utilitaire doit IMPÉRATIVEMENT être accompagnée de ses Tests Unitaires (TU). C'est non négociable.
+2. **Technologie :** Utilise exclusivement le package standard `testing` de Go. N'utilise pas de frameworks d'assertion externes (comme `testify`) pour garder le binaire léger.
+3. **Structure des Fichiers :** Les tests doivent être placés dans des fichiers `*_test.go` dans le même dossier que le code testé (ex: si tu crées `installer.go`, tu dois créer `installer_test.go`).
+4. **Validation de Fin de Tâche :** Avant de considérer une spécification comme terminée ou de proposer un commit, tu dois générer les tests, et t'assurer (mentalement ou en l'exécutant si tu as accès au terminal) que la commande `go test ./...` passera avec succès.
