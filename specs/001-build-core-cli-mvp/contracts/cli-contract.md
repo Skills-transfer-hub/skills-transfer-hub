@@ -53,4 +53,4 @@
   - configuration absente ou invalide
   - état illisible
   - échec de téléchargement ou d'écriture pour un skill donné
-- **Exit code**: `0` si rien à mettre à jour ou si tous les rafraîchissements réussissent, non-zéro si une erreur bloque l'opération globale selon la stratégie retenue à l'implémentation.
+- **Exit code**: `0` si rien à mettre à jour ou si tous les rafraîchissements réussissent, non-zéro si au moins un skill échoue après tentative de traitement de tous les skills enregistrés.

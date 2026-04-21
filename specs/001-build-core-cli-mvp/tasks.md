@@ -17,9 +17,9 @@
 
 **Purpose**: Align the repository layout and test scaffolding with the implementation plan before story work begins.
 
-- [ ] T001 Create the constitution-aligned network package target in `internal/http/client.go` and plan the retirement of `internal/fetch/fetch.go`
-- [ ] T002 [P] Create adjacent Go test file scaffolding in `cmd/root_test.go`, `cmd/init_test.go`, `cmd/install_test.go`, `cmd/update_test.go`, `internal/fs/fs_test.go`, and `internal/http/client_test.go`
-- [ ] T003 [P] Refresh the validation commands and manual verification steps in `specs/001-build-core-cli-mvp/quickstart.md`
+- [X] T001 Create the constitution-aligned network package target in `internal/http/client.go` and plan the retirement of `internal/fetch/fetch.go`
+- [X] T002 [P] Create adjacent Go test file scaffolding in `cmd/root_test.go`, `cmd/init_test.go`, `cmd/install_test.go`, `cmd/update_test.go`, `internal/fs/fs_test.go`, and `internal/http/client_test.go`
+- [X] T003 [P] Refresh the validation commands and manual verification steps in `specs/001-build-core-cli-mvp/quickstart.md`
 
 ---
 
@@ -29,9 +29,9 @@
 
 **⚠️ CRITICAL**: No user story work can begin until this phase is complete
 
-- [ ] T004 Implement shared CLI execution and output-capture helpers in `cmd/root_test.go` for command-level tests
-- [ ] T005 [P] Implement reusable temp home/project fixtures for config and state files in `internal/fs/fs_test.go`
-- [ ] T006 [P] Implement reusable `httptest` response fixtures for success, `404`, and unexpected HTTP status cases in `internal/http/client_test.go`
+- [X] T004 Implement shared CLI execution and output-capture helpers in `cmd/root_test.go` for command-level tests
+- [X] T005 [P] Implement reusable temp home/project fixtures for config and state files in `internal/fs/fs_test.go`
+- [X] T006 [P] Implement reusable `httptest` response fixtures for success, `404`, and unexpected HTTP status cases in `internal/http/client_test.go`
 
 **Checkpoint**: Foundation ready - user story implementation can now begin in parallel
 
@@ -45,14 +45,14 @@
 
 ### Tests for User Story 1 ⚠️
 
-- [ ] T007 [P] [US1] Add tests for no-argument help output and unknown-command handling in `cmd/root_test.go`
-- [ ] T008 [P] [US1] Add tests for init success and existing-config refusal in `cmd/init_test.go` and `internal/fs/fs_test.go`
+- [X] T007 [P] [US1] Add tests for no-argument help output and unknown-command handling in `cmd/root_test.go`
+- [X] T008 [P] [US1] Add tests for init success and existing-config refusal in `cmd/init_test.go` and `internal/fs/fs_test.go`
 
 ### Implementation for User Story 1
 
-- [ ] T009 [US1] Refactor CLI output paths in `main.go` and `cmd/root.go` so help and errors are deterministic and testable
-- [ ] T010 [US1] Implement `loreskills init` behavior and user-facing success/error messages in `cmd/init.go`
-- [ ] T011 [US1] Implement config creation, placeholder defaults, and no-overwrite behavior in `internal/fs/fs.go`
+- [X] T009 [US1] Refactor CLI output paths in `main.go` and `cmd/root.go` so help and errors are deterministic and testable
+- [X] T010 [US1] Implement `loreskills init` behavior and user-facing success/error messages in `cmd/init.go`
+- [X] T011 [US1] Implement config creation, placeholder defaults, and no-overwrite behavior in `internal/fs/fs.go`
 
 **Checkpoint**: At this point, User Story 1 should be fully functional and testable independently
 
@@ -66,15 +66,15 @@
 
 ### Tests for User Story 2 ⚠️
 
-- [ ] T012 [P] [US2] Add install command tests for successful install, target directory creation, state update, and `404` failure in `cmd/install_test.go`
-- [ ] T013 [P] [US2] Add filesystem tests for skill file writing and state persistence in `internal/fs/fs_test.go`
-- [ ] T014 [P] [US2] Add HTTP client tests for download success, `404`, and unexpected status handling in `internal/http/client_test.go`
+- [X] T012 [P] [US2] Add install command tests for successful install, target directory creation, state update, and `404` failure in `cmd/install_test.go`
+- [X] T013 [P] [US2] Add filesystem tests for skill file writing and state persistence in `internal/fs/fs_test.go`
+- [X] T014 [P] [US2] Add HTTP client tests for download success, `404`, and unexpected status handling in `internal/http/client_test.go`
 
 ### Implementation for User Story 2
 
-- [ ] T015 [US2] Move the download implementation from `internal/fetch/fetch.go` into `internal/http/client.go` and remove the obsolete `internal/fetch/fetch.go`
-- [ ] T016 [US2] Implement install orchestration and error propagation in `cmd/install.go` using `internal/http/client.go` and `internal/fs/fs.go`
-- [ ] T017 [US2] Finalize config validation, target-directory creation, managed-header writing, and state updates in `internal/fs/fs.go`
+- [X] T015 [US2] Move the download implementation from `internal/fetch/fetch.go` into `internal/http/client.go` and remove the obsolete `internal/fetch/fetch.go`
+- [X] T016 [US2] Implement install orchestration and error propagation in `cmd/install.go` using `internal/http/client.go` and `internal/fs/fs.go`
+- [X] T017 [US2] Finalize config validation, target-directory creation, managed-header writing, and state updates in `internal/fs/fs.go`
 
 **Checkpoint**: At this point, User Stories 1 and 2 should both work independently
 
@@ -88,13 +88,13 @@
 
 ### Tests for User Story 3 ⚠️
 
-- [ ] T018 [P] [US3] Add update command tests for empty state, multi-skill refresh, and partial failure reporting in `cmd/update_test.go`
-- [ ] T019 [P] [US3] Add state edge-case tests for missing and malformed `lore-state.json` in `internal/fs/fs_test.go`
+- [X] T018 [P] [US3] Add update command tests for empty state, multi-skill refresh, and partial failure reporting in `cmd/update_test.go`
+- [X] T019 [P] [US3] Add state edge-case tests for missing and malformed `lore-state.json` in `internal/fs/fs_test.go`
 
 ### Implementation for User Story 3
 
-- [ ] T020 [US3] Implement update orchestration, no-op messaging, and per-skill refresh reporting in `cmd/update.go`
-- [ ] T021 [US3] Adjust state read/write helpers for update semantics in `internal/fs/fs.go`
+- [X] T020 [US3] Implement update orchestration, no-op messaging, and per-skill refresh reporting in `cmd/update.go`
+- [X] T021 [US3] Adjust state read/write helpers for update semantics in `internal/fs/fs.go`
 
 **Checkpoint**: All user stories should now be independently functional
 
@@ -104,9 +104,9 @@
 
 **Purpose**: Improvements that affect multiple user stories
 
-- [ ] T022 [P] Update the final command contract and examples in `specs/001-build-core-cli-mvp/contracts/cli-contract.md` and `specs/001-build-core-cli-mvp/quickstart.md`
-- [ ] T023 [P] Perform consistency cleanup across `cmd/root.go`, `cmd/init.go`, `cmd/install.go`, `cmd/update.go`, `internal/fs/fs.go`, and `internal/http/client.go`
-- [ ] T024 Run `go test ./...` and `CGO_ENABLED=0 go build -o loreskills .` from `c:/SOURCE/LoreSkills`
+- [X] T022 [P] Update the final command contract and examples in `specs/001-build-core-cli-mvp/contracts/cli-contract.md` and `specs/001-build-core-cli-mvp/quickstart.md`
+- [X] T023 [P] Perform consistency cleanup across `cmd/root.go`, `cmd/init.go`, `cmd/install.go`, `cmd/update.go`, `internal/fs/fs.go`, and `internal/http/client.go`
+- [X] T024 Run `go test ./...` and `CGO_ENABLED=0 go build -o loreskills .` from `c:/SOURCE/LoreSkills`
 
 ---
 

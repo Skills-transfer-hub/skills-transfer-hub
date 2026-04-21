@@ -1,0 +1,17 @@
+bin/
+build/
+dist/
+*.exe
+*.log
+*.out
+*.test
+vendor/
+.env*
+.DS_Store
+Thumbs.db
+*.tmp
+*.swp
+.idea/
+.vscode/
+loreskills
+loreskills.exe

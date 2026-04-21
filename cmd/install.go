@@ -1,36 +1,26 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
-	"loreskills/internal/fetch"
 	"loreskills/internal/fs"
 )
 
-func runInstall(skillName string) error {
+func (a *app) runInstall(skillName string) error {
 	cfg, err := fs.ReadConfig()
 	if err != nil {
-		return fmt.Errorf("install : %w", err)
+		return err
 	}
 
-	url := cfg.RepoRawURL + "/" + skillName + ".md"
-
-	content, err := fetch.Download(url)
+	content, err := a.client.DownloadSkill(context.Background(), cfg.RepoRawURL, skillName)
 	if err != nil {
-		return fmt.Errorf("install : %w", err)
+		return err
 	}
 
-	if err := fs.EnsureTargetDir(cfg.TargetDir); err != nil {
-		return fmt.Errorf("install : %w", err)
+	if err := fs.InstallSkill(cfg.TargetDir, skillName, content); err != nil {
+		return err
 	}
 
-	if err := fs.SaveSkill(cfg.TargetDir, skillName, content); err != nil {
-		return fmt.Errorf("install : %w", err)
-	}
-
-	if err := fs.UpdateState(cfg.TargetDir, skillName); err != nil {
-		return fmt.Errorf("install : %w", err)
-	}
-
-	fmt.Printf("✅ Skill '%s' installé dans %s/\n", skillName, cfg.TargetDir)
+	fmt.Fprintf(a.stdout, "Skill '%s' installé dans %s.\n", skillName, cfg.TargetDir)
 	return nil
 }

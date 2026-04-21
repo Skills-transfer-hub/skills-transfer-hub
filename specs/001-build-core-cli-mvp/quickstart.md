@@ -13,15 +13,22 @@ go test ./...
 CGO_ENABLED=0 go build -o loreskills .
 ```
 
+Sur Windows PowerShell, utilisez les mêmes commandes depuis `C:\SOURCE\LoreSkills`.
+
 ## Flux de validation manuelle
 
-### 1. Initialiser la configuration
+### 1. Initialiser la configuration utilisateur
 
 ```bash
 ./loreskills init
 ```
 
-Résultat attendu : création de `.loreskillsrc` dans le répertoire personnel avec `repo_raw_url` et `target_dir`, puis affichage d'un message demandant de configurer l'URL du dépôt.
+Résultat attendu :
+
+- création de `.loreskillsrc` dans le répertoire personnel
+- présence des clés JSON `repo_raw_url` et `target_dir`
+- message demandant de personnaliser `repo_raw_url`
+- si le fichier existe déjà, la commande échoue sans l'écraser
 
 ### 2. Installer un skill
 
@@ -37,6 +44,7 @@ Résultat attendu :
 - création du dossier cible dans le répertoire courant
 - écriture de `<target_dir>/exemple-skill.md` avec l'avertissement LoreSkills en tête
 - création ou mise à jour de `<target_dir>/lore-state.json`
+- si le fichier distant n'existe pas, la commande échoue explicitement sans créer de fichier Markdown vide
 
 ### 3. Mettre à jour les skills installés
 
@@ -48,6 +56,7 @@ Résultat attendu :
 
 - si des skills sont enregistrés, chacun est retéléchargé et réécrit
 - sinon, le message `Aucun skill à mettre à jour.` est affiché
+- en cas d'échec sur un skill, les autres mises à jour continuent et l'erreur est signalée clairement
 
 ## Cibles de tests unitaires
 
