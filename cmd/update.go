@@ -1,54 +1,54 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
-	"loreskills/internal/fetch"
 	"loreskills/internal/fs"
-	"os"
 )
 
-func runUpdate() error {
+func (a *app) runUpdate() error {
 	cfg, err := fs.ReadConfig()
 	if err != nil {
-		return fmt.Errorf("update : %w", err)
+		return err
 	}
 
-	state, err := fs.ReadState(cfg.TargetDir)
+	skills, err := fs.ListInstalledSkills(cfg.TargetDir)
 	if err != nil {
-		return fmt.Errorf("update : %w", err)
+		return err
 	}
 
-	if len(state) == 0 {
-		fmt.Println("Aucun skill à mettre à jour.")
+	if len(skills) == 0 {
+		fmt.Fprintln(a.stdout, "Aucun skill à mettre à jour.")
 		return nil
 	}
 
-	// On continue même en cas d'erreur partielle : on tente tous les skills
-	var lastErr error
-	for skillName := range state {
-		url := cfg.RepoRawURL + "/" + skillName + ".md"
-
-		content, err := fetch.Download(url)
+	failures := 0
+	for _, skillName := range skills {
+		content, err := a.client.DownloadSkill(context.Background(), cfg.RepoRawURL, skillName)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "⚠️  %s : %v\n", skillName, err)
-			lastErr = err
+			fmt.Fprintf(a.stderr, "Échec de mise à jour pour '%s' : %v\n", skillName, err)
+			failures++
 			continue
 		}
 
 		if err := fs.SaveSkill(cfg.TargetDir, skillName, content); err != nil {
-			fmt.Fprintf(os.Stderr, "⚠️  %s : %v\n", skillName, err)
-			lastErr = err
+			fmt.Fprintf(a.stderr, "Échec de mise à jour pour '%s' : %v\n", skillName, err)
+			failures++
 			continue
 		}
 
 		if err := fs.UpdateState(cfg.TargetDir, skillName); err != nil {
-			fmt.Fprintf(os.Stderr, "⚠️  %s : %v\n", skillName, err)
-			lastErr = err
+			fmt.Fprintf(a.stderr, "Échec de mise à jour pour '%s' : %v\n", skillName, err)
+			failures++
 			continue
 		}
 
-		fmt.Printf("✅ '%s' mis à jour\n", skillName)
+		fmt.Fprintf(a.stdout, "Skill '%s' mis à jour.\n", skillName)
 	}
 
-	return lastErr
+	if failures > 0 {
+		return fmt.Errorf("mise à jour incomplète : %d skill(s) en échec", failures)
+	}
+
+	return nil
 }

@@ -1,41 +1,89 @@
-// Package cmd gère le routage des sous-commandes CLI et le parsing des arguments.
-// Il ne contient aucune logique métier — tout est délégué aux packages internes.
 package cmd
 
 import (
 	"fmt"
+	"io"
+	lorehttp "loreskills/internal/http"
 	"os"
 )
 
-// Run est le point d'entrée unique du CLI : il dispatche vers la bonne sous-commande.
-func Run(args []string) error {
-	if len(args) == 0 {
-		printHelp()
-		return nil
+type app struct {
+	stdout io.Writer
+	stderr io.Writer
+	client *lorehttp.Client
+}
+
+func newApp(stdout, stderr io.Writer, client *lorehttp.Client) *app {
+	if stdout == nil {
+		stdout = io.Discard
+	}
+	if stderr == nil {
+		stderr = io.Discard
+	}
+	if client == nil {
+		client = lorehttp.NewClient(nil)
 	}
 
-	switch args[0] {
-	case "init":
-		return runInit()
-	case "install":
-		if len(args) < 2 {
-			return fmt.Errorf("usage : loreskills install <nom-du-skill>")
-		}
-		return runInstall(args[1])
-	case "update":
-		return runUpdate()
-	case "help", "--help", "-h":
-		printHelp()
-		return nil
-	default:
-		fmt.Fprintf(os.Stderr, "commande inconnue : %q\n\n", args[0])
-		printHelp()
-		return fmt.Errorf("commande inconnue : %s", args[0])
+	return &app{
+		stdout: stdout,
+		stderr: stderr,
+		client: client,
 	}
 }
 
-func printHelp() {
-	fmt.Print(`LoreSkills — Gestionnaire de contexte IA
+// Run routes CLI arguments to the appropriate LoreSkills command.
+func Run(args []string) error {
+	return newApp(os.Stdout, os.Stderr, nil).run(args)
+}
+
+func (a *app) run(args []string) error {
+	if len(args) == 0 {
+		a.printHelp(a.stdout)
+		return nil
+	}
+
+	var (
+		err      error
+		showHelp bool
+	)
+
+	switch args[0] {
+	case "init":
+		err = a.runInit()
+	case "install":
+		if len(args) != 2 {
+			err = fmt.Errorf("usage : loreskills install <nom-du-skill>")
+			break
+		}
+		err = a.runInstall(args[1])
+	case "update":
+		if len(args) != 1 {
+			err = fmt.Errorf("usage : loreskills update")
+			break
+		}
+		err = a.runUpdate()
+	case "help", "--help", "-h":
+		a.printHelp(a.stdout)
+		return nil
+	default:
+		err = fmt.Errorf("commande inconnue : %q", args[0])
+		showHelp = true
+	}
+
+	if err != nil {
+		fmt.Fprintf(a.stderr, "Erreur : %v\n", err)
+		if showHelp {
+			fmt.Fprintln(a.stderr)
+			a.printHelp(a.stderr)
+		}
+		return err
+	}
+
+	return nil
+}
+
+func (a *app) printHelp(w io.Writer) {
+	fmt.Fprint(w, `LoreSkills — Gestionnaire de contexte IA
 
 Commandes disponibles :
   init                Crée le fichier de configuration ~/.loreskillsrc

@@ -1,12 +1,13 @@
-// Package fs gère toutes les opérations d'I/O fichier et dossier de LoreSkills.
-// Il est volontairement isolé de toute logique réseau.
 package fs
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 )
 
 const (
@@ -17,13 +18,13 @@ const (
 	skillHeader = "> ⚠️ ATTENTION : Skill géré par LoreSkills. Ne pas modifier manuellement.\n\n"
 )
 
-// Config représente la configuration utilisateur lue depuis ~/.loreskillsrc.
+// Config stores the LoreSkills user configuration.
 type Config struct {
 	RepoRawURL string `json:"repo_raw_url"`
 	TargetDir  string `json:"target_dir"`
 }
 
-// ConfigPath retourne le chemin absolu du fichier de configuration (~/.loreskillsrc).
+// ConfigPath returns the absolute path to ~/.loreskillsrc.
 func ConfigPath() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -32,21 +33,21 @@ func ConfigPath() (string, error) {
 	return filepath.Join(home, configFileName), nil
 }
 
-// WriteDefaultConfig crée ~/.loreskillsrc avec les valeurs par défaut.
-// Retourne le chemin du fichier créé. Échoue si un fichier existe déjà.
+// WriteDefaultConfig creates ~/.loreskillsrc with LoreSkills starter values.
 func WriteDefaultConfig() (string, error) {
 	path, err := ConfigPath()
 	if err != nil {
 		return "", err
 	}
 
-	// Protéger contre l'écrasement involontaire d'une config existante
 	if _, err := os.Stat(path); err == nil {
 		return path, fmt.Errorf("un fichier de configuration existe déjà : %s", path)
+	} else if err != nil && !os.IsNotExist(err) {
+		return "", fmt.Errorf("vérification de %s échouée : %w", path, err)
 	}
 
 	defaults := Config{
-		RepoRawURL: "https://raw.githubusercontent.com/VOTRE_ORGA/skills-repo/main",
+		RepoRawURL: "https://raw.githubusercontent.com/votre-organisation/votre-repo/main",
 		TargetDir:  ".claude/skills",
 	}
 
@@ -55,15 +56,14 @@ func WriteDefaultConfig() (string, error) {
 		return "", fmt.Errorf("sérialisation de la configuration échouée : %w", err)
 	}
 
-	// 0600 : seul le propriétaire peut lire/écrire (bonne pratique pour les configs)
-	if err := os.WriteFile(path, data, 0600); err != nil {
+	if err := os.WriteFile(path, append(data, '\n'), 0o600); err != nil {
 		return "", fmt.Errorf("écriture de %s échouée : %w", path, err)
 	}
 
 	return path, nil
 }
 
-// ReadConfig lit et désérialise le fichier de configuration utilisateur.
+// ReadConfig loads and validates the LoreSkills user configuration.
 func ReadConfig() (*Config, error) {
 	path, err := ConfigPath()
 	if err != nil {
@@ -72,46 +72,81 @@ func ReadConfig() (*Config, error) {
 
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("impossible de lire %s — avez-vous exécuté `loreskills init` ? : %w", path, err)
+		if os.IsNotExist(err) {
+			return nil, fmt.Errorf("configuration introuvable (%s) — exécutez `loreskills init`", path)
+		}
+		return nil, fmt.Errorf("lecture de %s échouée : %w", path, err)
 	}
 
 	var cfg Config
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return nil, fmt.Errorf("fichier de configuration malformé (%s) : %w", path, err)
 	}
+	if err := validateConfig(cfg); err != nil {
+		return nil, fmt.Errorf("configuration invalide (%s) : %w", path, err)
+	}
+
+	cfg.RepoRawURL = strings.TrimRight(strings.TrimSpace(cfg.RepoRawURL), "/")
+	cfg.TargetDir = filepath.Clean(strings.TrimSpace(cfg.TargetDir))
 
 	return &cfg, nil
 }
 
-// EnsureTargetDir crée le dossier targetDir (et ses parents) dans le CWD s'il n'existe pas déjà.
+// EnsureTargetDir creates the configured target directory in the current project.
 func EnsureTargetDir(targetDir string) error {
-	if err := os.MkdirAll(targetDir, 0755); err != nil {
+	if err := validateTargetDir(targetDir); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Clean(targetDir), 0o755); err != nil {
 		return fmt.Errorf("création du dossier %s échouée : %w", targetDir, err)
 	}
 	return nil
 }
 
-// SaveSkill écrit le contenu d'un skill dans targetDir/<skillName>.md,
-// précédé de l'en-tête d'avertissement LoreSkills.
+// SaveSkill writes the managed Markdown file for a skill.
 func SaveSkill(targetDir, skillName string, content []byte) error {
-	full := append([]byte(skillHeader), content...)
-	dest := filepath.Join(targetDir, skillName+".md")
+	if err := validateSkillName(skillName); err != nil {
+		return err
+	}
+	if err := EnsureTargetDir(targetDir); err != nil {
+		return err
+	}
 
-	if err := os.WriteFile(dest, full, 0644); err != nil {
+	full := append([]byte(skillHeader), content...)
+	dest := filepath.Join(filepath.Clean(targetDir), skillName+".md")
+
+	if err := os.WriteFile(dest, full, 0o644); err != nil {
 		return fmt.Errorf("écriture du skill %s échouée : %w", dest, err)
 	}
 
 	return nil
 }
 
-// UpdateState ajoute ou met à jour la clé skillName dans lore-state.json.
-func UpdateState(targetDir, skillName string) error {
-	statePath := filepath.Join(targetDir, stateFileName)
-	state := map[string]string{}
+// InstallSkill performs the filesystem side of a successful install.
+func InstallSkill(targetDir, skillName string, content []byte) error {
+	if err := SaveSkill(targetDir, skillName, content); err != nil {
+		return err
+	}
 
-	// Charger l'état existant ; en cas de corruption, on repart d'une map vide
-	if data, err := os.ReadFile(statePath); err == nil {
-		_ = json.Unmarshal(data, &state)
+	return UpdateState(targetDir, skillName)
+}
+
+// UpdateState stores the installed marker for the given skill.
+func UpdateState(targetDir, skillName string) error {
+	if err := validateSkillName(skillName); err != nil {
+		return err
+	}
+	if err := EnsureTargetDir(targetDir); err != nil {
+		return err
+	}
+
+	statePath := filepath.Join(filepath.Clean(targetDir), stateFileName)
+	state, err := ReadState(targetDir)
+	if err != nil {
+		return err
+	}
+	if state == nil {
+		state = map[string]string{}
 	}
 
 	state[skillName] = "installed"
@@ -121,17 +156,20 @@ func UpdateState(targetDir, skillName string) error {
 		return fmt.Errorf("sérialisation de l'état échouée : %w", err)
 	}
 
-	if err := os.WriteFile(statePath, data, 0644); err != nil {
+	if err := os.WriteFile(statePath, append(data, '\n'), 0o644); err != nil {
 		return fmt.Errorf("écriture de %s échouée : %w", statePath, err)
 	}
 
 	return nil
 }
 
-// ReadState lit lore-state.json et retourne la map des skills installés.
-// Retourne (nil, nil) si le fichier est absent (aucun skill installé).
+// ReadState loads the tracked skill state from lore-state.json.
 func ReadState(targetDir string) (map[string]string, error) {
-	statePath := filepath.Join(targetDir, stateFileName)
+	if err := validateTargetDir(targetDir); err != nil {
+		return nil, err
+	}
+
+	statePath := filepath.Join(filepath.Clean(targetDir), stateFileName)
 
 	data, err := os.ReadFile(statePath)
 	if os.IsNotExist(err) {
@@ -140,6 +178,9 @@ func ReadState(targetDir string) (map[string]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("lecture de %s échouée : %w", statePath, err)
 	}
+	if strings.TrimSpace(string(data)) == "" {
+		return nil, nil
+	}
 
 	var state map[string]string
 	if err := json.Unmarshal(data, &state); err != nil {
@@ -147,4 +188,64 @@ func ReadState(targetDir string) (map[string]string, error) {
 	}
 
 	return state, nil
+}
+
+// ListInstalledSkills returns the tracked skills sorted by name.
+func ListInstalledSkills(targetDir string) ([]string, error) {
+	state, err := ReadState(targetDir)
+	if err != nil {
+		return nil, err
+	}
+	if len(state) == 0 {
+		return nil, nil
+	}
+
+	skills := make([]string, 0, len(state))
+	for skill, status := range state {
+		if skill == "" || status != "installed" {
+			continue
+		}
+		skills = append(skills, skill)
+	}
+	sort.Strings(skills)
+	if len(skills) == 0 {
+		return nil, nil
+	}
+
+	return skills, nil
+}
+
+func validateConfig(cfg Config) error {
+	if strings.TrimSpace(cfg.RepoRawURL) == "" {
+		return errors.New("repo_raw_url doit être renseigné")
+	}
+	if strings.TrimSpace(cfg.TargetDir) == "" {
+		return errors.New("target_dir doit être renseigné")
+	}
+
+	return validateTargetDir(cfg.TargetDir)
+}
+
+func validateTargetDir(targetDir string) error {
+	trimmed := strings.TrimSpace(targetDir)
+	if trimmed == "" {
+		return errors.New("target_dir doit être renseigné")
+	}
+	if filepath.IsAbs(trimmed) {
+		return errors.New("target_dir doit être un chemin relatif au projet courant")
+	}
+
+	return nil
+}
+
+func validateSkillName(skillName string) error {
+	trimmed := strings.TrimSpace(skillName)
+	if trimmed == "" {
+		return errors.New("le nom du skill doit être renseigné")
+	}
+	if trimmed == "." || trimmed == ".." || strings.Contains(trimmed, "/") || strings.Contains(trimmed, "\\") {
+		return fmt.Errorf("nom de skill invalide : %q", skillName)
+	}
+
+	return nil
 }
