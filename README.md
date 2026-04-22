@@ -1,48 +1,33 @@
 # LoreSkills
 
-LoreSkills est un CLI Go pour installer et maintenir des skills Markdown dans un projet local.
+LoreSkills est un CLI Go, distribué en binaire unique, pour connecter un projet à un dépôt privé de ressources IA, lire un catalogue `SKILLS.md`, installer des ressources dans le projet courant, puis les maintenir à jour.
 
-Le MVP couvre cinq commandes :
+Le flux actuel est centré sur le projet courant, pas sur une configuration partagée entre tous les dépôts. LoreSkills écrit donc un profil local dans `.loreskills/project.json` et ne stocke jamais de secret privé dans ce fichier.
 
-- `loreskills init` pour créer la configuration utilisateur
-- `loreskills install <skill>` pour télécharger un skill distant dans le projet courant
-- `loreskills update` pour mettre à jour tous les skills déjà suivis
-- `loreskills help [commande]` pour afficher l'aide générale ou contextuelle
-- `loreskills version` pour afficher la version du binaire installé
+## Commandes visibles
 
-## Présentation du projet
-
-LoreSkills vise un flux simple et portable :
-
-- binaire unique en Go
-- dépendances limitées à la bibliothèque standard
-- fonctionnement sur Windows, macOS et Linux
-- distribution par GitHub releases avec vérification SHA256
-- configuration utilisateur locale via `~/.loreskillsrc`
-- état du projet courant via `lore-state.json`
-
-Lorsqu'un skill est installé, LoreSkills :
-
-1. lit la configuration utilisateur
-2. télécharge `<repo_raw_url>/<nom-du-skill>.md`
-3. écrit le fichier dans le dossier cible du projet
-4. ajoute un en-tête signalant que le skill est géré par LoreSkills
-5. enregistre le skill dans l'état local pour les futures mises à jour
+- `loreskills` affiche la signature minimale du binaire courant
+- `loreskills init` configure le dépôt privé du projet courant de manière interactive
+- `loreskills list` lit `SKILLS.md` et liste les ressources installables
+- `loreskills install <resource-ref>` installe une ressource du catalogue distant
+- `loreskills update` met à jour les ressources suivies dans le projet courant
+- `loreskills update self` vérifie et applique la dernière release GitHub stable compatible avec la plateforme courante
+- `loreskills help [commande]` affiche l'aide générale ou ciblée
+- `loreskills version` affiche la même signature minimale que `loreskills`
 
 ## Installation
 
-### Depuis les releases GitHub
-
-LoreSkills est distribue via les GitHub releases avec quatre artefacts MVP :
+LoreSkills est publié sur GitHub Releases avec les archives suivantes :
 
 - `loreskills-windows-amd64.zip`
 - `loreskills-linux-amd64.tar.gz`
 - `loreskills-darwin-amd64.tar.gz`
 - `loreskills-darwin-arm64.tar.gz`
+- `SHA256SUMS`
 
-Chaque release publie aussi un fichier `SHA256SUMS` pour verifier l'integrite des archives avant installation.
+Chaque build stable embarque aussi les métadonnées de release nécessaires à `loreskills update self`.
 
-### Verifier un telechargement
+### Vérifier une archive
 
 Sous macOS ou Linux :
 
@@ -58,213 +43,183 @@ $actual = (Get-FileHash .\loreskills-windows-amd64.zip -Algorithm SHA256).Hash.T
 if ($expected -ne $actual) { throw 'Checksum mismatch' }
 ```
 
-Si la verification echoue, n'executez pas l'archive ni le binaire.
+### Installation globale
 
-### Installation globale sur macOS
-
-```bash
-tar -xzf loreskills-darwin-arm64.tar.gz
-sudo install loreskills-darwin-arm64/loreskills /usr/local/bin/loreskills
-loreskills --help
-```
-
-Pour un Mac Intel, remplacez l'archive par `loreskills-darwin-amd64.tar.gz`.
-
-### Installation globale sur Linux
+Sous macOS ou Linux :
 
 ```bash
 tar -xzf loreskills-linux-amd64.tar.gz
 sudo install loreskills-linux-amd64/loreskills /usr/local/bin/loreskills
-loreskills --help
+loreskills version
 ```
 
-### Installation globale sur Windows
+Sous Windows PowerShell :
 
 ```powershell
 Expand-Archive .\loreskills-windows-amd64.zip -DestinationPath .\loreskills-windows-amd64 -Force
 New-Item -ItemType Directory -Path "$env:USERPROFILE\bin" -Force | Out-Null
 Copy-Item .\loreskills-windows-amd64\loreskills.exe "$env:USERPROFILE\bin\loreskills.exe" -Force
-$userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
-if (($userPath -split ';') -notcontains "$env:USERPROFILE\bin") {
-  [Environment]::SetEnvironmentVariable('Path', "$userPath;$env:USERPROFILE\bin", 'User')
+loreskills.exe version
+```
+
+## Démarrage rapide
+
+### 1. Configurer le projet courant
+
+Depuis le projet où vous souhaitez installer des ressources :
+
+```bash
+loreskills init
+```
+
+Le flux interactif vous demande :
+
+- le provider : `github`, `gitlab`, `azure-devops`, ou `bitbucket`
+- le `repository_id` du dépôt privé
+- la référence Git à lire (`main` par défaut)
+- le chemin du catalogue (`SKILLS.md` par défaut)
+- le dossier cible du projet (par défaut `.claude/skills`)
+
+Si un ancien `~/.loreskillsrc` existe, LoreSkills propose de l'importer pour migrer vers le nouveau format projet.
+
+### 2. Authentification privée
+
+LoreSkills ne persiste pas les secrets. Il s'appuie sur une authentification externe déjà disponible :
+
+- GitHub : `GITHUB_TOKEN`, `LORESKILLS_TOKEN`, ou vos identifiants Git pour `github.com`
+- GitLab : `GITLAB_TOKEN`, `LORESKILLS_TOKEN`, ou vos identifiants Git pour `gitlab.com`
+- Azure DevOps : `AZURE_DEVOPS_EXT_PAT`, `AZURE_DEVOPS_TOKEN`, ou vos identifiants Git pour `dev.azure.com`
+- Bitbucket : `BITBUCKET_TOKEN`, `BITBUCKET_USERNAME` + `BITBUCKET_APP_PASSWORD`, ou vos identifiants Git pour `bitbucket.org`
+
+Le flux `init` vérifie l'accès au dépôt et au catalogue avant d'enregistrer la configuration du projet.
+
+### 3. Déclarer le catalogue `SKILLS.md`
+
+LoreSkills lit un tableau Markdown depuis `SKILLS.md`. Exemple minimal :
+
+```md
+| Type  | Name           | Folder | Source                   | Description          |
+| ----- | -------------- | ------ | ------------------------ | -------------------- |
+| skill | analyse-risque | skills | skills/analyse-risque.md | Check-list d'analyse |
+| agent | reviewer       | agents | agents/reviewer.md       | Agent de revue       |
+```
+
+Règles importantes :
+
+- `Type`, `Name`, `Folder`, et `Source` sont requis
+- `Folder` est le dossier affiché par `loreskills list` et utilisé pour l'installation locale
+- `Source` est le chemin distant utilisé pour `install` et `update`
+- le format de référence utilisateur est soit un nom unique, soit `folder/name` en cas d'ambiguïté
+
+### 4. Lister puis installer une ressource
+
+```bash
+loreskills list
+loreskills install skills/analyse-risque
+```
+
+`loreskills list` affiche les ressources distantes avec leur type, leur nom, leur dossier et, si présent, leur description.
+
+`loreskills install` :
+
+- relit `.loreskills/project.json`
+- relit `SKILLS.md`
+- résout la ressource demandée
+- télécharge son `source_path`
+- écrit la ressource dans `<target_dir>/<folder>/...`
+- met à jour `<target_dir>/lore-state.json`
+
+### 5. Mettre à jour les ressources suivies
+
+```bash
+loreskills update
+```
+
+LoreSkills recharge chaque ressource installée à partir de son `source_path` d'origine. Si une ressource échoue, les autres continuent à être rafraîchies et la commande retourne ensuite une erreur globale.
+
+### 6. Mettre à jour le CLI lui-même
+
+```bash
+loreskills update self
+```
+
+Le self-update :
+
+- consulte le canal GitHub injecté au build
+- ignore explicitement les pré-releases
+- sélectionne l'artefact correspondant à la plateforme courante
+- vérifie le checksum SHA256 avant tout remplacement local
+
+Si aucune version stable plus récente n'existe, LoreSkills affiche `Aucune mise à jour stable disponible.`
+
+## Fichiers générés
+
+### Profil projet
+
+LoreSkills crée `.loreskills/project.json` dans le projet courant :
+
+```json
+{
+  "provider": "github",
+  "repository_id": "mon-org/mon-repo",
+  "ref": "main",
+  "catalog_path": "SKILLS.md",
+  "target_dir": ".claude/skills"
 }
-loreskills.exe --help
 ```
 
-Ouvrez ensuite un nouveau terminal si `loreskills` n'est pas encore resolu dans la session courante.
+Aucun secret n'est stocké dans ce fichier.
 
-### Prérequis
+### État local des ressources
 
-- Go 1.22 ou plus récent
-- accès au dépôt Git
+LoreSkills suit les ressources installées dans `<target_dir>/lore-state.json` :
 
-### Depuis les sources
-
-Depuis la racine du dépôt :
-
-```bash
-go build -o loreskills .
+```json
+{
+  "entries": [
+    {
+      "catalog_id": "skill::skills::analyse-risque",
+      "resource_type": "skill",
+      "name": "analyse-risque",
+      "folder_name": "skills",
+      "installed_path": ".claude/skills/skills/analyse-risque.md",
+      "source_path": "skills/analyse-risque.md",
+      "status": "installed"
+    }
+  ]
+}
 ```
 
-Pour une vérification proche du build CI/documenté :
+## Validation locale
 
-```bash
-CGO_ENABLED=0 go build -o loreskills .
-```
-
-Sous Windows, exécutez ensuite le binaire avec :
-
-```powershell
-.\loreskills.exe
-```
-
-Sous macOS ou Linux :
-
-```bash
-./loreskills
-```
-
-## Comment tester
-
-### Tests automatisés
+Tests et lint Go :
 
 ```bash
 go test ./...
 go vet ./...
 ```
 
-### Validation build
+Build local avec métadonnées de release :
 
 ```bash
-CGO_ENABLED=0 go build -ldflags "-X loreskills/cmd.version=dev-local" -o loreskills .
+go build -trimpath -ldflags "-X loreskills/cmd.version=0.0.0-dev -X loreskills/cmd.releaseAPIURL=https://api.github.com/repos/<owner>/<repo>/releases -X loreskills/cmd.releaseAssetName=loreskills-<os>-<arch>.tar.gz -X loreskills/cmd.releaseChecksumName=SHA256SUMS" -o loreskills .
 ```
 
-### Vérification manuelle rapide
+Sous Windows, remplacez `releaseAssetName` par l'archive `.zip` attendue pour la plateforme.
 
-1. Lancez `loreskills help`
-2. Lancez `loreskills version`
-3. Lancez `loreskills init`
-4. Renseignez `repo_raw_url` dans `~/.loreskillsrc`
-5. Exécutez `loreskills install exemple-skill` depuis un projet de test
-6. Vérifiez la création du dossier cible, du fichier Markdown et de `lore-state.json`
-7. Exécutez `loreskills update`
+## Remarques utiles
 
-## Comment configurer
-
-La commande suivante crée le fichier de configuration utilisateur :
-
-```bash
-loreskills init
-```
-
-Le fichier créé est `~/.loreskillsrc` avec cette structure :
-
-```json
-{
-  "repo_raw_url": "https://raw.githubusercontent.com/votre-organisation/votre-repo/main",
-  "target_dir": ".claude/skills"
-}
-```
-
-### Champs de configuration
-
-- `repo_raw_url` : URL de base brute de votre dépôt de skills
-- `target_dir` : chemin relatif au projet courant où écrire les skills
-
-### Exemple de configuration
-
-Si vos fichiers de skills sont stockés dans `skills/` sur la branche `main` :
-
-```json
-{
-  "repo_raw_url": "https://raw.githubusercontent.com/mon-organisation/mon-repo/main/skills",
-  "target_dir": ".claude/skills"
-}
-```
-
-Avec cette configuration :
-
-- `loreskills install analyse-risque` télécharge `https://raw.githubusercontent.com/mon-organisation/mon-repo/main/skills/analyse-risque.md`
-- le fichier est écrit dans `.claude/skills/analyse-risque.md`
-- l'état est enregistré dans `.claude/skills/lore-state.json`
-
-## Utilisation
-
-### Aide
-
-```bash
-loreskills
-loreskills help
-loreskills help install
-```
-
-### Version
-
-```bash
-loreskills version
-```
-
-### Initialiser la configuration
-
-```bash
-loreskills init
-```
-
-### Installer un skill
-
-```bash
-loreskills install mon-skill
-```
-
-### Mettre à jour les skills installés
-
-```bash
-loreskills update
-```
-
-## Fichiers générés
-
-### Configuration utilisateur
-
-- emplacement : `~/.loreskillsrc`
-- rôle : stocke l'URL distante et le dossier cible
-
-### Fichiers du projet
-
-- `<target_dir>/<skill>.md` : contenu du skill avec en-tête LoreSkills
-- `<target_dir>/lore-state.json` : état des skills installés
-
-Exemple d'état local :
-
-```json
-{
-  "analyse-risque": "installed",
-  "memo-compliance": "installed"
-}
-```
-
-## Comportements utiles à connaître
-
-- `target_dir` doit rester un chemin relatif au projet courant
-- un nom de skill ne peut pas contenir de séparateurs de chemin
-- `init` refuse d'écraser une configuration existante
-- `install` échoue explicitement sur une configuration invalide ou un `404`
-- `update` continue les autres mises à jour même si un skill échoue, puis retourne une erreur globale si au moins un refresh a échoué
-- les fichiers de skills générés ne doivent pas être modifiés manuellement
+- `target_dir` doit rester relatif au projet courant
+- le profil projet remplace la configuration partagée historique, mais `init` peut importer `~/.loreskillsrc`
+- `loreskills help` documente uniquement les commandes visibles
+- `loreskills stockholm` existe toujours comme easter egg, mais n'apparaît pas dans l'aide standard
+- les ressources Markdown générées reçoivent un en-tête LoreSkills et ne doivent pas être modifiées manuellement
 
 ## Structure du dépôt
 
 ```text
 cmd/                Routage CLI et orchestration des commandes
-internal/fs/        Configuration, écriture des skills et état local
-internal/http/      Téléchargement HTTP des skills
-specs/              Artefacts Speckit de la feature
-main.go             Point d'entrée du binaire
+internal/fs/        Profil projet, état local, écriture des ressources, self-update local
+internal/http/      Accès provider-aware, lecture de SKILLS.md, téléchargement, releases GitHub
+specs/003-private-repo-skills/
 ```
-
-## Limites actuelles du MVP
-
-- pas de gestion de versions de skills
-- pas de registre central ou d'index de skills
-- pas de fusion intelligente si un fichier géré a été modifié à la main
-- pas d'automatisation native du cycle commit/push/PR dans le binaire CLI

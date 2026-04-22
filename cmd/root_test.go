@@ -1,11 +1,14 @@
 package cmd
 
 import (
-	"io"
+	"bytes"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"loreskills/internal/fs"
 )
 
 type cliResult struct {
@@ -21,6 +24,13 @@ func assertContains(t *testing.T, got, want string) {
 	}
 }
 
+func assertNotContains(t *testing.T, got, want string) {
+	t.Helper()
+	if strings.Contains(got, want) {
+		t.Fatalf("got %q, did not want substring %q", got, want)
+	}
+}
+
 func assertEmpty(t *testing.T, got string) {
 	t.Helper()
 	if got != "" {
@@ -29,6 +39,11 @@ func assertEmpty(t *testing.T, got string) {
 }
 
 func runCLI(t *testing.T, workDir, homeDir string, args ...string) cliResult {
+	t.Helper()
+	return runCLIWithInput(t, workDir, homeDir, "", args...)
+}
+
+func runCLIWithInput(t *testing.T, workDir, homeDir, input string, args ...string) cliResult {
 	t.Helper()
 
 	if workDir == "" {
@@ -54,52 +69,66 @@ func runCLI(t *testing.T, workDir, homeDir string, args ...string) cliResult {
 		_ = os.Chdir(oldWD)
 	})
 
-	stdoutReader, stdoutWriter, err := os.Pipe()
-	if err != nil {
-		t.Fatalf("stdout pipe: %v", err)
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	app := newApp(strings.NewReader(input), &stdout, &stderr, nil)
+	runErr := app.run(args)
+
+	return cliResult{stdout: stdout.String(), stderr: stderr.String(), err: runErr}
+}
+
+func writeProjectProfileForCommandTest(t *testing.T, projectDir string, profile fs.ProjectProfile) {
+	t.Helper()
+
+	configDir := filepath.Join(projectDir, ".loreskills")
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(%s): %v", configDir, err)
 	}
-	stderrReader, stderrWriter, err := os.Pipe()
+	data, err := json.Marshal(profile)
 	if err != nil {
-		t.Fatalf("stderr pipe: %v", err)
+		t.Fatalf("json.Marshal(): %v", err)
 	}
-
-	oldStdout := os.Stdout
-	oldStderr := os.Stderr
-	os.Stdout = stdoutWriter
-	os.Stderr = stderrWriter
-
-	runErr := Run(args)
-
-	_ = stdoutWriter.Close()
-	_ = stderrWriter.Close()
-	os.Stdout = oldStdout
-	os.Stderr = oldStderr
-
-	stdout, err := io.ReadAll(stdoutReader)
-	if err != nil {
-		t.Fatalf("read stdout: %v", err)
-	}
-	stderr, err := io.ReadAll(stderrReader)
-	if err != nil {
-		t.Fatalf("read stderr: %v", err)
-	}
-
-	return cliResult{
-		stdout: string(stdout),
-		stderr: string(stderr),
-		err:    runErr,
+	if err := os.WriteFile(filepath.Join(configDir, "project.json"), data, 0o600); err != nil {
+		t.Fatalf("WriteFile(project profile): %v", err)
 	}
 }
 
-func TestRun_noArgumentsShowsHelp(t *testing.T) {
+func writeInstalledStateForCommandTest(t *testing.T, projectDir, targetDir string, state fs.InstalledResourceState) {
+	t.Helper()
+
+	targetPath := filepath.Join(projectDir, filepath.FromSlash(targetDir))
+	if err := os.MkdirAll(targetPath, 0o755); err != nil {
+		t.Fatalf("MkdirAll(%s): %v", targetPath, err)
+	}
+	data, err := json.Marshal(state)
+	if err != nil {
+		t.Fatalf("json.Marshal(): %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(targetPath, "lore-state.json"), data, 0o644); err != nil {
+		t.Fatalf("WriteFile(lore-state.json): %v", err)
+	}
+}
+
+func testCatalogMarkdown(rows ...string) string {
+	lines := []string{
+		"# SKILLS",
+		"",
+		"| Type | Name | Folder | Source | Description |",
+		"| ---- | ---- | ------ | ------ | ----------- |",
+	}
+	lines = append(lines, rows...)
+	return strings.Join(lines, "\n") + "\n"
+}
+
+func TestRun_noArgumentsShowsVersionSignature(t *testing.T) {
 	result := runCLI(t, "", "")
 
 	if result.err != nil {
 		t.Fatalf("Run() error = %v", result.err)
 	}
-	assertContains(t, result.stdout, asciiGuide)
-	assertContains(t, result.stdout, "Commandes disponibles")
-	assertContains(t, result.stdout, "loreskills init")
+	assertContains(t, result.stdout, "LoreSkills dev")
+	assertContains(t, result.stdout, versionByline)
+	assertNotContains(t, result.stdout, "Commandes visibles")
 	assertEmpty(t, result.stderr)
 }
 
@@ -109,9 +138,9 @@ func TestRun_unknownCommandShowsErrorAndHelp(t *testing.T) {
 	if result.err == nil {
 		t.Fatal("Run() error = nil, want error")
 	}
-	assertContains(t, result.stderr, asciiGuide)
 	assertContains(t, result.stderr, "commande inconnue")
-	assertContains(t, result.stderr, "Commandes disponibles")
+	assertContains(t, result.stderr, "Commandes visibles")
+	assertNotContains(t, result.stderr, "stockholm")
 }
 
 func TestRun_helpCommandRejectsUnknownTarget(t *testing.T) {

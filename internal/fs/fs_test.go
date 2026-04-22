@@ -39,7 +39,7 @@ func newTestPaths(t *testing.T) testPaths {
 	return testPaths{
 		homeDir:    homeDir,
 		projectDir: projectDir,
-		targetDir:  ".claude/skills",
+		targetDir:  ".claude/resources",
 	}
 }
 
@@ -93,70 +93,138 @@ func TestWriteDefaultConfig_refusesToOverwriteExistingConfig(t *testing.T) {
 	}
 }
 
-func TestSaveSkill_writesManagedHeader(t *testing.T) {
+func TestWriteProjectProfile_roundTrips(t *testing.T) {
 	paths := newTestPaths(t)
-
-	if err := EnsureTargetDir(paths.targetDir); err != nil {
-		t.Fatalf("EnsureTargetDir() error = %v", err)
+	profile := ProjectProfile{
+		Provider:     "github",
+		RepositoryID: "owner/repo",
+		Ref:          "main",
+		CatalogPath:  "SKILLS.md",
+		TargetDir:    ".claude/resources",
 	}
-	if err := SaveSkill(paths.targetDir, "alpha", []byte("# Alpha\n")); err != nil {
-		t.Fatalf("SaveSkill() error = %v", err)
-	}
 
-	skillPath := filepath.Join(paths.projectDir, ".claude", "skills", "alpha.md")
-	data, err := os.ReadFile(skillPath)
+	profilePath, err := WriteProjectProfile(profile)
 	if err != nil {
-		t.Fatalf("ReadFile(%s): %v", skillPath, err)
+		t.Fatalf("WriteProjectProfile() error = %v", err)
+	}
+	if profilePath != filepath.Join(paths.projectDir, ".loreskills", "project.json") {
+		t.Fatalf("profilePath = %s, want %s", profilePath, filepath.Join(paths.projectDir, ".loreskills", "project.json"))
+	}
+
+	loaded, err := ReadProjectProfile()
+	if err != nil {
+		t.Fatalf("ReadProjectProfile() error = %v", err)
+	}
+	if loaded.Provider != profile.Provider || loaded.RepositoryID != profile.RepositoryID || loaded.Ref != profile.Ref || loaded.CatalogPath != profile.CatalogPath || loaded.TargetDir != filepath.Clean(profile.TargetDir) || loaded.MigratedFromLegacy != profile.MigratedFromLegacy {
+		t.Fatalf("loaded profile = %#v, want %#v", *loaded, profile)
+	}
+}
+
+func TestLegacyProfileFromConfig_parsesGitHubRawURL(t *testing.T) {
+	profile, err := LegacyProfileFromConfig(Config{
+		RepoRawURL: "https://raw.githubusercontent.com/owner/repo/main/skills",
+		TargetDir:  ".claude/resources",
+	})
+	if err != nil {
+		t.Fatalf("LegacyProfileFromConfig() error = %v", err)
+	}
+	if profile.Provider != "github" {
+		t.Fatalf("profile.Provider = %q, want github", profile.Provider)
+	}
+	if profile.RepositoryID != "owner/repo" {
+		t.Fatalf("profile.RepositoryID = %q, want owner/repo", profile.RepositoryID)
+	}
+	if profile.CatalogPath != "skills/SKILLS.md" {
+		t.Fatalf("profile.CatalogPath = %q, want skills/SKILLS.md", profile.CatalogPath)
+	}
+}
+
+func TestInstallCatalogEntry_writesManagedHeaderAndState(t *testing.T) {
+	paths := newTestPaths(t)
+	entry := CatalogEntry{
+		CatalogID:    CatalogID("skill", "skills", "alpha"),
+		ResourceType: "skill",
+		Name:         "alpha",
+		FolderName:   "skills",
+		SourcePath:   "skills/alpha.md",
+	}
+
+	record, err := InstallCatalogEntry(paths.targetDir, entry, []byte("# Alpha\n"))
+	if err != nil {
+		t.Fatalf("InstallCatalogEntry() error = %v", err)
+	}
+	if record.InstalledPath != ".claude/resources/skills/alpha.md" {
+		t.Fatalf("record.InstalledPath = %q, want .claude/resources/skills/alpha.md", record.InstalledPath)
+	}
+
+	data, err := os.ReadFile(filepath.Join(paths.projectDir, ".claude", "resources", "skills", "alpha.md"))
+	if err != nil {
+		t.Fatalf("ReadFile(installed resource): %v", err)
 	}
 	if !strings.HasPrefix(string(data), skillHeader) {
-		t.Fatalf("skill file %q does not contain managed header", data)
-	}
-}
-
-func TestUpdateState_persistsInstalledSkill(t *testing.T) {
-	paths := newTestPaths(t)
-
-	if err := EnsureTargetDir(paths.targetDir); err != nil {
-		t.Fatalf("EnsureTargetDir() error = %v", err)
-	}
-	if err := UpdateState(paths.targetDir, "alpha"); err != nil {
-		t.Fatalf("UpdateState() error = %v", err)
+		t.Fatalf("installed resource %q does not contain managed header", data)
 	}
 
-	state, err := ReadState(paths.targetDir)
+	state, err := ReadInstalledState(paths.targetDir)
 	if err != nil {
-		t.Fatalf("ReadState() error = %v", err)
+		t.Fatalf("ReadInstalledState() error = %v", err)
 	}
-	if got := state["alpha"]; got != "installed" {
-		t.Fatalf("state[alpha] = %q, want installed", got)
+	if len(state.Entries) != 1 {
+		t.Fatalf("len(state.Entries) = %d, want 1", len(state.Entries))
+	}
+	if state.Entries[0].CatalogID != entry.CatalogID {
+		t.Fatalf("state.Entries[0].CatalogID = %q, want %q", state.Entries[0].CatalogID, entry.CatalogID)
 	}
 }
 
-func TestReadState_missingFileReturnsNil(t *testing.T) {
+func TestReadInstalledState_missingFileReturnsEmptyState(t *testing.T) {
 	paths := newTestPaths(t)
 
-	state, err := ReadState(paths.targetDir)
+	state, err := ReadInstalledState(paths.targetDir)
 	if err != nil {
-		t.Fatalf("ReadState() error = %v", err)
+		t.Fatalf("ReadInstalledState() error = %v", err)
 	}
-	if state != nil {
-		t.Fatalf("state = %#v, want nil", state)
+	if len(state.Entries) != 0 {
+		t.Fatalf("state.Entries = %#v, want empty", state.Entries)
 	}
 }
 
-func TestReadState_malformedFileFails(t *testing.T) {
+func TestReadInstalledState_readsLegacyMap(t *testing.T) {
 	paths := newTestPaths(t)
-	targetPath := filepath.Join(paths.projectDir, ".claude", "skills")
+	targetPath := filepath.Join(paths.projectDir, ".claude", "resources")
 	if err := os.MkdirAll(targetPath, 0o755); err != nil {
 		t.Fatalf("MkdirAll(%s): %v", targetPath, err)
 	}
 	statePath := filepath.Join(targetPath, "lore-state.json")
-	if err := os.WriteFile(statePath, []byte("{invalid"), 0o644); err != nil {
+	legacyState, err := json.Marshal(map[string]string{"alpha": "installed"})
+	if err != nil {
+		t.Fatalf("json.Marshal(): %v", err)
+	}
+	if err := os.WriteFile(statePath, legacyState, 0o644); err != nil {
 		t.Fatalf("WriteFile(%s): %v", statePath, err)
 	}
 
-	_, err := ReadState(paths.targetDir)
+	state, err := ReadInstalledState(paths.targetDir)
+	if err != nil {
+		t.Fatalf("ReadInstalledState() error = %v", err)
+	}
+	if len(state.Entries) != 1 {
+		t.Fatalf("len(state.Entries) = %d, want 1", len(state.Entries))
+	}
+	if state.Entries[0].SourcePath != "skills/alpha.md" {
+		t.Fatalf("state.Entries[0].SourcePath = %q, want skills/alpha.md", state.Entries[0].SourcePath)
+	}
+}
+
+func TestResolveCatalogEntry_reportsAmbiguousNames(t *testing.T) {
+	_, err := ResolveCatalogEntry([]CatalogEntry{
+		{CatalogID: CatalogID("skill", "skills", "alpha"), Name: "alpha", FolderName: "skills", ResourceType: "skill", SourcePath: "skills/alpha.md"},
+		{CatalogID: CatalogID("agent", "agents", "alpha"), Name: "alpha", FolderName: "agents", ResourceType: "agent", SourcePath: "agents/alpha.md"},
+	}, "alpha")
 	if err == nil {
-		t.Fatal("ReadState() error = nil, want error")
+		t.Fatal("ResolveCatalogEntry() error = nil, want ambiguity error")
+	}
+	if !strings.Contains(err.Error(), "ambiguë") {
+		t.Fatalf("error %q does not contain ambiguity detail", err)
 	}
 }

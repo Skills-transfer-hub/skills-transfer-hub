@@ -13,35 +13,38 @@ import (
 )
 
 func TestRun_installCreatesTargetFilesAndState(t *testing.T) {
-	homeDir := t.TempDir()
 	projectDir := t.TempDir()
 	server := httptest.NewServer(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
-		if r.URL.Path != "/alpha.md" {
+		switch r.URL.Path {
+		case "/owner/repo/main/SKILLS.md":
+			_, _ = w.Write([]byte(testCatalogMarkdown("| skill | alpha | skills | skills/alpha.md | Alpha |")))
+		case "/owner/repo/main/skills/alpha.md":
+			_, _ = w.Write([]byte("# Alpha\n"))
+		default:
 			stdhttp.NotFound(w, r)
-			return
 		}
-		_, _ = w.Write([]byte("# Alpha\n"))
 	}))
 	defer server.Close()
+	t.Setenv("LORESKILLS_GITHUB_RAW_BASE_URL", server.URL)
 
-	writeConfigForCommandTest(t, homeDir, fs.Config{
-		RepoRawURL: server.URL,
-		TargetDir:  ".claude/skills",
+	writeProjectProfileForCommandTest(t, projectDir, fs.ProjectProfile{
+		Provider:     "github",
+		RepositoryID: "owner/repo",
+		Ref:          "main",
+		CatalogPath:  "SKILLS.md",
+		TargetDir:    ".claude/resources",
 	})
 
-	result := runCLI(t, projectDir, homeDir, "install", "alpha")
+	result := runCLI(t, projectDir, t.TempDir(), "install", "alpha")
 
 	if result.err != nil {
 		t.Fatalf("Run() error = %v\nstderr=%s", result.err, result.stderr)
 	}
-	if !strings.Contains(result.stdout, asciiGuide) {
-		t.Fatalf("stdout %q does not contain ascii guide", result.stdout)
-	}
-	if !strings.Contains(result.stdout, "Skill 'alpha' installé") {
+	if !strings.Contains(result.stdout, "Ressource 'alpha' installée") {
 		t.Fatalf("stdout %q does not contain install confirmation", result.stdout)
 	}
 
-	skillPath := filepath.Join(projectDir, ".claude", "skills", "alpha.md")
+	skillPath := filepath.Join(projectDir, ".claude", "resources", "skills", "alpha.md")
 	data, err := os.ReadFile(skillPath)
 	if err != nil {
 		t.Fatalf("ReadFile(%s): %v", skillPath, err)
@@ -50,56 +53,53 @@ func TestRun_installCreatesTargetFilesAndState(t *testing.T) {
 		t.Fatalf("skill file %q does not contain managed header", data)
 	}
 
-	statePath := filepath.Join(projectDir, ".claude", "skills", "lore-state.json")
+	statePath := filepath.Join(projectDir, ".claude", "resources", "lore-state.json")
 	stateData, err := os.ReadFile(statePath)
 	if err != nil {
 		t.Fatalf("ReadFile(%s): %v", statePath, err)
 	}
 
-	var state map[string]string
+	var state fs.InstalledResourceState
 	if err := json.Unmarshal(stateData, &state); err != nil {
 		t.Fatalf("json.Unmarshal(): %v", err)
 	}
-	if got := state["alpha"]; got != "installed" {
-		t.Fatalf("state[alpha] = %q, want installed", got)
+	if len(state.Entries) != 1 {
+		t.Fatalf("len(state.Entries) = %d, want 1", len(state.Entries))
+	}
+	if got := state.Entries[0].CatalogID; got != fs.CatalogID("skill", "skills", "alpha") {
+		t.Fatalf("state.Entries[0].CatalogID = %q", got)
 	}
 }
 
-func TestRun_installReportsMissingRemoteSkill(t *testing.T) {
-	homeDir := t.TempDir()
+func TestRun_installRejectsAmbiguousResourceName(t *testing.T) {
 	projectDir := t.TempDir()
-	server := httptest.NewServer(stdhttp.NotFoundHandler())
+	server := httptest.NewServer(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		if r.URL.Path != "/owner/repo/main/SKILLS.md" {
+			stdhttp.NotFound(w, r)
+			return
+		}
+		_, _ = w.Write([]byte(testCatalogMarkdown(
+			"| skill | alpha | skills | skills/alpha.md | Alpha |",
+			"| agent | alpha | agents | agents/alpha.md | Agent Alpha |",
+		)))
+	}))
 	defer server.Close()
+	t.Setenv("LORESKILLS_GITHUB_RAW_BASE_URL", server.URL)
 
-	writeConfigForCommandTest(t, homeDir, fs.Config{
-		RepoRawURL: server.URL,
-		TargetDir:  ".claude/skills",
+	writeProjectProfileForCommandTest(t, projectDir, fs.ProjectProfile{
+		Provider:     "github",
+		RepositoryID: "owner/repo",
+		Ref:          "main",
+		CatalogPath:  "SKILLS.md",
+		TargetDir:    ".claude/resources",
 	})
 
-	result := runCLI(t, projectDir, homeDir, "install", "missing")
+	result := runCLI(t, projectDir, t.TempDir(), "install", "alpha")
 
 	if result.err == nil {
 		t.Fatal("Run() error = nil, want error")
 	}
-	if !strings.Contains(result.stderr, "404") {
-		t.Fatalf("stderr %q does not contain 404 details", result.stderr)
-	}
-
-	skillPath := filepath.Join(projectDir, ".claude", "skills", "missing.md")
-	if _, err := os.Stat(skillPath); !os.IsNotExist(err) {
-		t.Fatalf("expected %s to be absent, stat err = %v", skillPath, err)
-	}
-}
-
-func writeConfigForCommandTest(t *testing.T, homeDir string, config fs.Config) {
-	t.Helper()
-
-	data, err := json.Marshal(config)
-	if err != nil {
-		t.Fatalf("json.Marshal(): %v", err)
-	}
-	configPath := filepath.Join(homeDir, ".loreskillsrc")
-	if err := os.WriteFile(configPath, data, 0o600); err != nil {
-		t.Fatalf("WriteFile(%s): %v", configPath, err)
+	if !strings.Contains(result.stderr, "ambiguë") {
+		t.Fatalf("stderr %q does not contain ambiguous-resource details", result.stderr)
 	}
 }

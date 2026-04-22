@@ -11,10 +11,11 @@ func TestRun_helpCommandShowsGeneralHelp(t *testing.T) {
 	if result.err != nil {
 		t.Fatalf("Run() error = %v", result.err)
 	}
-	assertContains(t, result.stdout, asciiGuide)
-	assertContains(t, result.stdout, "Commandes disponibles")
+	assertContains(t, result.stdout, "Commandes visibles")
+	assertContains(t, result.stdout, "list")
 	assertContains(t, result.stdout, "help")
 	assertContains(t, result.stdout, "version")
+	assertNotContains(t, result.stdout, "stockholm")
 	assertEmpty(t, result.stderr)
 }
 
@@ -24,18 +25,17 @@ func TestRun_helpCommandShowsCommandSpecificHelp(t *testing.T) {
 	if result.err != nil {
 		t.Fatalf("Run() error = %v", result.err)
 	}
-	assertContains(t, result.stdout, asciiGuide)
-	assertContains(t, result.stdout, "loreskills install <skill>")
-	assertContains(t, result.stdout, "Telecharge et installe un skill")
-	assertContains(t, result.stdout, "loreskills install mon-skill")
+	assertContains(t, result.stdout, "loreskills install <resource-ref>")
+	assertContains(t, result.stdout, "Installe une ressource du catalogue")
+	assertContains(t, result.stdout, "loreskills install skills/analyse-risque")
 	assertEmpty(t, result.stderr)
 }
 
 func TestHelpTextUsesCommandCatalogExamplesInOrder(t *testing.T) {
 	help := helpText()
-	parts := strings.Split(help, "\n\nUtilisation :\n")
+	parts := strings.Split(help, "\n\nExemples :\n")
 	if len(parts) != 2 {
-		t.Fatalf("help text %q does not contain utilisation section", help)
+		t.Fatalf("help text %q does not contain exemples section", help)
 	}
 
 	got := strings.Split(parts[1], "\n")
@@ -48,12 +48,12 @@ func TestHelpTextUsesCommandCatalogExamplesInOrder(t *testing.T) {
 	}
 
 	if len(got) != len(want) {
-		t.Fatalf("got %d usage lines, want %d: %q", len(got), len(want), parts[1])
+		t.Fatalf("got %d example lines, want %d: %q", len(got), len(want), parts[1])
 	}
 
 	for index := range want {
 		if got[index] != want[index] {
-			t.Fatalf("usage line %d = %q, want %q", index, got[index], want[index])
+			t.Fatalf("example line %d = %q, want %q", index, got[index], want[index])
 		}
 	}
 }
