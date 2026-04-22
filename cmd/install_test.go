@@ -34,6 +34,9 @@ func TestRun_installCreatesTargetFilesAndState(t *testing.T) {
 	if result.err != nil {
 		t.Fatalf("Run() error = %v\nstderr=%s", result.err, result.stderr)
 	}
+	if !strings.Contains(result.stdout, asciiGuide) {
+		t.Fatalf("stdout %q does not contain ascii guide", result.stdout)
+	}
 	if !strings.Contains(result.stdout, "Skill 'alpha' installé") {
 		t.Fatalf("stdout %q does not contain install confirmation", result.stdout)
 	}

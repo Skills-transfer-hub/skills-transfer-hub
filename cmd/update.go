@@ -18,7 +18,7 @@ func (a *app) runUpdate() error {
 	}
 
 	if len(skills) == 0 {
-		fmt.Fprintln(a.stdout, "Aucun skill à mettre à jour.")
+		a.writeGuidedStdout("Aucun skill à mettre à jour.")
 		return nil
 	}
 
@@ -26,24 +26,24 @@ func (a *app) runUpdate() error {
 	for _, skillName := range skills {
 		content, err := a.client.DownloadSkill(context.Background(), cfg.RepoRawURL, skillName)
 		if err != nil {
-			fmt.Fprintf(a.stderr, "Échec de mise à jour pour '%s' : %v\n", skillName, err)
+			a.writeGuidedStderr(fmt.Sprintf("Échec de mise à jour pour '%s' : %v", skillName, err))
 			failures++
 			continue
 		}
 
 		if err := fs.SaveSkill(cfg.TargetDir, skillName, content); err != nil {
-			fmt.Fprintf(a.stderr, "Échec de mise à jour pour '%s' : %v\n", skillName, err)
+			a.writeGuidedStderr(fmt.Sprintf("Échec de mise à jour pour '%s' : %v", skillName, err))
 			failures++
 			continue
 		}
 
 		if err := fs.UpdateState(cfg.TargetDir, skillName); err != nil {
-			fmt.Fprintf(a.stderr, "Échec de mise à jour pour '%s' : %v\n", skillName, err)
+			a.writeGuidedStderr(fmt.Sprintf("Échec de mise à jour pour '%s' : %v", skillName, err))
 			failures++
 			continue
 		}
 
-		fmt.Fprintf(a.stdout, "Skill '%s' mis à jour.\n", skillName)
+		a.writeGuidedStdout(fmt.Sprintf("Skill '%s' mis à jour.", skillName))
 	}
 
 	if failures > 0 {

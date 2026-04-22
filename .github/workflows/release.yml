@@ -1,0 +1,171 @@
+name: Release
+
+on:
+  workflow_dispatch:
+  release:
+    types:
+      - published
+
+permissions:
+  contents: write
+
+jobs:
+  verify:
+    name: Verify release input
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Run vet
+        run: go vet ./...
+
+      - name: Run tests
+        run: go test ./...
+
+  build-artifacts:
+    name: Build artifact (${{ matrix.goos }}/${{ matrix.goarch }})
+    runs-on: ${{ matrix.runner }}
+    needs: verify
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            goos: linux
+            goarch: amd64
+            archive_ext: tar.gz
+          - runner: windows-latest
+            goos: windows
+            goarch: amd64
+            archive_ext: zip
+          - runner: macos-latest
+            goos: darwin
+            goarch: amd64
+            archive_ext: tar.gz
+          - runner: macos-latest
+            goos: darwin
+            goarch: arm64
+            archive_ext: tar.gz
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Prepare artifact names
+        shell: pwsh
+        run: |
+          $binaryName = if ('${{ matrix.goos }}' -eq 'windows') { 'loreskills.exe' } else { 'loreskills' }
+          $assetBase = "loreskills-${{ matrix.goos }}-${{ matrix.goarch }}"
+          $archiveName = "$assetBase.${{ matrix.archive_ext }}"
+          "BINARY_NAME=$binaryName" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "ASSET_BASE=$assetBase" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "ARCHIVE_NAME=$archiveName" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Prepare build metadata
+        shell: pwsh
+        run: |
+          $version = if ('${{ github.event_name }}' -eq 'release' -and '${{ github.event.release.tag_name }}' -ne '') { '${{ github.event.release.tag_name }}' } elseif ('${{ github.ref_name }}' -ne '') { '${{ github.ref_name }}' } else { 'dev' }
+          $commit = '${{ github.sha }}'.Substring(0, 7)
+          $buildDate = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
+          $target = '${{ matrix.goos }}/${{ matrix.goarch }}'
+          "VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "COMMIT=$commit" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "BUILD_DATE=$buildDate" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "TARGET=$target" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Build static binary
+        shell: pwsh
+        env:
+          CGO_ENABLED: "0"
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          New-Item -ItemType Directory -Path dist -Force | Out-Null
+          go build -trimpath -ldflags "-s -w -X loreskills/cmd.version=$env:VERSION -X loreskills/cmd.commit=$env:COMMIT -X loreskills/cmd.buildDate=$env:BUILD_DATE -X loreskills/cmd.target=$env:TARGET" -o "dist/$env:BINARY_NAME" .
+
+      - name: Package archive
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path "dist/$env:ASSET_BASE" -Force | Out-Null
+          Copy-Item "dist/$env:BINARY_NAME" "dist/$env:ASSET_BASE/$env:BINARY_NAME"
+          if ('${{ matrix.archive_ext }}' -eq 'zip') {
+            Compress-Archive -Path "dist/$env:ASSET_BASE/*" -DestinationPath "dist/$env:ARCHIVE_NAME" -Force
+          } else {
+            tar -C dist -czf "dist/$env:ARCHIVE_NAME" "$env:ASSET_BASE"
+          }
+
+      - name: Upload packaged artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ASSET_BASE }}
+          path: dist/${{ env.ARCHIVE_NAME }}
+          if-no-files-found: error
+
+      - name: Publish build summary
+        shell: pwsh
+        run: |
+          "Prepared $env:ARCHIVE_NAME for $env:TARGET" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+
+  checksum-manifest:
+    name: Create checksum manifest
+    runs-on: ubuntu-latest
+    needs: build-artifacts
+
+    steps:
+      - name: Download packaged artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Generate SHA256SUMS
+        shell: bash
+        run: |
+          cd dist
+          sha256sum loreskills-* > SHA256SUMS
+
+      - name: Upload release bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-bundle
+          path: |
+            dist/loreskills-*
+            dist/SHA256SUMS
+          if-no-files-found: error
+
+      - name: Publish checksum summary
+        shell: bash
+        run: |
+          cat dist/SHA256SUMS >> "$GITHUB_STEP_SUMMARY"
+
+  publish-release:
+    name: Attach assets to GitHub release
+    if: github.event_name == 'release'
+    runs-on: ubuntu-latest
+    needs: checksum-manifest
+
+    steps:
+      - name: Download release bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: release-bundle
+          path: dist
+
+      - name: Upload release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/loreskills-*
+            dist/SHA256SUMS
