@@ -107,8 +107,17 @@ func TestWriteProjectProfile_roundTrips(t *testing.T) {
 	if err != nil {
 		t.Fatalf("WriteProjectProfile() error = %v", err)
 	}
-	if profilePath != filepath.Join(paths.projectDir, ".loreskills", "project.json") {
-		t.Fatalf("profilePath = %s, want %s", profilePath, filepath.Join(paths.projectDir, ".loreskills", "project.json"))
+	expectedPath := filepath.Join(paths.projectDir, ".loreskills", "project.json")
+	profileInfo, err := os.Stat(profilePath)
+	if err != nil {
+		t.Fatalf("Stat(%s): %v", profilePath, err)
+	}
+	expectedInfo, err := os.Stat(expectedPath)
+	if err != nil {
+		t.Fatalf("Stat(%s): %v", expectedPath, err)
+	}
+	if !os.SameFile(profileInfo, expectedInfo) {
+		t.Fatalf("profilePath = %s, want same file as %s", profilePath, expectedPath)
 	}
 
 	loaded, err := ReadProjectProfile()
