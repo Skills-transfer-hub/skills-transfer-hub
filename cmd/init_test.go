@@ -16,6 +16,9 @@ func TestRun_initCreatesDefaultConfig(t *testing.T) {
 	if result.err != nil {
 		t.Fatalf("Run() error = %v", result.err)
 	}
+	if !strings.Contains(result.stdout, asciiGuide) {
+		t.Fatalf("stdout %q does not contain ascii guide", result.stdout)
+	}
 	if !strings.Contains(result.stdout, "Fichier de configuration créé") {
 		t.Fatalf("stdout %q does not contain success message", result.stdout)
 	}

@@ -2,11 +2,13 @@
 
 LoreSkills est un CLI Go pour installer et maintenir des skills Markdown dans un projet local.
 
-Le MVP couvre trois commandes :
+Le MVP couvre cinq commandes :
 
 - `loreskills init` pour créer la configuration utilisateur
 - `loreskills install <skill>` pour télécharger un skill distant dans le projet courant
 - `loreskills update` pour mettre à jour tous les skills déjà suivis
+- `loreskills help [commande]` pour afficher l'aide générale ou contextuelle
+- `loreskills version` pour afficher la version du binaire installé
 
 ## Présentation du projet
 
@@ -15,6 +17,7 @@ LoreSkills vise un flux simple et portable :
 - binaire unique en Go
 - dépendances limitées à la bibliothèque standard
 - fonctionnement sur Windows, macOS et Linux
+- distribution par GitHub releases avec vérification SHA256
 - configuration utilisateur locale via `~/.loreskillsrc`
 - état du projet courant via `lore-state.json`
 
@@ -27,6 +30,68 @@ Lorsqu'un skill est installé, LoreSkills :
 5. enregistre le skill dans l'état local pour les futures mises à jour
 
 ## Installation
+
+### Depuis les releases GitHub
+
+LoreSkills est distribue via les GitHub releases avec quatre artefacts MVP :
+
+- `loreskills-windows-amd64.zip`
+- `loreskills-linux-amd64.tar.gz`
+- `loreskills-darwin-amd64.tar.gz`
+- `loreskills-darwin-arm64.tar.gz`
+
+Chaque release publie aussi un fichier `SHA256SUMS` pour verifier l'integrite des archives avant installation.
+
+### Verifier un telechargement
+
+Sous macOS ou Linux :
+
+```bash
+sha256sum -c SHA256SUMS --ignore-missing
+```
+
+Sous Windows PowerShell :
+
+```powershell
+$expected = (Select-String -Path .\SHA256SUMS -Pattern 'loreskills-windows-amd64.zip').ToString().Split(' ')[0]
+$actual = (Get-FileHash .\loreskills-windows-amd64.zip -Algorithm SHA256).Hash.ToLower()
+if ($expected -ne $actual) { throw 'Checksum mismatch' }
+```
+
+Si la verification echoue, n'executez pas l'archive ni le binaire.
+
+### Installation globale sur macOS
+
+```bash
+tar -xzf loreskills-darwin-arm64.tar.gz
+sudo install loreskills-darwin-arm64/loreskills /usr/local/bin/loreskills
+loreskills --help
+```
+
+Pour un Mac Intel, remplacez l'archive par `loreskills-darwin-amd64.tar.gz`.
+
+### Installation globale sur Linux
+
+```bash
+tar -xzf loreskills-linux-amd64.tar.gz
+sudo install loreskills-linux-amd64/loreskills /usr/local/bin/loreskills
+loreskills --help
+```
+
+### Installation globale sur Windows
+
+```powershell
+Expand-Archive .\loreskills-windows-amd64.zip -DestinationPath .\loreskills-windows-amd64 -Force
+New-Item -ItemType Directory -Path "$env:USERPROFILE\bin" -Force | Out-Null
+Copy-Item .\loreskills-windows-amd64\loreskills.exe "$env:USERPROFILE\bin\loreskills.exe" -Force
+$userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
+if (($userPath -split ';') -notcontains "$env:USERPROFILE\bin") {
+  [Environment]::SetEnvironmentVariable('Path', "$userPath;$env:USERPROFILE\bin", 'User')
+}
+loreskills.exe --help
+```
+
+Ouvrez ensuite un nouveau terminal si `loreskills` n'est pas encore resolu dans la session courante.
 
 ### Prérequis
 
@@ -65,21 +130,24 @@ Sous macOS ou Linux :
 
 ```bash
 go test ./...
+go vet ./...
 ```
 
 ### Validation build
 
 ```bash
-CGO_ENABLED=0 go build -o loreskills .
+CGO_ENABLED=0 go build -ldflags "-X loreskills/cmd.version=dev-local" -o loreskills .
 ```
 
 ### Vérification manuelle rapide
 
-1. Lancez `loreskills init`
-2. Renseignez `repo_raw_url` dans `~/.loreskillsrc`
-3. Exécutez `loreskills install exemple-skill` depuis un projet de test
-4. Vérifiez la création du dossier cible, du fichier Markdown et de `lore-state.json`
-5. Exécutez `loreskills update`
+1. Lancez `loreskills help`
+2. Lancez `loreskills version`
+3. Lancez `loreskills init`
+4. Renseignez `repo_raw_url` dans `~/.loreskillsrc`
+5. Exécutez `loreskills install exemple-skill` depuis un projet de test
+6. Vérifiez la création du dossier cible, du fichier Markdown et de `lore-state.json`
+7. Exécutez `loreskills update`
 
 ## Comment configurer
 
@@ -126,6 +194,14 @@ Avec cette configuration :
 
 ```bash
 loreskills
+loreskills help
+loreskills help install
+```
+
+### Version
+
+```bash
+loreskills version
 ```
 
 ### Initialiser la configuration

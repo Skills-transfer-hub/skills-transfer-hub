@@ -14,6 +14,20 @@ type cliResult struct {
 	err    error
 }
 
+func assertContains(t *testing.T, got, want string) {
+	t.Helper()
+	if !strings.Contains(got, want) {
+		t.Fatalf("got %q, want substring %q", got, want)
+	}
+}
+
+func assertEmpty(t *testing.T, got string) {
+	t.Helper()
+	if got != "" {
+		t.Fatalf("got %q, want empty", got)
+	}
+}
+
 func runCLI(t *testing.T, workDir, homeDir string, args ...string) cliResult {
 	t.Helper()
 
@@ -83,15 +97,10 @@ func TestRun_noArgumentsShowsHelp(t *testing.T) {
 	if result.err != nil {
 		t.Fatalf("Run() error = %v", result.err)
 	}
-	if !strings.Contains(result.stdout, "Commandes disponibles") {
-		t.Fatalf("stdout %q does not contain help heading", result.stdout)
-	}
-	if !strings.Contains(result.stdout, "loreskills init") {
-		t.Fatalf("stdout %q does not contain init usage", result.stdout)
-	}
-	if result.stderr != "" {
-		t.Fatalf("stderr = %q, want empty", result.stderr)
-	}
+	assertContains(t, result.stdout, asciiGuide)
+	assertContains(t, result.stdout, "Commandes disponibles")
+	assertContains(t, result.stdout, "loreskills init")
+	assertEmpty(t, result.stderr)
 }
 
 func TestRun_unknownCommandShowsErrorAndHelp(t *testing.T) {
@@ -100,10 +109,17 @@ func TestRun_unknownCommandShowsErrorAndHelp(t *testing.T) {
 	if result.err == nil {
 		t.Fatal("Run() error = nil, want error")
 	}
-	if !strings.Contains(result.stderr, "commande inconnue") {
-		t.Fatalf("stderr %q does not contain unknown command error", result.stderr)
+	assertContains(t, result.stderr, asciiGuide)
+	assertContains(t, result.stderr, "commande inconnue")
+	assertContains(t, result.stderr, "Commandes disponibles")
+}
+
+func TestRun_helpCommandRejectsUnknownTarget(t *testing.T) {
+	result := runCLI(t, "", "", "help", "bogus")
+
+	if result.err == nil {
+		t.Fatal("Run() error = nil, want error")
 	}
-	if !strings.Contains(result.stderr, "Commandes disponibles") {
-		t.Fatalf("stderr %q does not contain help output", result.stderr)
-	}
+	assertContains(t, result.stderr, "commande inconnue")
+	assertContains(t, result.stderr, "help")
 }

@@ -21,6 +21,9 @@ func (a *app) runInstall(skillName string) error {
 		return err
 	}
 
-	fmt.Fprintf(a.stdout, "Skill '%s' installé dans %s.\n", skillName, cfg.TargetDir)
+	a.writeGuidedStdout(
+		fmt.Sprintf("Skill '%s' installé dans %s.", skillName, cfg.TargetDir),
+		"Prochaine étape : utilisez `loreskills update` pour rafraîchir tous les skills suivis.",
+	)
 	return nil
 }

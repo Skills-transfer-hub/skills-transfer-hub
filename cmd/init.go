@@ -11,7 +11,9 @@ func (a *app) runInit() error {
 		return err
 	}
 
-	fmt.Fprintf(a.stdout, "Fichier de configuration créé : %s\n", path)
-	fmt.Fprintln(a.stdout, "Modifiez `repo_raw_url` avec l'URL brute de votre dépôt de skills avant d'utiliser install ou update.")
+	a.writeGuidedStdout(
+		fmt.Sprintf("Fichier de configuration créé : %s", path),
+		"Modifiez `repo_raw_url` avec l'URL brute de votre dépôt de skills avant d'utiliser install ou update.",
+	)
 	return nil
 }
