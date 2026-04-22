@@ -780,7 +780,7 @@ func validateCatalogEntry(entry CatalogEntry) error {
 		return err
 	}
 	if strings.TrimSpace(entry.CatalogID) == "" {
-		entry.CatalogID = CatalogID(entry.ResourceType, entry.FolderName, entry.Name)
+		return errors.New("catalog_id doit être renseigné")
 	}
 
 	return nil
