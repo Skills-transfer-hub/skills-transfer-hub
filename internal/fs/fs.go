@@ -409,7 +409,7 @@ func SaveCatalogEntry(targetDir string, entry CatalogEntry, content []byte) (Ins
 		ResourceType:  entry.ResourceType,
 		Name:          entry.Name,
 		FolderName:    entry.FolderName,
-		InstalledPath: filepath.ToSlash(filepath.Join(filepath.Clean(targetDir), filepath.Clean(entry.FolderName), filepath.Base(filepath.FromSlash(entry.SourcePath)))) ,
+		InstalledPath: filepath.ToSlash(filepath.Join(targetDir, entry.FolderName, filepath.Base(filepath.FromSlash(entry.SourcePath)))),
 		SourcePath:    path.Clean(strings.TrimSpace(entry.SourcePath)),
 		Status:        "installed",
 	}
