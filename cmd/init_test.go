@@ -2,67 +2,182 @@ package cmd
 
 import (
 	"encoding/json"
+	stdhttp "net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"loreskills/internal/fs"
 )
 
-func TestRun_initCreatesDefaultConfig(t *testing.T) {
+func TestRun_initCreatesProjectProfile(t *testing.T) {
 	homeDir := t.TempDir()
+	projectDir := t.TempDir()
+	server := httptest.NewServer(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		if r.URL.Path != "/owner/repo/main/SKILLS.md" {
+			stdhttp.NotFound(w, r)
+			return
+		}
+		_, _ = w.Write([]byte(testCatalogMarkdown("| skill | alpha | skills | skills/alpha.md | Alpha |")))
+	}))
+	defer server.Close()
+	t.Setenv("LORESKILLS_GITHUB_RAW_BASE_URL", server.URL)
 
-	result := runCLI(t, "", homeDir, "init")
+	result := runCLIWithInput(t, projectDir, homeDir, "\n\nowner/repo\n\n\n\n", "init")
 
 	if result.err != nil {
 		t.Fatalf("Run() error = %v", result.err)
 	}
-	if !strings.Contains(result.stdout, asciiGuide) {
-		t.Fatalf("stdout %q does not contain ascii guide", result.stdout)
-	}
-	if !strings.Contains(result.stdout, "Fichier de configuration créé") {
+	if !strings.Contains(result.stdout, "Configuration projet enregistrée") {
 		t.Fatalf("stdout %q does not contain success message", result.stdout)
 	}
+	if !strings.Contains(result.stdout, "Accès au dépôt validé") {
+		t.Fatalf("stdout %q does not contain reachability confirmation", result.stdout)
+	}
 
-	configPath := filepath.Join(homeDir, ".loreskillsrc")
+	configPath := filepath.Join(projectDir, ".loreskills", "project.json")
 	data, err := os.ReadFile(configPath)
 	if err != nil {
 		t.Fatalf("ReadFile(%s): %v", configPath, err)
 	}
 
-	var config map[string]string
-	if err := json.Unmarshal(data, &config); err != nil {
+	var profile fs.ProjectProfile
+	if err := json.Unmarshal(data, &profile); err != nil {
 		t.Fatalf("json.Unmarshal(): %v", err)
 	}
-	if config["repo_raw_url"] == "" {
-		t.Fatal("repo_raw_url is empty")
+	if profile.Provider != "github" {
+		t.Fatalf("profile.Provider = %q, want github", profile.Provider)
 	}
-	if config["target_dir"] == "" {
-		t.Fatal("target_dir is empty")
+	if profile.RepositoryID != "owner/repo" {
+		t.Fatalf("profile.RepositoryID = %q, want owner/repo", profile.RepositoryID)
+	}
+	if profile.CatalogPath != "SKILLS.md" {
+		t.Fatalf("profile.CatalogPath = %q, want SKILLS.md", profile.CatalogPath)
 	}
 }
 
-func TestRun_initRefusesExistingConfig(t *testing.T) {
+func TestRun_initImportsLegacyConfigWhenAccepted(t *testing.T) {
 	homeDir := t.TempDir()
+	projectDir := t.TempDir()
+	server := httptest.NewServer(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		if r.URL.Path != "/owner/repo/main/skills/SKILLS.md" {
+			stdhttp.NotFound(w, r)
+			return
+		}
+		_, _ = w.Write([]byte(testCatalogMarkdown("| skill | alpha | skills | skills/alpha.md | Alpha |")))
+	}))
+	defer server.Close()
+	t.Setenv("LORESKILLS_GITHUB_RAW_BASE_URL", server.URL)
+
 	configPath := filepath.Join(homeDir, ".loreskillsrc")
-	original := []byte("{\"repo_raw_url\":\"https://example.invalid\",\"target_dir\":\".claude/skills\"}\n")
+	original := []byte("{\"repo_raw_url\":\"https://raw.githubusercontent.com/owner/repo/main/skills\",\"target_dir\":\".claude/skills\"}\n")
 	if err := os.WriteFile(configPath, original, 0o600); err != nil {
 		t.Fatalf("WriteFile(%s): %v", configPath, err)
 	}
 
-	result := runCLI(t, "", homeDir, "init")
+	result := runCLIWithInput(t, projectDir, homeDir, "y\n\n\n\n\n\n", "init")
 
-	if result.err == nil {
-		t.Fatal("Run() error = nil, want error")
+	if result.err != nil {
+		t.Fatalf("Run() error = %v\nstdout=%s\nstderr=%s", result.err, result.stdout, result.stderr)
 	}
-	if !strings.Contains(result.stderr, "configuration existe déjà") {
-		t.Fatalf("stderr %q does not contain overwrite refusal", result.stderr)
-	}
+	assertContains(t, result.stdout, "Configuration projet enregistrée")
 
-	data, err := os.ReadFile(configPath)
+	data, err := os.ReadFile(filepath.Join(projectDir, ".loreskills", "project.json"))
 	if err != nil {
-		t.Fatalf("ReadFile(%s): %v", configPath, err)
+		t.Fatalf("ReadFile(project profile): %v", err)
 	}
-	if string(data) != string(original) {
-		t.Fatalf("config was modified:\n got: %q\nwant: %q", data, original)
+	var profile fs.ProjectProfile
+	if err := json.Unmarshal(data, &profile); err != nil {
+		t.Fatalf("json.Unmarshal(): %v", err)
+	}
+	if !profile.MigratedFromLegacy {
+		t.Fatal("expected migrated_from_legacy to be true")
+	}
+	if profile.CatalogPath != "skills/SKILLS.md" {
+		t.Fatalf("profile.CatalogPath = %q, want skills/SKILLS.md", profile.CatalogPath)
+	}
+	if profile.RepositoryID != "owner/repo" {
+		t.Fatalf("profile.RepositoryID = %q, want owner/repo", profile.RepositoryID)
+	}
+}
+
+func TestRun_initKeepsExistingProjectProfileWhenUserDeclinesReplacement(t *testing.T) {
+	homeDir := t.TempDir()
+	projectDir := t.TempDir()
+	writeProjectProfileForCommandTest(t, projectDir, fs.ProjectProfile{
+		Provider:     "github",
+		RepositoryID: "existing/repo",
+		Ref:          "main",
+		CatalogPath:  "SKILLS.md",
+		TargetDir:    ".claude/skills",
+	})
+
+	result := runCLIWithInput(t, projectDir, homeDir, "n\n", "init")
+
+	if result.err != nil {
+		t.Fatalf("Run() error = %v", result.err)
+	}
+	assertContains(t, result.stdout, "Configuration projet conservée")
+
+	data, err := os.ReadFile(filepath.Join(projectDir, ".loreskills", "project.json"))
+	if err != nil {
+		t.Fatalf("ReadFile(project profile): %v", err)
+	}
+	assertContains(t, string(data), "existing/repo")
+	assertNotContains(t, string(data), "owner/repo")
+	if strings.Contains(string(data), "raw.githubusercontent.com") {
+		t.Fatalf("project profile unexpectedly changed: %s", data)
+	}
+}
+
+func TestRun_initGuidesUserThroughPublicGitHubSetup(t *testing.T) {
+	homeDir := t.TempDir()
+	projectDir := t.TempDir()
+	server := httptest.NewServer(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		if r.URL.Path != "/owner/repo/main/SKILLS.md" {
+			stdhttp.NotFound(w, r)
+			return
+		}
+		_, _ = w.Write([]byte(testCatalogMarkdown("| skill | alpha | skills | skills/alpha.md | Alpha |")))
+	}))
+	defer server.Close()
+	t.Setenv("LORESKILLS_GITHUB_RAW_BASE_URL", server.URL)
+
+	result := runCLIWithInput(t, projectDir, homeDir, "github\nn\nowner-only\nowner/repo\n\n\n\n", "init")
+
+	if result.err != nil {
+		t.Fatalf("Run() error = %v\nstdout=%s\nstderr=%s", result.err, result.stdout, result.stderr)
+	}
+	assertContains(t, result.stdout, "Assistant de configuration LoreSkills")
+	assertContains(t, result.stdout, "Etape 1/5 - Choisir le provider")
+	assertContains(t, result.stdout, "Etape 2/5 - Type d'acces au depot")
+	assertContains(t, result.stdout, "Depot public")
+	assertContains(t, result.stdout, "Format attendu pour repository_id : owner/repo")
+	assertContains(t, result.stdout, "Repository ID invalide")
+	assertContains(t, result.stdout, "Etape 5/5 - Validation de l'acces distant")
+	assertContains(t, result.stdout, "Configuration projet enregistrée")
+	assertContains(t, result.stdout, "Prochaine étape : utilisez `loreskills list`.")
+	assertEmpty(t, result.stderr)
+}
+
+func TestValidateRepositoryIDRejectsEmptySegments(t *testing.T) {
+	tests := []struct {
+		name         string
+		provider     string
+		repositoryID string
+	}{
+		{name: "github double slash", provider: "github", repositoryID: "owner//repo"},
+		{name: "github leading slash", provider: "github", repositoryID: "/owner/repo"},
+		{name: "azure trailing slash", provider: "azure-devops", repositoryID: "org/project/repo/"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if err := validateRepositoryID(test.provider, test.repositoryID); err == nil {
+				t.Fatalf("validateRepositoryID(%q, %q) error = nil, want error", test.provider, test.repositoryID)
+			}
+		})
 	}
 }

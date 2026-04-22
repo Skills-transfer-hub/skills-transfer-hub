@@ -34,7 +34,24 @@ jobs:
       - name: Run tests
         run: go test ./...
 
+      - name: Prepare build metadata
+        shell: pwsh
+        run: |
+          $goos = (go env GOOS).Trim()
+          $goarch = (go env GOARCH).Trim()
+          $archiveExt = if ($goos -eq 'windows') { 'zip' } else { 'tar.gz' }
+          $assetName = "loreskills-$goos-$goarch.$archiveExt"
+          "VERSION=dev-ci" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "COMMIT=${{ github.sha }}" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "BUILD_DATE=$((Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ'))" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "TARGET=$goos/$goarch" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "RELEASE_API_URL=https://api.github.com/repos/${{ github.repository }}/releases" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "RELEASE_ASSET_NAME=$assetName" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "RELEASE_CHECKSUM_NAME=SHA256SUMS" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
       - name: Build binary
+        shell: pwsh
         env:
           CGO_ENABLED: "0"
-        run: go build -o loreskills .
+        run: |
+          go build -trimpath -ldflags "-X loreskills/cmd.version=$env:VERSION -X loreskills/cmd.commit=$env:COMMIT -X loreskills/cmd.buildDate=$env:BUILD_DATE -X loreskills/cmd.target=$env:TARGET -X loreskills/cmd.releaseAPIURL=$env:RELEASE_API_URL -X loreskills/cmd.releaseAssetName=$env:RELEASE_ASSET_NAME -X loreskills/cmd.releaseChecksumName=$env:RELEASE_CHECKSUM_NAME" -o loreskills .

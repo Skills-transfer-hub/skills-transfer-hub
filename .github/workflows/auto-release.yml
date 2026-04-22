@@ -1,0 +1,121 @@
+name: Auto Release
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+  pull-requests: read
+
+concurrency:
+  group: auto-release-main
+  cancel-in-progress: false
+
+jobs:
+  create-release:
+    name: Create release after merge
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out merged commit
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.sha }}
+
+      - name: Fetch tags
+        run: git fetch --force --tags origin
+
+      - name: Resolve merged pull request metadata
+        id: pr
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pulls = await github.rest.repos.listPullRequestsAssociatedWithCommit({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              commit_sha: context.sha,
+            });
+
+            const mergedPullRequest = pulls.data.find((pullRequest) =>
+              pullRequest.base.ref === 'main' && pullRequest.merged_at,
+            );
+
+            const labelNames = (mergedPullRequest?.labels ?? []).map((label) =>
+              String(label.name ?? '').toLowerCase(),
+            );
+
+            const isPrerelease = labelNames.includes('prerelease') || labelNames.includes('pre-release');
+
+            core.setOutput('found', String(Boolean(mergedPullRequest)));
+            core.setOutput('number', mergedPullRequest ? String(mergedPullRequest.number) : '');
+            core.setOutput('prerelease', String(isPrerelease));
+            core.setOutput('labels', labelNames.join(', '));
+
+      - name: Detect existing tag on merged commit
+        id: existing
+        shell: bash
+        run: |
+          tag="$(git tag --points-at "${{ github.sha }}" | head -n 1)"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Compute next stable version tag
+        id: next
+        if: steps.pr.outputs.found == 'true' && steps.existing.outputs.tag == ''
+        shell: bash
+        run: |
+          latest="$(git tag --list 'v*' | awk '/^v[0-9]+\.[0-9]+\.[0-9]+$/ { print }' | sort -V | tail -n 1)"
+          if [[ -z "$latest" ]]; then
+            stable_base="v0.0.1"
+          else
+            version="${latest#v}"
+            IFS='.' read -r major minor patch <<< "$version"
+            stable_base="v${major}.${minor}.$((patch + 1))"
+          fi
+
+          prerelease='${{ steps.pr.outputs.prerelease }}'
+          if [[ "$prerelease" == 'true' ]]; then
+            latest_rc="$(git tag --list "${stable_base}-rc.*" | awk '/-rc\.[0-9]+$/ { print }' | sort -V | tail -n 1)"
+            if [[ -z "$latest_rc" ]]; then
+              next="${stable_base}-rc.1"
+            else
+              rc_number="${latest_rc##*-rc.}"
+              next="${stable_base}-rc.$((rc_number + 1))"
+            fi
+            make_latest='false'
+          else
+            next="$stable_base"
+            make_latest='true'
+          fi
+
+          echo "tag=$next" >> "$GITHUB_OUTPUT"
+          echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
+          echo "make_latest=$make_latest" >> "$GITHUB_OUTPUT"
+          echo "Preparing release $next from PR #${{ steps.pr.outputs.number }} (labels: ${{ steps.pr.outputs.labels }})." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Create GitHub release
+        if: steps.pr.outputs.found == 'true' && steps.existing.outputs.tag == ''
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.next.outputs.tag }}
+          name: ${{ steps.next.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          prerelease: ${{ steps.next.outputs.prerelease }}
+          make_latest: ${{ steps.next.outputs.make_latest }}
+          generate_release_notes: true
+          body: |
+            Automatic release created from merged pull request #${{ steps.pr.outputs.number }}.
+
+      - name: Skip if merged commit is already released
+        if: steps.existing.outputs.tag != ''
+        shell: bash
+        run: |
+          echo "Merged commit already has tag ${{ steps.existing.outputs.tag }}." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Skip if push is not from a merged pull request
+        if: steps.pr.outputs.found != 'true'
+        shell: bash
+        run: |
+          echo "No merged pull request associated with commit ${{ github.sha }}; skipping automatic release." >> "$GITHUB_STEP_SUMMARY"

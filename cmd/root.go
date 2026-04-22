@@ -19,57 +19,66 @@ var commandCatalog = []commandSpec{
 	{
 		name:    "init",
 		usage:   "loreskills init",
-		summary: "Cree le fichier de configuration ~/.loreskillsrc",
+		summary: "Configure pas a pas le depot distant public ou prive du projet courant",
 		examples: []string{
 			"loreskills init",
 		},
 	},
 	{
-		name:    "install",
-		usage:   "loreskills install <skill>",
-		summary: "Telecharge et installe un skill dans le projet courant",
+		name:    "list",
+		usage:   "loreskills list",
+		summary: "Lit SKILLS.md et liste les ressources installables du dépôt courant",
 		examples: []string{
-			"loreskills install mon-skill",
+			"loreskills list",
+		},
+	},
+	{
+		name:    "install",
+		usage:   "loreskills install <resource-ref>",
+		summary: "Installe une ressource du catalogue distant dans le projet courant",
+		examples: []string{
+			"loreskills install skills/analyse-risque",
 		},
 	},
 	{
 		name:    "update",
-		usage:   "loreskills update",
-		summary: "Met a jour tous les skills installes dans le projet courant",
+		usage:   "loreskills update [self]",
+		summary: "Met à jour les ressources suivies ou le binaire LoreSkills lui-même",
 		examples: []string{
 			"loreskills update",
+			"loreskills update self",
 		},
 	},
 	{
 		name:    "help",
 		usage:   "loreskills help [commande]",
-		summary: "Affiche l'aide generale ou l'aide ciblee d'une commande",
+		summary: "Affiche l'aide générale ou l'aide ciblée d'une commande visible",
 		examples: []string{
 			"loreskills help",
-			"loreskills help install",
+			"loreskills help list",
 		},
 	},
 	{
 		name:    "version",
 		usage:   "loreskills version",
-		summary: "Affiche la version installee du CLI",
+		summary: "Affiche la signature de version minimale du CLI",
 		examples: []string{
 			"loreskills version",
 		},
 	},
 }
 
-const asciiGuide = ` /\_/\\
-( o.o )
- > ^ <`
-
 type app struct {
+	stdin  io.Reader
 	stdout io.Writer
 	stderr io.Writer
 	client *lorehttp.Client
 }
 
-func newApp(stdout, stderr io.Writer, client *lorehttp.Client) *app {
+func newApp(stdin io.Reader, stdout, stderr io.Writer, client *lorehttp.Client) *app {
+	if stdin == nil {
+		stdin = os.Stdin
+	}
 	if stdout == nil {
 		stdout = io.Discard
 	}
@@ -81,6 +90,7 @@ func newApp(stdout, stderr io.Writer, client *lorehttp.Client) *app {
 	}
 
 	return &app{
+		stdin:  stdin,
 		stdout: stdout,
 		stderr: stderr,
 		client: client,
@@ -89,12 +99,12 @@ func newApp(stdout, stderr io.Writer, client *lorehttp.Client) *app {
 
 // Run routes CLI arguments to the appropriate LoreSkills command.
 func Run(args []string) error {
-	return newApp(os.Stdout, os.Stderr, nil).run(args)
+	return newApp(os.Stdin, os.Stdout, os.Stderr, nil).run(args)
 }
 
 func (a *app) run(args []string) error {
 	if len(args) == 0 {
-		a.writeGuidedStdout(helpText())
+		a.writeStdout(formatVersionSignature())
 		return nil
 	}
 
@@ -106,7 +116,7 @@ func (a *app) run(args []string) error {
 	switch args[0] {
 	case "init":
 		if len(args) == 2 && isHelpFlag(args[1]) {
-			a.writeGuidedStdout(commandHelpText("init"))
+			a.writeStdout(commandHelpText("init"))
 			return nil
 		}
 		if len(args) != 1 {
@@ -114,30 +124,47 @@ func (a *app) run(args []string) error {
 			break
 		}
 		err = a.runInit()
+	case "list":
+		if len(args) == 2 && isHelpFlag(args[1]) {
+			a.writeStdout(commandHelpText("list"))
+			return nil
+		}
+		if len(args) != 1 {
+			err = fmt.Errorf("usage : loreskills list")
+			break
+		}
+		err = a.runList()
 	case "install":
 		if len(args) == 2 && isHelpFlag(args[1]) {
-			a.writeGuidedStdout(commandHelpText("install"))
+			a.writeStdout(commandHelpText("install"))
 			return nil
 		}
 		if len(args) != 2 {
-			err = fmt.Errorf("usage : loreskills install <nom-du-skill>")
+			err = fmt.Errorf("usage : loreskills install <resource-ref>")
 			break
 		}
 		err = a.runInstall(args[1])
 	case "update":
 		if len(args) == 2 && isHelpFlag(args[1]) {
-			a.writeGuidedStdout(commandHelpText("update"))
+			a.writeStdout(commandHelpText("update"))
 			return nil
 		}
-		if len(args) != 1 {
-			err = fmt.Errorf("usage : loreskills update")
-			break
+		switch len(args) {
+		case 1:
+			err = a.runUpdate()
+		case 2:
+			if args[1] != "self" {
+				err = fmt.Errorf("usage : loreskills update [self]")
+				break
+			}
+			err = a.runSelfUpdate()
+		default:
+			err = fmt.Errorf("usage : loreskills update [self]")
 		}
-		err = a.runUpdate()
 	case "help":
 		switch len(args) {
 		case 1:
-			a.writeGuidedStdout(helpText())
+			a.writeStdout(helpText())
 			return nil
 		case 2:
 			if _, ok := findCommandSpec(args[1]); !ok {
@@ -145,14 +172,14 @@ func (a *app) run(args []string) error {
 				showHelp = true
 				break
 			}
-			a.writeGuidedStdout(commandHelpText(args[1]))
+			a.writeStdout(commandHelpText(args[1]))
 			return nil
 		default:
 			err = fmt.Errorf("usage : loreskills help [commande]")
 		}
 	case "version":
 		if len(args) == 2 && isHelpFlag(args[1]) {
-			a.writeGuidedStdout(commandHelpText("version"))
+			a.writeStdout(commandHelpText("version"))
 			return nil
 		}
 		if len(args) != 1 {
@@ -160,8 +187,14 @@ func (a *app) run(args []string) error {
 			break
 		}
 		err = a.runVersion()
+	case "stockholm":
+		if len(args) != 1 {
+			err = fmt.Errorf("usage : loreskills stockholm")
+			break
+		}
+		err = a.runStockholm()
 	case "--help", "-h":
-		a.writeGuidedStdout(helpText())
+		a.writeStdout(helpText())
 		return nil
 	default:
 		err = fmt.Errorf("commande inconnue : %q", args[0])
@@ -173,7 +206,7 @@ func (a *app) run(args []string) error {
 		if showHelp {
 			lines = append(lines, "", helpText())
 		}
-		a.writeGuidedStderr(lines...)
+		a.writeStderr(lines...)
 		return err
 	}
 
@@ -194,35 +227,30 @@ func isHelpFlag(arg string) bool {
 	return arg == "--help" || arg == "-h"
 }
 
-func renderGuideMessage(lines ...string) string {
-	parts := []string{asciiGuide}
-	for _, line := range lines {
-		if strings.TrimSpace(line) == "" {
-			parts = append(parts, "")
-			continue
-		}
-		parts = append(parts, line)
+func renderMessage(lines ...string) string {
+	if len(lines) == 0 {
+		return ""
 	}
 
-	return strings.Join(parts, "\n") + "\n"
+	return strings.Join(lines, "\n") + "\n"
 }
 
-func (a *app) writeGuidedStdout(lines ...string) {
-	fmt.Fprint(a.stdout, renderGuideMessage(lines...))
+func (a *app) writeStdout(lines ...string) {
+	fmt.Fprint(a.stdout, renderMessage(lines...))
 }
 
-func (a *app) writeGuidedStderr(lines ...string) {
-	fmt.Fprint(a.stderr, renderGuideMessage(lines...))
+func (a *app) writeStderr(lines ...string) {
+	fmt.Fprint(a.stderr, renderMessage(lines...))
 }
 
 func helpText() string {
 	var builder strings.Builder
-	builder.WriteString("LoreSkills — Gestionnaire de contexte IA\n\n")
-	builder.WriteString("Commandes disponibles :\n")
+	builder.WriteString("LoreSkills\n\n")
+	builder.WriteString("Commandes visibles :\n")
 	for _, spec := range commandCatalog {
 		builder.WriteString(fmt.Sprintf("  %-20s %s\n", commandDisplayName(spec), spec.summary))
 	}
-	builder.WriteString("\nUtilisation :\n")
+	builder.WriteString("\nExemples :\n")
 	for _, example := range usageExamples() {
 		builder.WriteString(fmt.Sprintf("  %s\n", example))
 	}
@@ -251,13 +279,11 @@ func commandHelpText(name string) string {
 	var builder strings.Builder
 	builder.WriteString(fmt.Sprintf("%s\n\n", spec.usage))
 	builder.WriteString(fmt.Sprintf("%s\n", spec.summary))
-	if len(spec.examples) == 0 {
-		return strings.TrimRight(builder.String(), "\n")
-	}
-
-	builder.WriteString("\nExemples :\n")
-	for _, example := range spec.examples {
-		builder.WriteString(fmt.Sprintf("  %s\n", example))
+	if len(spec.examples) > 0 {
+		builder.WriteString("\nExemples :\n")
+		for _, example := range spec.examples {
+			builder.WriteString(fmt.Sprintf("  %s\n", example))
+		}
 	}
 
 	return strings.TrimRight(builder.String(), "\n")

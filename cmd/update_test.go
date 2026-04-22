@@ -1,9 +1,16 @@
 package cmd
 
 import (
-	"encoding/json"
+	"archive/tar"
+	"archive/zip"
+	"bytes"
+	"compress/gzip"
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -13,123 +20,213 @@ import (
 )
 
 func TestRun_updateWithNoStateShowsNoopMessage(t *testing.T) {
-	homeDir := t.TempDir()
 	projectDir := t.TempDir()
 
-	writeConfigForCommandTest(t, homeDir, fs.Config{
-		RepoRawURL: "https://example.invalid",
-		TargetDir:  ".claude/skills",
+	writeProjectProfileForCommandTest(t, projectDir, fs.ProjectProfile{
+		Provider:     "github",
+		RepositoryID: "owner/repo",
+		Ref:          "main",
+		CatalogPath:  "SKILLS.md",
+		TargetDir:    ".claude/resources",
 	})
 
-	result := runCLI(t, projectDir, homeDir, "update")
+	result := runCLI(t, projectDir, t.TempDir(), "update")
 
 	if result.err != nil {
 		t.Fatalf("Run() error = %v", result.err)
 	}
-	if !strings.Contains(result.stdout, asciiGuide) {
-		t.Fatalf("stdout %q does not contain ascii guide", result.stdout)
-	}
-	if !strings.Contains(result.stdout, "Aucun skill à mettre à jour.") {
+	if !strings.Contains(result.stdout, "Aucune ressource à mettre à jour.") {
 		t.Fatalf("stdout %q does not contain noop message", result.stdout)
 	}
 }
 
-func TestRun_updateRefreshesEveryTrackedSkill(t *testing.T) {
-	homeDir := t.TempDir()
+func TestRun_updateRefreshesEveryTrackedResource(t *testing.T) {
 	projectDir := t.TempDir()
 	server := httptest.NewServer(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		switch r.URL.Path {
-		case "/alpha.md":
+		case "/owner/repo/main/skills/alpha.md":
 			_, _ = w.Write([]byte("# Alpha refreshed\n"))
-		case "/beta.md":
+		case "/owner/repo/main/agents/beta.md":
 			_, _ = w.Write([]byte("# Beta refreshed\n"))
 		default:
 			stdhttp.NotFound(w, r)
 		}
 	}))
 	defer server.Close()
+	t.Setenv("LORESKILLS_GITHUB_RAW_BASE_URL", server.URL)
 
-	writeConfigForCommandTest(t, homeDir, fs.Config{
-		RepoRawURL: server.URL,
-		TargetDir:  ".claude/skills",
+	writeProjectProfileForCommandTest(t, projectDir, fs.ProjectProfile{
+		Provider:     "github",
+		RepositoryID: "owner/repo",
+		Ref:          "main",
+		CatalogPath:  "SKILLS.md",
+		TargetDir:    ".claude/resources",
 	})
-	writeStateForCommandTest(t, projectDir, ".claude/skills", map[string]string{
-		"alpha": "installed",
-		"beta":  "installed",
-	})
+	writeInstalledStateForCommandTest(t, projectDir, ".claude/resources", fs.InstalledResourceState{Entries: []fs.InstalledResourceRecord{
+		{CatalogID: fs.CatalogID("skill", "skills", "alpha"), ResourceType: "skill", Name: "alpha", FolderName: "skills", InstalledPath: ".claude/resources/skills/alpha.md", SourcePath: "skills/alpha.md", Status: "installed"},
+		{CatalogID: fs.CatalogID("agent", "agents", "beta"), ResourceType: "agent", Name: "beta", FolderName: "agents", InstalledPath: ".claude/resources/agents/beta.md", SourcePath: "agents/beta.md", Status: "installed"},
+	}})
 
-	result := runCLI(t, projectDir, homeDir, "update")
+	result := runCLI(t, projectDir, t.TempDir(), "update")
 
 	if result.err != nil {
 		t.Fatalf("Run() error = %v\nstderr=%s", result.err, result.stderr)
 	}
-	if !strings.Contains(result.stdout, "Skill 'alpha' mis à jour") {
+	if !strings.Contains(result.stdout, "Ressource 'alpha' mise à jour") {
 		t.Fatalf("stdout %q does not contain alpha update", result.stdout)
 	}
-	if !strings.Contains(result.stdout, "Skill 'beta' mis à jour") {
+	if !strings.Contains(result.stdout, "Ressource 'beta' mise à jour") {
 		t.Fatalf("stdout %q does not contain beta update", result.stdout)
 	}
 
-	for _, skill := range []string{"alpha", "beta"} {
-		skillPath := filepath.Join(projectDir, ".claude", "skills", skill+".md")
-		data, err := os.ReadFile(skillPath)
+	for _, relativePath := range []string{".claude/resources/skills/alpha.md", ".claude/resources/agents/beta.md"} {
+		fullPath := filepath.Join(projectDir, filepath.FromSlash(relativePath))
+		data, err := os.ReadFile(fullPath)
 		if err != nil {
-			t.Fatalf("ReadFile(%s): %v", skillPath, err)
+			t.Fatalf("ReadFile(%s): %v", fullPath, err)
 		}
 		if !strings.Contains(string(data), "refreshed") {
-			t.Fatalf("skill %s was not refreshed: %q", skill, data)
+			t.Fatalf("resource %s was not refreshed: %q", relativePath, data)
 		}
 	}
 }
 
 func TestRun_updateReportsPartialFailures(t *testing.T) {
-	homeDir := t.TempDir()
 	projectDir := t.TempDir()
 	server := httptest.NewServer(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
-		if r.URL.Path == "/alpha.md" {
+		if r.URL.Path == "/owner/repo/main/skills/alpha.md" {
 			_, _ = w.Write([]byte("# Alpha refreshed\n"))
 			return
 		}
 		stdhttp.NotFound(w, r)
 	}))
 	defer server.Close()
+	t.Setenv("LORESKILLS_GITHUB_RAW_BASE_URL", server.URL)
 
-	writeConfigForCommandTest(t, homeDir, fs.Config{
-		RepoRawURL: server.URL,
-		TargetDir:  ".claude/skills",
+	writeProjectProfileForCommandTest(t, projectDir, fs.ProjectProfile{
+		Provider:     "github",
+		RepositoryID: "owner/repo",
+		Ref:          "main",
+		CatalogPath:  "SKILLS.md",
+		TargetDir:    ".claude/resources",
 	})
-	writeStateForCommandTest(t, projectDir, ".claude/skills", map[string]string{
-		"alpha":   "installed",
-		"missing": "installed",
-	})
+	writeInstalledStateForCommandTest(t, projectDir, ".claude/resources", fs.InstalledResourceState{Entries: []fs.InstalledResourceRecord{
+		{CatalogID: fs.CatalogID("skill", "skills", "alpha"), ResourceType: "skill", Name: "alpha", FolderName: "skills", InstalledPath: ".claude/resources/skills/alpha.md", SourcePath: "skills/alpha.md", Status: "installed"},
+		{CatalogID: fs.CatalogID("skill", "skills", "missing"), ResourceType: "skill", Name: "missing", FolderName: "skills", InstalledPath: ".claude/resources/skills/missing.md", SourcePath: "skills/missing.md", Status: "installed"},
+	}})
 
-	result := runCLI(t, projectDir, homeDir, "update")
+	result := runCLI(t, projectDir, t.TempDir(), "update")
 
 	if result.err == nil {
 		t.Fatal("Run() error = nil, want error")
 	}
-	if !strings.Contains(result.stdout, "Skill 'alpha' mis à jour") {
+	if !strings.Contains(result.stdout, "Ressource 'alpha' mise à jour") {
 		t.Fatalf("stdout %q does not contain successful update", result.stdout)
 	}
 	if !strings.Contains(result.stderr, "missing") {
-		t.Fatalf("stderr %q does not mention the failing skill", result.stderr)
+		t.Fatalf("stderr %q does not mention the failing resource", result.stderr)
 	}
 }
 
-func writeStateForCommandTest(t *testing.T, projectDir, targetDir string, state map[string]string) {
-	t.Helper()
-
-	targetPath := filepath.Join(projectDir, filepath.FromSlash(targetDir))
-	if err := os.MkdirAll(targetPath, 0o755); err != nil {
-		t.Fatalf("MkdirAll(%s): %v", targetPath, err)
+func TestRun_updateSelfAppliesStableRelease(t *testing.T) {
+	projectDir := t.TempDir()
+	homeDir := t.TempDir()
+	executablePath := filepath.Join(projectDir, executableFileName())
+	if err := os.WriteFile(executablePath, []byte("old-binary"), 0o755); err != nil {
+		t.Fatalf("WriteFile(%s): %v", executablePath, err)
 	}
+	t.Setenv("LORESKILLS_EXECUTABLE_PATH", executablePath)
 
-	data, err := json.Marshal(state)
+	assetName := defaultReleaseAssetName()
+	archiveData := releaseArchiveForTest(t, assetName)
+	checksum := sha256.Sum256(archiveData)
+	checksumBody := []byte(fmt.Sprintf("%s  %s\n", hex.EncodeToString(checksum[:]), assetName))
+
+	serverURL := ""
+	server := httptest.NewServer(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		switch r.URL.Path {
+		case "/releases":
+			_, _ = w.Write([]byte(fmt.Sprintf(`[{"tag_name":"v9.9.9","prerelease":false,"assets":[{"name":"%s","browser_download_url":"%s/asset"},{"name":"SHA256SUMS","browser_download_url":"%s/checksum"}]},{"tag_name":"v10.0.0-beta.1","prerelease":true,"assets":[{"name":"%s","browser_download_url":"%s/beta"}]}]`, assetName, serverURL, serverURL, assetName, serverURL)))
+		case "/asset":
+			_, _ = w.Write(archiveData)
+		case "/checksum":
+			_, _ = w.Write(checksumBody)
+		default:
+			stdhttp.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	serverURL = server.URL
+
+	previousVersion := version
+	previousReleaseAPIURL := releaseAPIURL
+	previousReleaseAssetName := releaseAssetName
+	version = "v1.0.0"
+	releaseAPIURL = server.URL + "/releases"
+	releaseAssetName = assetName
+	t.Cleanup(func() {
+		version = previousVersion
+		releaseAPIURL = previousReleaseAPIURL
+		releaseAssetName = previousReleaseAssetName
+	})
+
+	result := runCLI(t, projectDir, homeDir, "update", "self")
+
+	if result.err != nil {
+		t.Fatalf("Run() error = %v\nstdout=%s\nstderr=%s", result.err, result.stdout, result.stderr)
+	}
+	assertContains(t, result.stdout, "Version stable détectée : v9.9.9")
+	assertContains(t, result.stdout, "Mise à jour appliquée")
+
+	data, err := os.ReadFile(executablePath)
 	if err != nil {
-		t.Fatalf("json.Marshal(): %v", err)
+		t.Fatalf("ReadFile(%s): %v", executablePath, err)
 	}
-	statePath := filepath.Join(targetPath, "lore-state.json")
-	if err := os.WriteFile(statePath, data, 0o644); err != nil {
-		t.Fatalf("WriteFile(%s): %v", statePath, err)
+	assertContains(t, string(data), "new-binary")
+}
+
+func executableFileName() string {
+	if runtime.GOOS == "windows" {
+		return "loreskills.exe"
 	}
+	return "loreskills"
+}
+
+func releaseArchiveForTest(t *testing.T, assetName string) []byte {
+	t.Helper()
+	binaryName := executableFileName()
+	if strings.HasSuffix(assetName, ".zip") {
+		var buffer bytes.Buffer
+		zipWriter := zip.NewWriter(&buffer)
+		writer, err := zipWriter.Create(binaryName)
+		if err != nil {
+			t.Fatalf("Create(zip entry): %v", err)
+		}
+		if _, err := writer.Write([]byte("new-binary")); err != nil {
+			t.Fatalf("Write(zip entry): %v", err)
+		}
+		if err := zipWriter.Close(); err != nil {
+			t.Fatalf("Close(zip writer): %v", err)
+		}
+		return buffer.Bytes()
+	}
+
+	var tarBuffer bytes.Buffer
+	gzipWriter := gzip.NewWriter(&tarBuffer)
+	tarWriter := tar.NewWriter(gzipWriter)
+	data := []byte("new-binary")
+	header := &tar.Header{Name: binaryName, Mode: 0o755, Size: int64(len(data))}
+	if err := tarWriter.WriteHeader(header); err != nil {
+		t.Fatalf("WriteHeader(tar): %v", err)
+	}
+	if _, err := tarWriter.Write(data); err != nil {
+		t.Fatalf("Write(tar): %v", err)
+	}
+	if err := tarWriter.Close(); err != nil {
+		t.Fatalf("Close(tar writer): %v", err)
+	}
+	if err := gzipWriter.Close(); err != nil {
+		t.Fatalf("Close(gzip writer): %v", err)
+	}
+	return tarBuffer.Bytes()
 }
