@@ -59,16 +59,42 @@ func (a *app) runInit() error {
 		}
 	}
 
+	a.writeStdout(
+		"Assistant de configuration LoreSkills",
+		"Ce wizard vous guide pas a pas pour connecter le projet courant a un catalogue distant.",
+	)
+	a.writeStdout(
+		"Etape 1/5 - Choisir le provider",
+		"Providers pris en charge : github, gitlab, azure-devops, bitbucket.",
+	)
+
 	provider, err := promptProvider(reader, a.stdout, defaults.Provider)
 	if err != nil {
 		return err
 	}
-	a.writeStdout(providerSetupGuidance(provider))
 
-	repositoryID, err := promptValue(reader, a.stdout, "Repository ID", defaults.RepositoryID)
+	a.writeStdout("Etape 2/5 - Type d'acces au depot")
+	isPrivate, err := promptYesNo(reader, a.stdout, "Le depot distant est-il prive ?", true)
 	if err != nil {
 		return err
 	}
+	a.writeStdout(providerAccessGuidance(provider, isPrivate)...)
+
+	a.writeStdout(
+		"Etape 3/5 - Identifier le depot",
+		fmt.Sprintf("Format attendu pour repository_id : %s", providerRepositoryIDFormat(provider)),
+		fmt.Sprintf("Exemple : %s", providerRepositoryIDExample(provider)),
+	)
+
+	repositoryID, err := promptRepositoryID(reader, a.stdout, provider, defaults.RepositoryID)
+	if err != nil {
+		return err
+	}
+
+	a.writeStdout(
+		"Etape 4/5 - Reference Git et catalogue",
+		"Choisissez la reference distante, le fichier SKILLS.md, puis le dossier cible local.",
+	)
 	refValue, err := promptValue(reader, a.stdout, "Référence Git", defaults.Ref)
 	if err != nil {
 		return err
@@ -91,6 +117,11 @@ func (a *app) runInit() error {
 		MigratedFromLegacy: defaults.MigratedFromLegacy,
 	}
 
+	a.writeStdout(
+		"Etape 5/5 - Validation de l'acces distant",
+		"Validation en cours du depot et du catalogue...",
+	)
+
 	if err := a.client.CheckProjectAccess(context.Background(), profile); err != nil {
 		return err
 	}
@@ -112,19 +143,134 @@ func (a *app) runInit() error {
 	return nil
 }
 
-func providerSetupGuidance(provider string) string {
+
+func providerAccessGuidance(provider string, isPrivate bool) []string {
+	lines := []string{}
+	if isPrivate {
+		lines = append(lines, "Depot prive")
+	} else {
+		lines = append(lines, "Depot public")
+	}
+
 	switch strings.ToLower(strings.TrimSpace(provider)) {
 	case "github":
-		return "Authentification GitHub : utilisez GITHUB_TOKEN, LORESKILLS_TOKEN, ou vos identifiants Git pour github.com."
+		if isPrivate {
+			return append(lines, "Authentification GitHub : utilisez GITHUB_TOKEN, LORESKILLS_TOKEN, ou vos identifiants Git pour github.com.")
+		}
+		return append(lines, "Authentification GitHub : aucune authentification n'est necessaire pour un depot public lisible anonymement.")
 	case "gitlab":
-		return "Authentification GitLab : utilisez GITLAB_TOKEN, LORESKILLS_TOKEN, ou vos identifiants Git pour gitlab.com."
+		if isPrivate {
+			return append(lines, "Authentification GitLab : utilisez GITLAB_TOKEN, LORESKILLS_TOKEN, ou vos identifiants Git pour gitlab.com.")
+		}
+		return append(lines, "Authentification GitLab : aucune authentification n'est necessaire pour un depot public lisible anonymement.")
 	case "azure-devops":
-		return "Authentification Azure DevOps : utilisez AZURE_DEVOPS_EXT_PAT, AZURE_DEVOPS_TOKEN, ou vos identifiants Git pour dev.azure.com."
+		if isPrivate {
+			return append(lines, "Authentification Azure DevOps : utilisez AZURE_DEVOPS_EXT_PAT, AZURE_DEVOPS_TOKEN, ou vos identifiants Git pour dev.azure.com.")
+		}
+		return append(lines, "Authentification Azure DevOps : un depot public peut rester accessible sans secret, sinon fournissez un PAT Azure DevOps.")
 	case "bitbucket":
-		return "Authentification Bitbucket : utilisez BITBUCKET_TOKEN ou BITBUCKET_USERNAME/BITBUCKET_APP_PASSWORD, ou vos identifiants Git pour bitbucket.org."
+		if isPrivate {
+			return append(lines, "Authentification Bitbucket : utilisez BITBUCKET_TOKEN ou BITBUCKET_USERNAME/BITBUCKET_APP_PASSWORD, ou vos identifiants Git pour bitbucket.org.")
+		}
+		return append(lines, "Authentification Bitbucket : aucune authentification n'est necessaire pour un depot public lisible anonymement.")
 	default:
-		return "Authentifiez-vous via une variable d'environnement provider-specific ou vos identifiants Git existants."
+		if isPrivate {
+			return append(lines, "Authentifiez-vous via une variable d'environnement provider-specific ou vos identifiants Git existants.")
+		}
+		return append(lines, "Si le depot est public, l'acces anonyme peut suffire; sinon configurez une authentification provider-specific.")
 	}
+}
+
+func promptRepositoryID(reader *bufio.Reader, stdout io.Writer, provider, defaultValue string) (string, error) {
+	for {
+		value, err := promptValue(reader, stdout, "Repository ID", defaultValue)
+		if err != nil {
+			return "", err
+		}
+		if err := validateRepositoryID(provider, value); err != nil {
+			fmt.Fprintln(stdout, "Repository ID invalide.")
+			fmt.Fprintf(stdout, "Format attendu pour repository_id : %s\n", providerRepositoryIDFormat(provider))
+			fmt.Fprintf(stdout, "Exemple : %s\n", providerRepositoryIDExample(provider))
+			continue
+		}
+
+		return value, nil
+	}
+}
+
+func validateRepositoryID(provider, repositoryID string) error {
+	rawParts := strings.Split(strings.TrimSpace(repositoryID), "/")
+	if len(rawParts) == 0 {
+		return fmt.Errorf("repository_id invalide pour %s", provider)
+	}
+	for _, part := range rawParts {
+		if strings.TrimSpace(part) == "" {
+			return fmt.Errorf("repository_id invalide pour %s", provider)
+		}
+	}
+
+	parts := splitRepositoryID(repositoryID)
+
+	switch strings.ToLower(strings.TrimSpace(provider)) {
+	case "github", "bitbucket":
+		if len(parts) != 2 {
+			return fmt.Errorf("repository_id invalide pour %s", provider)
+		}
+	case "gitlab":
+		if len(parts) < 2 {
+			return fmt.Errorf("repository_id invalide pour %s", provider)
+		}
+	case "azure-devops":
+		if len(parts) != 3 {
+			return fmt.Errorf("repository_id invalide pour %s", provider)
+		}
+	}
+
+	return nil
+}
+
+func providerRepositoryIDFormat(provider string) string {
+	switch strings.ToLower(strings.TrimSpace(provider)) {
+	case "github":
+		return "owner/repo"
+	case "gitlab":
+		return "group/project ou group/subgroup/project"
+	case "azure-devops":
+		return "organisation/projet/repo"
+	case "bitbucket":
+		return "workspace/repo"
+	default:
+		return "provider/repository"
+	}
+}
+
+func providerRepositoryIDExample(provider string) string {
+	switch strings.ToLower(strings.TrimSpace(provider)) {
+	case "github":
+		return "octo-org/skills-catalog"
+	case "gitlab":
+		return "plateforme/ia/skills-catalog"
+	case "azure-devops":
+		return "mon-org/mon-projet/skills-catalog"
+	case "bitbucket":
+		return "mon-workspace/skills-catalog"
+	default:
+		return "provider/repository"
+	}
+}
+
+func splitRepositoryID(repositoryID string) []string {
+	rawParts := strings.Split(strings.TrimSpace(repositoryID), "/")
+	parts := make([]string, 0, len(rawParts))
+	for _, part := range rawParts {
+		trimmed := strings.TrimSpace(part)
+		if trimmed == "" {
+			continue
+		}
+		parts = append(parts, trimmed)
+	}
+
+	return parts
 }
 
 func promptProvider(reader *bufio.Reader, stdout io.Writer, defaultValue string) (string, error) {

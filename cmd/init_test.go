@@ -25,7 +25,7 @@ func TestRun_initCreatesProjectProfile(t *testing.T) {
 	defer server.Close()
 	t.Setenv("LORESKILLS_GITHUB_RAW_BASE_URL", server.URL)
 
-	result := runCLIWithInput(t, projectDir, homeDir, "\nowner/repo\n\n\n\n", "init")
+	result := runCLIWithInput(t, projectDir, homeDir, "\n\nowner/repo\n\n\n\n", "init")
 
 	if result.err != nil {
 		t.Fatalf("Run() error = %v", result.err)
@@ -77,7 +77,7 @@ func TestRun_initImportsLegacyConfigWhenAccepted(t *testing.T) {
 		t.Fatalf("WriteFile(%s): %v", configPath, err)
 	}
 
-	result := runCLIWithInput(t, projectDir, homeDir, "y\n\n\n\n\n", "init")
+	result := runCLIWithInput(t, projectDir, homeDir, "y\n\n\n\n\n\n", "init")
 
 	if result.err != nil {
 		t.Fatalf("Run() error = %v\nstdout=%s\nstderr=%s", result.err, result.stdout, result.stderr)
@@ -129,5 +129,55 @@ func TestRun_initKeepsExistingProjectProfileWhenUserDeclinesReplacement(t *testi
 	assertNotContains(t, string(data), "owner/repo")
 	if strings.Contains(string(data), "raw.githubusercontent.com") {
 		t.Fatalf("project profile unexpectedly changed: %s", data)
+	}
+}
+
+func TestRun_initGuidesUserThroughPublicGitHubSetup(t *testing.T) {
+	homeDir := t.TempDir()
+	projectDir := t.TempDir()
+	server := httptest.NewServer(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		if r.URL.Path != "/owner/repo/main/SKILLS.md" {
+			stdhttp.NotFound(w, r)
+			return
+		}
+		_, _ = w.Write([]byte(testCatalogMarkdown("| skill | alpha | skills | skills/alpha.md | Alpha |")))
+	}))
+	defer server.Close()
+	t.Setenv("LORESKILLS_GITHUB_RAW_BASE_URL", server.URL)
+
+	result := runCLIWithInput(t, projectDir, homeDir, "github\nn\nowner-only\nowner/repo\n\n\n\n", "init")
+
+	if result.err != nil {
+		t.Fatalf("Run() error = %v\nstdout=%s\nstderr=%s", result.err, result.stdout, result.stderr)
+	}
+	assertContains(t, result.stdout, "Assistant de configuration LoreSkills")
+	assertContains(t, result.stdout, "Etape 1/5 - Choisir le provider")
+	assertContains(t, result.stdout, "Etape 2/5 - Type d'acces au depot")
+	assertContains(t, result.stdout, "Depot public")
+	assertContains(t, result.stdout, "Format attendu pour repository_id : owner/repo")
+	assertContains(t, result.stdout, "Repository ID invalide")
+	assertContains(t, result.stdout, "Etape 5/5 - Validation de l'acces distant")
+	assertContains(t, result.stdout, "Configuration projet enregistrée")
+	assertContains(t, result.stdout, "Prochaine étape : utilisez `loreskills list`.")
+	assertEmpty(t, result.stderr)
+}
+
+func TestValidateRepositoryIDRejectsEmptySegments(t *testing.T) {
+	tests := []struct {
+		name         string
+		provider     string
+		repositoryID string
+	}{
+		{name: "github double slash", provider: "github", repositoryID: "owner//repo"},
+		{name: "github leading slash", provider: "github", repositoryID: "/owner/repo"},
+		{name: "azure trailing slash", provider: "azure-devops", repositoryID: "org/project/repo/"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if err := validateRepositoryID(test.provider, test.repositoryID); err == nil {
+				t.Fatalf("validateRepositoryID(%q, %q) error = nil, want error", test.provider, test.repositoryID)
+			}
+		})
 	}
 }

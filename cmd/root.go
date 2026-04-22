@@ -19,7 +19,7 @@ var commandCatalog = []commandSpec{
 	{
 		name:    "init",
 		usage:   "loreskills init",
-		summary: "Configure le dépôt privé du projet courant de manière interactive",
+		summary: "Configure pas a pas le depot distant public ou prive du projet courant",
 		examples: []string{
 			"loreskills init",
 		},
