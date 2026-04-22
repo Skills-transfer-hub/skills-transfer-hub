@@ -73,12 +73,23 @@ func (a *app) runInit() error {
 		return err
 	}
 
-	a.writeStdout("Etape 2/5 - Type d'acces au depot")
+	a.writeStdout(
+		"Etape 2/5 - Type d'acces au depot",
+	)
 	isPrivate, err := promptYesNo(reader, a.stdout, "Le depot distant est-il prive ?", true)
 	if err != nil {
 		return err
 	}
 	a.writeStdout(providerAccessGuidance(provider, isPrivate)...)
+
+	var apiToken string
+	if isPrivate {
+		var tokenErr error
+		apiToken, tokenErr = promptOptionalToken(reader, a.stdout)
+		if tokenErr != nil {
+			return tokenErr
+		}
+	}
 
 	a.writeStdout(
 		"Etape 3/5 - Identifier le depot",
@@ -115,6 +126,7 @@ func (a *app) runInit() error {
 		CatalogPath:        catalogPath,
 		TargetDir:          targetDir,
 		MigratedFromLegacy: defaults.MigratedFromLegacy,
+		APIToken:           apiToken,
 	}
 
 	a.writeStdout(
@@ -131,7 +143,7 @@ func (a *app) runInit() error {
 		return err
 	}
 
-	a.writeStdout(
+	successLines := []string{
 		fmt.Sprintf("Configuration projet enregistrée : %s", path),
 		fmt.Sprintf("Provider: %s", profile.Provider),
 		fmt.Sprintf("Dépôt: %s", profile.RepositoryID),
@@ -139,46 +151,150 @@ func (a *app) runInit() error {
 		fmt.Sprintf("Dossier cible: %s", profile.TargetDir),
 		"Accès au dépôt validé.",
 		"Prochaine étape : utilisez `loreskills list`.",
-	)
+	}
+	if profile.APIToken != "" {
+		successLines = append(successLines,
+			"",
+			"Le token saisi a ete utilise pour la validation mais n'est pas sauvegarde.",
+			"Pour les prochaines utilisations, definissez la variable d'environnement :",
+			fmt.Sprintf("  export %s=<votre-token>", providerTokenEnvVar(profile.Provider)),
+		)
+	}
+	a.writeStdout(successLines...)
 	return nil
 }
 
 
 func providerAccessGuidance(provider string, isPrivate bool) []string {
-	lines := []string{}
-	if isPrivate {
-		lines = append(lines, "Depot prive")
-	} else {
-		lines = append(lines, "Depot public")
+	if !isPrivate {
+		return providerPublicAccessGuidance(provider)
 	}
+	return providerPrivateAccessGuidance(provider)
+}
 
+func providerPublicAccessGuidance(provider string) []string {
 	switch strings.ToLower(strings.TrimSpace(provider)) {
 	case "github":
-		if isPrivate {
-			return append(lines, "Authentification GitHub : utilisez GITHUB_TOKEN, LORESKILLS_TOKEN, ou vos identifiants Git pour github.com.")
-		}
-		return append(lines, "Authentification GitHub : aucune authentification n'est necessaire pour un depot public lisible anonymement.")
+		return []string{"Depot public", "Authentification GitHub : aucune authentification n'est necessaire pour un depot public lisible anonymement."}
 	case "gitlab":
-		if isPrivate {
-			return append(lines, "Authentification GitLab : utilisez GITLAB_TOKEN, LORESKILLS_TOKEN, ou vos identifiants Git pour gitlab.com.")
-		}
-		return append(lines, "Authentification GitLab : aucune authentification n'est necessaire pour un depot public lisible anonymement.")
+		return []string{"Depot public", "Authentification GitLab : aucune authentification n'est necessaire pour un depot public lisible anonymement."}
 	case "azure-devops":
-		if isPrivate {
-			return append(lines, "Authentification Azure DevOps : utilisez AZURE_DEVOPS_EXT_PAT, AZURE_DEVOPS_TOKEN, ou vos identifiants Git pour dev.azure.com.")
-		}
-		return append(lines, "Authentification Azure DevOps : un depot public peut rester accessible sans secret, sinon fournissez un PAT Azure DevOps.")
+		return []string{"Depot public", "Authentification Azure DevOps : un depot public peut rester accessible sans secret, sinon fournissez un PAT Azure DevOps."}
 	case "bitbucket":
-		if isPrivate {
-			return append(lines, "Authentification Bitbucket : utilisez BITBUCKET_TOKEN ou BITBUCKET_USERNAME/BITBUCKET_APP_PASSWORD, ou vos identifiants Git pour bitbucket.org.")
-		}
-		return append(lines, "Authentification Bitbucket : aucune authentification n'est necessaire pour un depot public lisible anonymement.")
+		return []string{"Depot public", "Authentification Bitbucket : aucune authentification n'est necessaire pour un depot public lisible anonymement."}
 	default:
-		if isPrivate {
-			return append(lines, "Authentifiez-vous via une variable d'environnement provider-specific ou vos identifiants Git existants.")
-		}
-		return append(lines, "Si le depot est public, l'acces anonyme peut suffire; sinon configurez une authentification provider-specific.")
+		return []string{"Depot public", "Si le depot est public, l'acces anonyme peut suffire; sinon configurez une authentification provider-specific."}
 	}
+}
+
+func providerPrivateAccessGuidance(provider string) []string {
+	switch strings.ToLower(strings.TrimSpace(provider)) {
+	case "github":
+		return []string{
+			"Depot prive - Authentification requise",
+			"",
+			"Pour acceder a ce depot GitHub prive, vous avez besoin d'un Personal Access Token (PAT).",
+			"",
+			"Comment generer votre token :",
+			"  1. Rendez-vous sur : https://github.com/settings/tokens/new",
+			"  2. Selectionnez \"Fine-grained token\" (recommande) ou \"Classic token\"",
+			"     Fine-grained : accordez la permission \"Contents: Read-only\" sur le depot cible",
+			"     Classic      : cochez \"repo\" pour l'acces complet aux depots prives",
+			"  3. Cliquez \"Generate token\" et copiez la valeur affichee",
+			"",
+			"Variable d'environnement a definir pour les prochaines utilisations :",
+			"  export GITHUB_TOKEN=<votre-token>",
+			"  ou LORESKILLS_TOKEN=<votre-token>   (compatible toutes plateformes)",
+		}
+	case "gitlab":
+		return []string{
+			"Depot prive - Authentification requise",
+			"",
+			"Pour acceder a ce depot GitLab prive, vous avez besoin d'un Personal Access Token.",
+			"",
+			"Comment generer votre token :",
+			"  1. Rendez-vous sur : https://gitlab.com/-/profile/personal_access_tokens",
+			"     (Pour GitLab auto-heberge : https://<votre-gitlab>/-/profile/personal_access_tokens)",
+			"  2. Donnez un nom au token et choisissez une date d'expiration",
+			"  3. Cochez la permission : \"read_repository\"",
+			"  4. Cliquez \"Create personal access token\" et copiez la valeur affichee",
+			"",
+			"Variable d'environnement a definir pour les prochaines utilisations :",
+			"  export GITLAB_TOKEN=<votre-token>",
+			"  ou LORESKILLS_TOKEN=<votre-token>   (compatible toutes plateformes)",
+		}
+	case "azure-devops":
+		return []string{
+			"Depot prive - Authentification requise",
+			"",
+			"Pour acceder a ce depot Azure DevOps prive, vous avez besoin d'un Personal Access Token (PAT).",
+			"",
+			"Comment generer votre token :",
+			"  1. Connectez-vous sur : https://dev.azure.com/<votre-organisation>",
+			"  2. Cliquez sur votre avatar en haut a droite > \"Personal access tokens\"",
+			"     Acces direct : https://dev.azure.com/<votre-organisation>/_usersSettings/tokens",
+			"  3. Cliquez \"New Token\", selectionnez la permission : \"Code (Read)\"",
+			"  4. Cliquez \"Create\" et copiez la valeur affichee",
+			"",
+			"Variable d'environnement a definir pour les prochaines utilisations :",
+			"  export AZURE_DEVOPS_EXT_PAT=<votre-token>",
+			"  ou LORESKILLS_TOKEN=<votre-token>   (compatible toutes plateformes)",
+		}
+	case "bitbucket":
+		return []string{
+			"Depot prive - Authentification requise",
+			"",
+			"Pour acceder a ce depot Bitbucket prive, vous avez besoin d'un App Password.",
+			"",
+			"Comment generer votre App Password :",
+			"  1. Rendez-vous sur : https://bitbucket.org/account/settings/app-passwords/new",
+			"  2. Donnez un nom au mot de passe d'application",
+			"  3. Cochez la permission : \"Repositories: Read\"",
+			"  4. Cliquez \"Create\" et copiez la valeur affichee",
+			"",
+			"Variables d'environnement a definir pour les prochaines utilisations (une des options) :",
+			"  Option 1 : export BITBUCKET_TOKEN=<votre-app-password>",
+			"  Option 2 : export BITBUCKET_USERNAME=<votre-nom-utilisateur>",
+			"             export BITBUCKET_APP_PASSWORD=<votre-app-password>",
+			"  ou LORESKILLS_TOKEN=<votre-token>   (compatible toutes plateformes)",
+		}
+	default:
+		return []string{
+			"Depot prive - Authentification requise",
+			"",
+			"Generez un token d'acces depuis l'interface de votre provider et definissez :",
+			"  export LORESKILLS_TOKEN=<votre-token>",
+		}
+	}
+}
+
+// providerTokenEnvVar returns the primary environment variable name for the given provider's token.
+func providerTokenEnvVar(provider string) string {
+	switch strings.ToLower(strings.TrimSpace(provider)) {
+	case "github":
+		return "GITHUB_TOKEN"
+	case "gitlab":
+		return "GITLAB_TOKEN"
+	case "azure-devops":
+		return "AZURE_DEVOPS_EXT_PAT"
+	case "bitbucket":
+		return "BITBUCKET_TOKEN"
+	default:
+		return "LORESKILLS_TOKEN"
+	}
+}
+
+// promptOptionalToken prompts the user to optionally enter an API token for immediate access validation.
+// Returns the entered token or an empty string if the user skips.
+func promptOptionalToken(reader *bufio.Reader, stdout io.Writer) (string, error) {
+	if _, err := fmt.Fprintf(stdout, "Token d'acces pour valider maintenant (optionnel, Entree pour ignorer): "); err != nil {
+		return "", err
+	}
+	line, err := reader.ReadString('\n')
+	if err != nil && err.Error() != "EOF" {
+		return "", fmt.Errorf("lecture de l'entree utilisateur echouee : %w", err)
+	}
+	return strings.TrimSpace(line), nil
 }
 
 func promptRepositoryID(reader *bufio.Reader, stdout io.Writer, provider, defaultValue string) (string, error) {

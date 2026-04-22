@@ -47,6 +47,9 @@ type ProjectProfile struct {
 	CatalogPath        string `json:"catalog_path"`
 	TargetDir          string `json:"target_dir"`
 	MigratedFromLegacy bool   `json:"migrated_from_legacy,omitempty"`
+	// APIToken is a session-only token entered during init for immediate access validation.
+	// It is never persisted to disk.
+	APIToken string `json:"-"`
 }
 
 // CatalogEntry describes one installable resource from SKILLS.md.
