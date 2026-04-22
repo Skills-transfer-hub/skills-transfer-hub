@@ -223,14 +223,23 @@ func helpText() string {
 		builder.WriteString(fmt.Sprintf("  %-20s %s\n", commandDisplayName(spec), spec.summary))
 	}
 	builder.WriteString("\nUtilisation :\n")
-	builder.WriteString("  loreskills help\n")
-	builder.WriteString("  loreskills help install\n")
-	builder.WriteString("  loreskills version\n")
-	builder.WriteString("  loreskills init\n")
-	builder.WriteString("  loreskills install mon-skill\n")
-	builder.WriteString("  loreskills update")
+	for _, example := range usageExamples() {
+		builder.WriteString(fmt.Sprintf("  %s\n", example))
+	}
 
-	return builder.String()
+	return strings.TrimRight(builder.String(), "\n")
+}
+
+func usageExamples() []string {
+	examples := make([]string, 0, len(commandCatalog))
+	for _, spec := range commandCatalog {
+		if len(spec.examples) == 0 {
+			continue
+		}
+		examples = append(examples, spec.examples[0])
+	}
+
+	return examples
 }
 
 func commandHelpText(name string) string {
