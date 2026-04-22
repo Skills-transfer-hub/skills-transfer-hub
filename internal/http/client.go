@@ -242,8 +242,12 @@ func (c *Client) downloadURL(ctx context.Context, rawURL string, headers map[str
 }
 
 func providerResourceURL(profile fs.ProjectProfile, resourcePath string) (string, error) {
-	trimmedPath := path.Clean(strings.TrimSpace(resourcePath))
-	if trimmedPath == "." || trimmedPath == "/" || trimmedPath == "" {
+	rawPath := strings.TrimSpace(resourcePath)
+	trimmedPath := path.Clean(rawPath)
+	if rawPath == "" || trimmedPath == "." || trimmedPath == "/" {
+		return "", fmt.Errorf("chemin distant invalide : %q", resourcePath)
+	}
+	if path.IsAbs(rawPath) || path.IsAbs(trimmedPath) || trimmedPath == ".." || strings.HasPrefix(trimmedPath, "../") {
 		return "", fmt.Errorf("chemin distant invalide : %q", resourcePath)
 	}
 
