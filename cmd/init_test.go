@@ -25,7 +25,7 @@ func TestRun_initCreatesProjectProfile(t *testing.T) {
 	defer server.Close()
 	t.Setenv("LORESKILLS_GITHUB_RAW_BASE_URL", server.URL)
 
-	result := runCLIWithInput(t, projectDir, homeDir, "\n\nowner/repo\n\n\n\n", "init")
+	result := runCLIWithInput(t, projectDir, homeDir, "\n\n\nowner/repo\n\n\n\n", "init")
 
 	if result.err != nil {
 		t.Fatalf("Run() error = %v", result.err)
@@ -77,7 +77,7 @@ func TestRun_initImportsLegacyConfigWhenAccepted(t *testing.T) {
 		t.Fatalf("WriteFile(%s): %v", configPath, err)
 	}
 
-	result := runCLIWithInput(t, projectDir, homeDir, "y\n\n\n\n\n\n", "init")
+	result := runCLIWithInput(t, projectDir, homeDir, "y\n\n\n\n\n\n\n", "init")
 
 	if result.err != nil {
 		t.Fatalf("Run() error = %v\nstdout=%s\nstderr=%s", result.err, result.stdout, result.stderr)
@@ -181,3 +181,148 @@ func TestValidateRepositoryIDRejectsEmptySegments(t *testing.T) {
 		})
 	}
 }
+
+func TestRun_initShowsTokenGuidanceForPrivateRepo(t *testing.T) {
+	providers := []struct {
+		name           string
+		wantURL        string
+		wantEnvVar     string
+		repoID         string
+		serverPathFmt  string
+		rawBaseURLEnv  string
+	}{
+		{
+			name:          "github",
+			wantURL:       "https://github.com/settings/tokens/new",
+			wantEnvVar:    "GITHUB_TOKEN",
+			repoID:        "owner/repo",
+			serverPathFmt: "/owner/repo/main/SKILLS.md",
+			rawBaseURLEnv: "LORESKILLS_GITHUB_RAW_BASE_URL",
+		},
+		{
+			name:          "gitlab",
+			wantURL:       "https://gitlab.com/-/profile/personal_access_tokens",
+			wantEnvVar:    "GITLAB_TOKEN",
+			repoID:        "owner/repo",
+			serverPathFmt: "/api/v4/projects/owner%2Frepo/repository/files/SKILLS.md/raw",
+			rawBaseURLEnv: "LORESKILLS_GITLAB_API_BASE_URL",
+		},
+		{
+			name:          "bitbucket",
+			wantURL:       "https://bitbucket.org/account/settings/app-passwords/new",
+			wantEnvVar:    "BITBUCKET_TOKEN",
+			repoID:        "owner/repo",
+			serverPathFmt: "/2.0/repositories/owner/repo/src/main/SKILLS.md",
+			rawBaseURLEnv: "LORESKILLS_BITBUCKET_API_BASE_URL",
+		},
+	}
+
+	for _, p := range providers {
+		t.Run(p.name, func(t *testing.T) {
+			homeDir := t.TempDir()
+			projectDir := t.TempDir()
+			server := stdhttp.NewServeMux()
+			server.HandleFunc("/", func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+				_, _ = w.Write([]byte(testCatalogMarkdown("| skill | alpha | skills | skills/alpha.md | Alpha |")))
+			})
+			ts := httptest.NewServer(server)
+			defer ts.Close()
+
+			baseURL := ts.URL
+			if p.name == "gitlab" {
+				baseURL = ts.URL + "/api/v4"
+			} else if p.name == "bitbucket" {
+				baseURL = ts.URL + "/2.0"
+			}
+			t.Setenv(p.rawBaseURLEnv, baseURL)
+			// Set a dummy token so the credential fallback does not block waiting for git credentials.
+			t.Setenv("LORESKILLS_TOKEN", "dummy-test-token")
+
+			// Input: provider, private=y, skip token, repoID, ref, catalogPath, targetDir
+			input := p.name + "\ny\n\n" + p.repoID + "\n\n\n\n"
+			result := runCLIWithInput(t, projectDir, homeDir, input, "init")
+
+			if result.err != nil {
+				t.Fatalf("Run() error = %v\nstdout=%s\nstderr=%s", result.err, result.stdout, result.stderr)
+			}
+			assertContains(t, result.stdout, "Depot prive - Authentification requise")
+			assertContains(t, result.stdout, p.wantURL)
+			assertContains(t, result.stdout, p.wantEnvVar)
+			assertContains(t, result.stdout, "LORESKILLS_TOKEN")
+			assertContains(t, result.stdout, "Token d'acces pour valider maintenant")
+			assertContains(t, result.stdout, "Configuration projet enregistrée")
+		})
+	}
+}
+
+func TestRun_initPrivateGitHubWithTokenPassesValidation(t *testing.T) {
+	homeDir := t.TempDir()
+	projectDir := t.TempDir()
+	const testToken = "ghp_test_token_abc123"
+
+	server := httptest.NewServer(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		if r.Header.Get("Authorization") != "Bearer "+testToken {
+			stdhttp.Error(w, "unauthorized", stdhttp.StatusUnauthorized)
+			return
+		}
+		_, _ = w.Write([]byte(testCatalogMarkdown("| skill | alpha | skills | skills/alpha.md | Alpha |")))
+	}))
+	defer server.Close()
+	t.Setenv("LORESKILLS_GITHUB_RAW_BASE_URL", server.URL)
+
+	// Input: provider=github, private=y, enter token, repoID, ref, catalogPath, targetDir
+	input := "github\ny\n" + testToken + "\nowner/repo\n\n\n\n"
+	result := runCLIWithInput(t, projectDir, homeDir, input, "init")
+
+	if result.err != nil {
+		t.Fatalf("Run() error = %v\nstdout=%s\nstderr=%s", result.err, result.stdout, result.stderr)
+	}
+	assertContains(t, result.stdout, "Accès au dépôt validé")
+	assertContains(t, result.stdout, "Le token saisi a ete utilise pour la validation mais n'est pas sauvegarde")
+	assertContains(t, result.stdout, "export GITHUB_TOKEN=<votre-token>")
+}
+
+func TestRun_initAzureDevOpsShowsTokenGuidance(t *testing.T) {
+	homeDir := t.TempDir()
+	projectDir := t.TempDir()
+
+	server := httptest.NewServer(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		_, _ = w.Write([]byte(testCatalogMarkdown("| skill | alpha | skills | skills/alpha.md | Alpha |")))
+	}))
+	defer server.Close()
+	t.Setenv("LORESKILLS_AZURE_DEVOPS_BASE_URL", server.URL)
+	// Set a dummy token so the credential fallback does not block waiting for git credentials.
+	t.Setenv("LORESKILLS_TOKEN", "dummy-test-token")
+
+	// Input: azure-devops, private=y, skip token, org/project/repo, ref, catalogPath, targetDir
+	input := "azure-devops\ny\n\norg/project/repo\n\n\n\n"
+	result := runCLIWithInput(t, projectDir, homeDir, input, "init")
+
+	if result.err != nil {
+		t.Fatalf("Run() error = %v\nstdout=%s\nstderr=%s", result.err, result.stdout, result.stderr)
+	}
+	assertContains(t, result.stdout, "https://dev.azure.com/<votre-organisation>")
+	assertContains(t, result.stdout, "AZURE_DEVOPS_EXT_PAT")
+	assertContains(t, result.stdout, "Code (Read)")
+}
+
+func TestProviderTokenEnvVar(t *testing.T) {
+	tests := []struct {
+		provider string
+		want     string
+	}{
+		{"github", "GITHUB_TOKEN"},
+		{"gitlab", "GITLAB_TOKEN"},
+		{"azure-devops", "AZURE_DEVOPS_EXT_PAT"},
+		{"bitbucket", "BITBUCKET_TOKEN"},
+		{"unknown", "LORESKILLS_TOKEN"},
+	}
+	for _, test := range tests {
+		t.Run(test.provider, func(t *testing.T) {
+			if got := providerTokenEnvVar(test.provider); got != test.want {
+				t.Fatalf("providerTokenEnvVar(%q) = %q, want %q", test.provider, got, test.want)
+			}
+		})
+	}
+}
+

@@ -274,6 +274,11 @@ func providerResourceURL(profile fs.ProjectProfile, resourcePath string) (string
 }
 
 func resolveCredentialHeaders(ctx context.Context, profile fs.ProjectProfile) (credentialHeaders, error) {
+	// Session-only token entered during init (not persisted to disk).
+	if profile.APIToken != "" {
+		return providerAPITokenHeaders(profile.APIToken, profile.Provider), nil
+	}
+
 	if headers, ok := resolveEnvironmentHeaders(profile); ok {
 		return headers, nil
 	}
@@ -294,6 +299,21 @@ func resolveCredentialHeaders(ctx context.Context, profile fs.ProjectProfile) (c
 	}
 
 	return credentialHeaders{source: AccessSource{Kind: "none", Hint: host, Resolved: false}}, nil
+}
+
+// providerAPITokenHeaders builds provider-appropriate credential headers for a session token.
+func providerAPITokenHeaders(token, provider string) credentialHeaders {
+	switch strings.ToLower(strings.TrimSpace(provider)) {
+	case "gitlab":
+		return credentialHeaders{
+			headers: map[string]string{"PRIVATE-TOKEN": token},
+			source:  AccessSource{Kind: "session", Hint: "APIToken", Resolved: true},
+		}
+	case "azure-devops":
+		return basicTokenHeaders(token, "APIToken")
+	default: // github, bitbucket, unknown
+		return bearerHeaders(token, "APIToken")
+	}
 }
 
 func resolveEnvironmentHeaders(profile fs.ProjectProfile) (credentialHeaders, bool) {
