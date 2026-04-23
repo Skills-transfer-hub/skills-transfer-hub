@@ -76,8 +76,9 @@ func (a *app) runUpdate() error {
 		if v2State, err2 := fs.ReadInstalledStateV2(profile.TargetDir); err2 == nil {
 			for _, v2rec := range v2State.Entries {
 				if v2rec.ResourceName == record.CatalogID {
+					v2rec = fs.RefreshManagedFileHashes(v2rec, content)
 					v2rec.PreviousVersion = v2rec.ResolvedVersion
-					v2rec.ResolvedVersion = ""
+					v2rec.ResolvedVersion = fs.ComputeSHA256(content)
 					v2rec.InstalledAt = time.Now().UTC().Format(time.RFC3339)
 					_ = fs.UpsertInstalledResourceV2(profile.TargetDir, v2rec)
 					break

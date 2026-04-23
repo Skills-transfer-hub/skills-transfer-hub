@@ -1317,6 +1317,19 @@ func SaveInstalledResourceV2(record InstalledResourceRecordV2, content []byte) (
 	return record, nil
 }
 
+// RefreshManagedFileHashes recomputes the SHA256 for each managed file in the
+// record based on content (as it would be written to disk), without performing
+// any file I/O. For Markdown files the managed header is taken into account.
+// Returns the updated record.
+func RefreshManagedFileHashes(record InstalledResourceRecordV2, content []byte) InstalledResourceRecordV2 {
+	for i, mf := range record.ManagedFiles {
+		installedPath := filepath.Clean(filepath.FromSlash(mf.Path))
+		fileContent := addManagedHeaderIfMarkdown(installedPath, content)
+		record.ManagedFiles[i].SHA256 = ComputeSHA256(fileContent)
+	}
+	return record
+}
+
 // UpsertResourceEntry adds or replaces a ResourceEntry in cfg.Resources.
 // Returns an error if entry.ResourceName is empty or entry.ProviderID does not
 // reference an existing provider in cfg.Providers.

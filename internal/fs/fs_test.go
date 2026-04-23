@@ -363,6 +363,46 @@ func TestInstallCatalogEntryV2_SHA256MatchesActualFileContent(t *testing.T) {
 	}
 }
 
+// T038 – RefreshManagedFileHashes updates SHA256 for markdown (header included)
+func TestRefreshManagedFileHashes_MarkdownIncludesHeader(t *testing.T) {
+	record := InstalledResourceRecordV2{
+		ResourceName: "alpha",
+		ManagedFiles: []ManagedFile{{Path: ".claude/skills/skills/alpha.md", SHA256: "old"}},
+	}
+	content := []byte("# Alpha\ncontent")
+	updated := RefreshManagedFileHashes(record, content)
+
+	expectedContent := addManagedHeaderIfMarkdown(".claude/skills/skills/alpha.md", content)
+	want := ComputeSHA256(expectedContent)
+	if got := updated.ManagedFiles[0].SHA256; got != want {
+		t.Errorf("SHA256 = %q, want %q", got, want)
+	}
+}
+
+// T039 – RefreshManagedFileHashes updates SHA256 for non-markdown (raw content)
+func TestRefreshManagedFileHashes_NonMarkdownRawHash(t *testing.T) {
+	record := InstalledResourceRecordV2{
+		ResourceName: "cfg",
+		ManagedFiles: []ManagedFile{{Path: ".claude/skills/cfg/config.txt", SHA256: "old"}},
+	}
+	content := []byte("config=value")
+	updated := RefreshManagedFileHashes(record, content)
+
+	want := ComputeSHA256(content)
+	if got := updated.ManagedFiles[0].SHA256; got != want {
+		t.Errorf("SHA256 = %q, want %q", got, want)
+	}
+}
+
+// T040 – RefreshManagedFileHashes is a no-op for records with no managed files
+func TestRefreshManagedFileHashes_NoManagedFiles(t *testing.T) {
+	record := InstalledResourceRecordV2{ResourceName: "empty"}
+	updated := RefreshManagedFileHashes(record, []byte("data"))
+	if len(updated.ManagedFiles) != 0 {
+		t.Errorf("expected 0 managed files, got %d", len(updated.ManagedFiles))
+	}
+}
+
 func TestResolveCatalogEntry_reportsAmbiguousNames(t *testing.T) {
 	_, err := ResolveCatalogEntry([]CatalogEntry{
 		{CatalogID: CatalogID("skill", "skills", "alpha"), Name: "alpha", FolderName: "skills", ResourceType: "skill", SourcePath: "skills/alpha.md"},
