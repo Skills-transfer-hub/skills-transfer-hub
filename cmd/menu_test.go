@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bufio"
 	"bytes"
 	stdhttp "net/http"
 	"net/http/httptest"
@@ -149,6 +150,35 @@ func TestRenderGuidedMenu_configuredReadyProject(t *testing.T) {
 	assertStartupState(t, menu, "4. show-config")
 	assertStartupState(t, menu, "5. provider-guide")
 	assertStartupState(t, menu, "8. quit")
+}
+
+func TestPromptGuidedMenuAction_acceptsTwoDigitSelection(t *testing.T) {
+	state := guidedStartupState{
+		PrimaryAction: "action-1",
+		AvailableActions: []string{
+			"action-1",
+			"action-2",
+			"action-3",
+			"action-4",
+			"action-5",
+			"action-6",
+			"action-7",
+			"action-8",
+			"action-9",
+			"action-10",
+		},
+	}
+
+	var stdout bytes.Buffer
+	a := newApp(strings.NewReader("10\n"), &stdout, nil, nil)
+
+	action, err := promptGuidedMenuAction(bufio.NewReader(strings.NewReader("10\n")), a, state)
+	if err != nil {
+		t.Fatalf("promptGuidedMenuAction() error = %v", err)
+	}
+	if action != "action-10" {
+		t.Fatalf("action = %q, want action-10", action)
+	}
 }
 
 func TestRunGuidedMenu_configuredReadyShowsProviderGuidance(t *testing.T) {

@@ -304,3 +304,18 @@ func TestNormalizeRepositoryID_supportsHostedURLsAndRejectsSelfHosted(t *testing
 		t.Fatal("NormalizeRepositoryID(gitlab, self-hosted) error = nil, want error")
 	}
 }
+
+func TestValidateManagedFileRecord_rejectsCaseMismatchedSourcePath(t *testing.T) {
+	err := validateManagedFileRecord(
+		ManagedFileRecord{
+			RelativePath:  "SKILL.md",
+			InstalledPath: ".claude/resources/react/form-wizard/SKILL.md",
+			SourcePath:    "React/form-wizard/SKILL.md",
+		},
+		".claude/resources/react/form-wizard",
+		"react/form-wizard",
+	)
+	if err == nil {
+		t.Fatal("validateManagedFileRecord() error = nil, want source path mismatch error")
+	}
+}

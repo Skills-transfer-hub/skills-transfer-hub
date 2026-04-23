@@ -119,3 +119,21 @@ func TestUpdateCheckState_roundTripsAndExpiresAfter24Hours(t *testing.T) {
 		t.Fatalf("offer.LatestStableVersion = %q, want v1.2.0", offer.LatestStableVersion)
 	}
 }
+
+func TestSyncManagedBundle_rejectsCaseMismatchedSourcePaths(t *testing.T) {
+	paths := newTestPaths(t)
+	entry := CatalogEntry{
+		CatalogID:    CatalogID("bundle", "react", "form-wizard"),
+		ResourceType: "bundle",
+		Name:         "form-wizard",
+		FolderName:   "react",
+		SourcePath:   "react/form-wizard/SKILL.md",
+	}
+
+	_, err := SyncManagedBundle(paths.targetDir, entry, map[string][]byte{
+		"React/form-wizard/SKILL.md": []byte("# Updated\n"),
+	})
+	if err == nil {
+		t.Fatal("SyncManagedBundle() error = nil, want source path mismatch error")
+	}
+}

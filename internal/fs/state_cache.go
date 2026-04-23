@@ -255,11 +255,10 @@ func SyncManagedBundle(targetDir string, entry CatalogEntry, files map[string][]
 	installedPaths := make(map[string]struct{}, len(sourcePaths))
 	for _, sourcePath := range sourcePaths {
 		normalizedSourcePath := path.Clean(strings.ReplaceAll(strings.TrimSpace(sourcePath), "\\", "/"))
-		relativePath, relErr := filepath.Rel(filepath.FromSlash(sourceRoot), filepath.FromSlash(normalizedSourcePath))
+		relativePath, relErr := relativeRepositoryPath(sourceRoot, normalizedSourcePath)
 		if relErr != nil {
 			return InstalledResourceRecord{}, fmt.Errorf("impossible de résoudre le fichier bundle %s : %w", sourcePath, relErr)
 		}
-		relativePath = filepath.ToSlash(relativePath)
 		if relativePath == "." || relativePath == "" || relativePath == ".." || strings.HasPrefix(relativePath, "../") {
 			return InstalledResourceRecord{}, fmt.Errorf("fichier bundle hors racine gérée : %s", sourcePath)
 		}
@@ -278,7 +277,7 @@ func SyncManagedBundle(targetDir string, entry CatalogEntry, files map[string][]
 		installedPath = filepath.ToSlash(installedPath)
 		installedPaths[installedPath] = struct{}{}
 		managedFiles = append(managedFiles, ManagedFileRecord{
-			RelativePath:  filepath.ToSlash(filepath.FromSlash(relativePath)),
+			RelativePath:  relativePath,
 			InstalledPath: installedPath,
 			SourcePath:    normalizedSourcePath,
 		})

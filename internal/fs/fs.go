@@ -1023,13 +1023,10 @@ func validateManagedFileRecord(record ManagedFileRecord, managedRoot, sourceRoot
 		return errors.New("installed_path incohérent pour un fichier géré")
 	}
 
-	normalizedSourceRoot := path.Clean(strings.ReplaceAll(strings.TrimSpace(sourceRoot), "\\", "/"))
-	normalizedSourcePath := path.Clean(strings.ReplaceAll(strings.TrimSpace(record.SourcePath), "\\", "/"))
-	relativeSourcePath, err := filepath.Rel(filepath.FromSlash(normalizedSourceRoot), filepath.FromSlash(normalizedSourcePath))
+	relativeSourcePath, err := relativeRepositoryPath(sourceRoot, record.SourcePath)
 	if err != nil {
 		return fmt.Errorf("source_path incohérent pour un fichier géré : %w", err)
 	}
-	relativeSourcePath = filepath.ToSlash(relativeSourcePath)
 	if relativeSourcePath != normalizedRelativePath {
 		return errors.New("source_path incohérent pour un fichier géré")
 	}
@@ -1050,6 +1047,32 @@ func validateCatalogPath(catalogPath string) error {
 	}
 
 	return nil
+}
+
+func relativeRepositoryPath(root, fullPath string) (string, error) {
+	normalizedRoot := path.Clean(strings.ReplaceAll(strings.TrimSpace(root), "\\", "/"))
+	normalizedFullPath := path.Clean(strings.ReplaceAll(strings.TrimSpace(fullPath), "\\", "/"))
+	if normalizedRoot == "" || normalizedRoot == "." {
+		return "", errors.New("root distant doit être renseigné")
+	}
+	if normalizedFullPath == "" || normalizedFullPath == "." {
+		return "", errors.New("chemin distant doit être renseigné")
+	}
+	if normalizedFullPath == normalizedRoot {
+		return ".", nil
+	}
+
+	prefix := normalizedRoot + "/"
+	if !strings.HasPrefix(normalizedFullPath, prefix) {
+		return "", fmt.Errorf("%q n'est pas contenu dans %q", normalizedFullPath, normalizedRoot)
+	}
+
+	relativePath := path.Clean(strings.TrimPrefix(normalizedFullPath, prefix))
+	if relativePath == "" || relativePath == "." || relativePath == ".." || strings.HasPrefix(relativePath, "../") || path.IsAbs(relativePath) {
+		return "", fmt.Errorf("chemin relatif de dépôt invalide : %q", relativePath)
+	}
+
+	return relativePath, nil
 }
 
 func validateFolderName(folderName string) error {

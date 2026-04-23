@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"loreskills/internal/fs"
+	"strconv"
 	"strings"
 )
 
@@ -143,8 +144,8 @@ func promptGuidedMenuAction(reader *bufio.Reader, a *app, state guidedStartupSta
 				return action, nil
 			}
 		}
-		if trimmed >= "1" && trimmed <= "9" {
-			index := int(trimmed[0] - '1')
+		if i, convErr := strconv.Atoi(trimmed); convErr == nil {
+			index := i - 1
 			if index >= 0 && index < len(state.AvailableActions) {
 				return state.AvailableActions[index], nil
 			}
