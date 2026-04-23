@@ -25,6 +25,7 @@ func TestRun_initCreatesProjectProfile(t *testing.T) {
 	defer server.Close()
 	t.Setenv("LORESKILLS_GITHUB_RAW_BASE_URL", server.URL)
 
+	// providerID(default), provider(default=github), private(default=yes), skip token, repoID, ref, catalogPath, targetDir
 	result := runCLIWithInput(t, projectDir, homeDir, "\n\n\n\nowner/repo\n\n\n\n", "init")
 
 	if result.err != nil {
@@ -43,18 +44,24 @@ func TestRun_initCreatesProjectProfile(t *testing.T) {
 		t.Fatalf("ReadFile(%s): %v", configPath, err)
 	}
 
-	var profile fs.ProjectProfile
-	if err := json.Unmarshal(data, &profile); err != nil {
+	var cfg fs.ProjectConfigV2
+	if err := json.Unmarshal(data, &cfg); err != nil {
 		t.Fatalf("json.Unmarshal(): %v", err)
 	}
-	if profile.Provider != "github" {
-		t.Fatalf("profile.Provider = %q, want github", profile.Provider)
+	if cfg.SchemaVersion != 2 {
+		t.Fatalf("schema_version = %d, want 2", cfg.SchemaVersion)
 	}
-	if profile.RepositoryID != "owner/repo" {
-		t.Fatalf("profile.RepositoryID = %q, want owner/repo", profile.RepositoryID)
+	if len(cfg.Providers) != 1 {
+		t.Fatalf("providers count = %d, want 1", len(cfg.Providers))
 	}
-	if profile.CatalogPath != "SKILLS.md" {
-		t.Fatalf("profile.CatalogPath = %q, want SKILLS.md", profile.CatalogPath)
+	if cfg.Providers[0].Provider != "github" {
+		t.Fatalf("provider = %q, want github", cfg.Providers[0].Provider)
+	}
+	if cfg.Providers[0].RepositoryID != "owner/repo" {
+		t.Fatalf("repository_id = %q, want owner/repo", cfg.Providers[0].RepositoryID)
+	}
+	if cfg.Providers[0].CatalogPath != "SKILLS.md" {
+		t.Fatalf("catalog_path = %q, want SKILLS.md", cfg.Providers[0].CatalogPath)
 	}
 }
 
@@ -77,6 +84,8 @@ func TestRun_initImportsLegacyConfigWhenAccepted(t *testing.T) {
 		t.Fatalf("WriteFile(%s): %v", configPath, err)
 	}
 
+	// import legacy=y, then providerID(default), provider(default), private(default=yes), skip token,
+	// repositoryID(default=owner/repo), ref(default), catalogPath(default), targetDir(EOF default)
 	result := runCLIWithInput(t, projectDir, homeDir, "y\n\n\n\n\n\n\n", "init")
 
 	if result.err != nil {
@@ -88,18 +97,18 @@ func TestRun_initImportsLegacyConfigWhenAccepted(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadFile(project profile): %v", err)
 	}
-	var profile fs.ProjectProfile
-	if err := json.Unmarshal(data, &profile); err != nil {
+	var cfg fs.ProjectConfigV2
+	if err := json.Unmarshal(data, &cfg); err != nil {
 		t.Fatalf("json.Unmarshal(): %v", err)
 	}
-	if !profile.MigratedFromLegacy {
-		t.Fatal("expected migrated_from_legacy to be true")
+	if len(cfg.Providers) != 1 {
+		t.Fatalf("providers count = %d, want 1", len(cfg.Providers))
 	}
-	if profile.CatalogPath != "skills/SKILLS.md" {
-		t.Fatalf("profile.CatalogPath = %q, want skills/SKILLS.md", profile.CatalogPath)
+	if cfg.Providers[0].CatalogPath != "skills/SKILLS.md" {
+		t.Fatalf("catalog_path = %q, want skills/SKILLS.md", cfg.Providers[0].CatalogPath)
 	}
-	if profile.RepositoryID != "owner/repo" {
-		t.Fatalf("profile.RepositoryID = %q, want owner/repo", profile.RepositoryID)
+	if cfg.Providers[0].RepositoryID != "owner/repo" {
+		t.Fatalf("repository_id = %q, want owner/repo", cfg.Providers[0].RepositoryID)
 	}
 }
 
@@ -145,7 +154,7 @@ func TestRun_initGuidesUserThroughPublicGitHubSetup(t *testing.T) {
 	defer server.Close()
 	t.Setenv("LORESKILLS_GITHUB_RAW_BASE_URL", server.URL)
 
-	result := runCLIWithInput(t, projectDir, homeDir, "github\nn\nn\nowner-only\nowner/repo\n\n\n\n", "init")
+	result := runCLIWithInput(t, projectDir, homeDir, "\ngithub\nn\nowner-only\nowner/repo\n\n\n\n", "init")
 
 	if result.err != nil {
 		t.Fatalf("Run() error = %v\nstdout=%s\nstderr=%s", result.err, result.stdout, result.stderr)
@@ -238,8 +247,8 @@ func TestRun_initShowsTokenGuidanceForPrivateRepo(t *testing.T) {
 			// Set a dummy token so the credential fallback does not block waiting for git credentials.
 			t.Setenv("LORESKILLS_TOKEN", "dummy-test-token")
 
-			// Input: provider, private=y, skip token, repoID, ref, catalogPath, targetDir
-			input := p.name + "\ny\nn\n\n" + p.repoID + "\n\n\n\n"
+			// Input: providerID(default), provider, private=y, skip token, repoID, ref, catalogPath, targetDir
+			input := "\n" + p.name + "\ny\n\n" + p.repoID + "\n\n\n\n"
 			result := runCLIWithInput(t, projectDir, homeDir, input, "init")
 
 			if result.err != nil {
@@ -340,8 +349,8 @@ func TestRun_initPrivateGitHubWithTokenPassesValidation(t *testing.T) {
 	defer server.Close()
 	t.Setenv("LORESKILLS_GITHUB_RAW_BASE_URL", server.URL)
 
-	// Input: provider=github, private=y, enter token, repoID, ref, catalogPath, targetDir
-	input := "github\ny\nn\n" + testToken + "\nowner/repo\n\n\n\n"
+	// Input: providerID(default), provider=github, private=y, enter token, repoID, ref, catalogPath, targetDir
+	input := "\ngithub\ny\n" + testToken + "\nowner/repo\n\n\n\n"
 	result := runCLIWithInput(t, projectDir, homeDir, input, "init")
 
 	if result.err != nil {
@@ -364,8 +373,8 @@ func TestRun_initAzureDevOpsShowsTokenGuidance(t *testing.T) {
 	// Set a dummy token so the credential fallback does not block waiting for git credentials.
 	t.Setenv("LORESKILLS_TOKEN", "dummy-test-token")
 
-	// Input: azure-devops, private=y, skip token, org/project/repo, ref, catalogPath, targetDir
-	input := "azure-devops\ny\nn\n\norg/project/repo\n\n\n\n"
+	// Input: providerID(default), azure-devops, private=y, skip token, org/project/repo, ref, catalogPath, targetDir
+	input := "\nazure-devops\ny\n\norg/project/repo\n\n\n\n"
 	result := runCLIWithInput(t, projectDir, homeDir, input, "init")
 
 	if result.err != nil {
@@ -396,3 +405,192 @@ func TestProviderTokenEnvVar(t *testing.T) {
 	}
 }
 
+// T020 — fresh project creates a v2 config with one provider.
+func TestRunInit_EmptyProject_CreatesV2WithOneProvider(t *testing.T) {
+	homeDir := t.TempDir()
+	projectDir := t.TempDir()
+	server := httptest.NewServer(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		_, _ = w.Write([]byte(testCatalogMarkdown("| skill | alpha | skills | skills/alpha.md | Alpha |")))
+	}))
+	defer server.Close()
+	t.Setenv("LORESKILLS_GITHUB_RAW_BASE_URL", server.URL)
+
+	// providerID=default, provider=github, private=no, repoID=org/repo, ref=main, catalogPath=SKILLS.md, targetDir=.claude/skills
+	input := "default\ngithub\nn\norg/repo\nmain\nSKILLS.md\n.claude/skills\n"
+	result := runCLIWithInput(t, projectDir, homeDir, input, "init")
+
+	if result.err != nil {
+		t.Fatalf("Run() error = %v\nstdout=%s\nstderr=%s", result.err, result.stdout, result.stderr)
+	}
+	assertContains(t, result.stdout, "Configuration projet enregistrée")
+
+	configPath := filepath.Join(projectDir, ".loreskills", "project.json")
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("ReadFile(%s): %v", configPath, err)
+	}
+
+	var cfg fs.ProjectConfigV2
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		t.Fatalf("json.Unmarshal(): %v", err)
+	}
+	if cfg.SchemaVersion != 2 {
+		t.Fatalf("schema_version = %d, want 2", cfg.SchemaVersion)
+	}
+	if len(cfg.Providers) != 1 {
+		t.Fatalf("providers count = %d, want 1", len(cfg.Providers))
+	}
+	p := cfg.Providers[0]
+	if p.ID != "default" {
+		t.Fatalf("provider ID = %q, want default", p.ID)
+	}
+	if p.Provider != "github" {
+		t.Fatalf("provider = %q, want github", p.Provider)
+	}
+	if p.RepositoryID != "org/repo" {
+		t.Fatalf("repository_id = %q, want org/repo", p.RepositoryID)
+	}
+	if len(cfg.Resources) != 0 {
+		t.Fatalf("resources = %v, want empty array", cfg.Resources)
+	}
+}
+
+// T021 — existing v2 config: a second provider is appended, first unchanged.
+func TestRunInit_ExistingV2_AppendsSecondProvider(t *testing.T) {
+	homeDir := t.TempDir()
+	projectDir := t.TempDir()
+	server := httptest.NewServer(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		_, _ = w.Write([]byte(testCatalogMarkdown("| skill | alpha | skills | skills/alpha.md | Alpha |")))
+	}))
+	defer server.Close()
+	t.Setenv("LORESKILLS_GITHUB_RAW_BASE_URL", server.URL)
+
+	writeProjectConfigV2ForTest(t, projectDir, fs.ProjectConfigV2{
+		SchemaVersion: 2,
+		Providers: []fs.ProviderEntry{
+			{ID: "first", Provider: "github", RepositoryID: "org/first", CatalogRef: "main", CatalogPath: "SKILLS.md", TargetDir: ".claude/skills"},
+		},
+		Resources: []fs.ResourceEntry{},
+	})
+
+	// yes to add provider, providerID=second, provider=github, private=no, repoID, ref, catalogPath, targetDir
+	input := "y\nsecond\ngithub\nn\norg/second\nmain\nSKILLS.md\n.claude/skills\n"
+	result := runCLIWithInput(t, projectDir, homeDir, input, "init")
+
+	if result.err != nil {
+		t.Fatalf("Run() error = %v\nstdout=%s\nstderr=%s", result.err, result.stdout, result.stderr)
+	}
+
+	configPath := filepath.Join(projectDir, ".loreskills", "project.json")
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("ReadFile(%s): %v", configPath, err)
+	}
+	var cfg fs.ProjectConfigV2
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		t.Fatalf("json.Unmarshal(): %v", err)
+	}
+	if len(cfg.Providers) != 2 {
+		t.Fatalf("providers count = %d, want 2", len(cfg.Providers))
+	}
+	if cfg.Providers[0].ID != "first" {
+		t.Fatalf("first provider ID = %q, want first", cfg.Providers[0].ID)
+	}
+	if cfg.Providers[0].RepositoryID != "org/first" {
+		t.Fatalf("first provider repository_id = %q, want org/first (should be unchanged)", cfg.Providers[0].RepositoryID)
+	}
+	if cfg.Providers[1].ID != "second" {
+		t.Fatalf("second provider ID = %q, want second", cfg.Providers[1].ID)
+	}
+}
+
+// T022 — duplicate provider ID returns an error; file is untouched.
+func TestRunInit_DuplicateProviderID_ReturnsError(t *testing.T) {
+	homeDir := t.TempDir()
+	projectDir := t.TempDir()
+
+	writeProjectConfigV2ForTest(t, projectDir, fs.ProjectConfigV2{
+		SchemaVersion: 2,
+		Providers: []fs.ProviderEntry{
+			{ID: "default", Provider: "github", RepositoryID: "org/repo", CatalogRef: "main", CatalogPath: "SKILLS.md", TargetDir: ".claude/skills"},
+		},
+		Resources: []fs.ResourceEntry{},
+	})
+
+	// yes to add provider, then duplicate providerID
+	input := "y\ndefault\n"
+	result := runCLIWithInput(t, projectDir, homeDir, input, "init")
+
+	if result.err == nil {
+		t.Fatal("Run() error = nil, want error for duplicate provider ID")
+	}
+	if !strings.Contains(result.err.Error(), "default") && !strings.Contains(result.stderr, "default") {
+		t.Fatalf("expected error mentioning 'default', got: err=%v stderr=%s", result.err, result.stderr)
+	}
+
+	configPath := filepath.Join(projectDir, ".loreskills", "project.json")
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("ReadFile(%s): %v", configPath, err)
+	}
+	var cfg fs.ProjectConfigV2
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		t.Fatalf("json.Unmarshal(): %v", err)
+	}
+	if len(cfg.Providers) != 1 {
+		t.Fatalf("providers count = %d, want 1 after error", len(cfg.Providers))
+	}
+}
+
+// T023 — written v2 config has all correct provider fields and empty resources array.
+func TestRunInit_V2WrittenCorrectly_ProvidersArray(t *testing.T) {
+	homeDir := t.TempDir()
+	projectDir := t.TempDir()
+	server := httptest.NewServer(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		_, _ = w.Write([]byte(testCatalogMarkdown("| skill | alpha | skills | skills/alpha.md | Alpha |")))
+	}))
+	defer server.Close()
+	t.Setenv("LORESKILLS_GITHUB_RAW_BASE_URL", server.URL)
+
+	input := "myprovider\ngithub\nn\norg/repo\nmain\nSKILLS.md\n.claude/skills\n"
+	result := runCLIWithInput(t, projectDir, homeDir, input, "init")
+
+	if result.err != nil {
+		t.Fatalf("Run() error = %v\nstdout=%s", result.err, result.stdout)
+	}
+
+	configPath := filepath.Join(projectDir, ".loreskills", "project.json")
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("ReadFile(%s): %v", configPath, err)
+	}
+	var cfg fs.ProjectConfigV2
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		t.Fatalf("json.Unmarshal(): %v", err)
+	}
+	if len(cfg.Providers) != 1 {
+		t.Fatalf("providers count = %d, want 1", len(cfg.Providers))
+	}
+	p := cfg.Providers[0]
+	if p.ID != "myprovider" {
+		t.Fatalf("id = %q, want myprovider", p.ID)
+	}
+	if p.Provider != "github" {
+		t.Fatalf("provider = %q, want github", p.Provider)
+	}
+	if p.RepositoryID != "org/repo" {
+		t.Fatalf("repository_id = %q, want org/repo", p.RepositoryID)
+	}
+	if p.CatalogRef != "main" {
+		t.Fatalf("catalog_ref = %q, want main", p.CatalogRef)
+	}
+	if p.CatalogPath != "SKILLS.md" {
+		t.Fatalf("catalog_path = %q, want SKILLS.md", p.CatalogPath)
+	}
+	if p.TargetDir != ".claude/skills" {
+		t.Fatalf("target_dir = %q, want .claude/skills", p.TargetDir)
+	}
+	if len(cfg.Resources) != 0 {
+		t.Fatalf("resources = %v, want empty array", cfg.Resources)
+	}
+}

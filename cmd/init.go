@@ -12,7 +12,7 @@ import (
 func (a *app) runInit() error {
 	reader := bufio.NewReader(a.stdin)
 
-	existingProfile, err := fs.ReadProjectProfileIfPresent()
+	existingCfg, err := fs.ReadProjectConfigV2()
 	if err != nil {
 		return err
 	}
@@ -21,32 +21,28 @@ func (a *app) runInit() error {
 		return err
 	}
 
+	if len(existingCfg.Providers) > 0 {
+		a.writeStdout(fmt.Sprintf("Configuration projet existante : %d provider(s) configuré(s) :", len(existingCfg.Providers)))
+		for _, p := range existingCfg.Providers {
+			a.writeStdout(fmt.Sprintf("- [%s] %s: %s @ %s", p.ID, p.Provider, p.RepositoryID, p.CatalogRef))
+		}
+		addNew, promptErr := promptYesNo(reader, a.stdout, "Ajouter un nouveau provider ?", false)
+		if promptErr != nil {
+			return promptErr
+		}
+		if !addNew {
+			a.writeStdout("Configuration projet conservée.", "Prochaine étape : utilisez `loreskills list`.")
+			return nil
+		}
+	}
+
 	defaults := fs.ProjectProfile{
 		Provider:    "github",
-		RepositoryID: "",
 		Ref:         "main",
 		CatalogPath: "SKILLS.md",
 		TargetDir:   ".claude/skills",
 	}
-	if existingProfile != nil {
-		defaults = *existingProfile
-		a.writeStdout(
-			"Configuration projet existante détectée :",
-			fmt.Sprintf("- provider: %s", existingProfile.Provider),
-			fmt.Sprintf("- repository_id: %s", existingProfile.RepositoryID),
-			fmt.Sprintf("- ref: %s", existingProfile.Ref),
-			fmt.Sprintf("- catalog_path: %s", existingProfile.CatalogPath),
-			fmt.Sprintf("- target_dir: %s", existingProfile.TargetDir),
-		)
-		shouldReplace, promptErr := promptYesNo(reader, a.stdout, "Remplacer cette configuration ?", false)
-		if promptErr != nil {
-			return promptErr
-		}
-		if !shouldReplace {
-			a.writeStdout("Configuration projet conservée.", "Prochaine étape : utilisez `loreskills list`.")
-			return nil
-		}
-	} else if legacyConfig != nil {
+	if len(existingCfg.Providers) == 0 && legacyConfig != nil {
 		legacyProfile, legacyErr := fs.LegacyProfileFromConfig(*legacyConfig)
 		if legacyErr == nil {
 			shouldImport, promptErr := promptYesNo(reader, a.stdout, "Importer la configuration legacy ~/.loreskillsrc ?", true)
@@ -63,6 +59,32 @@ func (a *app) runInit() error {
 		"Assistant de configuration LoreSkills",
 		"Ce wizard vous guide pas a pas pour connecter le projet courant a un catalogue distant.",
 	)
+	a.writeStdout("Etape 0/5 - Identifiant du provider")
+
+	var providerID string
+	for {
+		id, promptErr := promptValue(reader, a.stdout, "Provider ID (identifiant unique)", "default")
+		if promptErr != nil {
+			return promptErr
+		}
+		if validateErr := fs.ValidateProviderID(id); validateErr != nil {
+			fmt.Fprintln(a.stdout, validateErr.Error())
+			continue
+		}
+		isDuplicate := false
+		for _, p := range existingCfg.Providers {
+			if p.ID == id {
+				isDuplicate = true
+				break
+			}
+		}
+		if isDuplicate {
+			return fmt.Errorf("provider ID %q déjà configuré", id)
+		}
+		providerID = id
+		break
+	}
+
 	a.writeStdout(
 		"Etape 1/5 - Choisir le provider",
 		"Providers pris en charge : github, gitlab, azure-devops, bitbucket.",
@@ -147,16 +169,27 @@ func (a *app) runInit() error {
 		return err
 	}
 
-	path, err := fs.WriteProjectProfile(profile)
+	entry := fs.ProviderEntry{
+		ID:           providerID,
+		Provider:     provider,
+		RepositoryID: repositoryID,
+		CatalogRef:   refValue,
+		CatalogPath:  catalogPath,
+		TargetDir:    targetDir,
+	}
+	existingCfg.Providers = append(existingCfg.Providers, entry)
+
+	path, err := fs.WriteProjectConfigV2(existingCfg)
 	if err != nil {
 		return err
 	}
 
 	successLines := []string{
 		fmt.Sprintf("Configuration projet enregistrée : %s", path),
+		fmt.Sprintf("Provider ID: %s", providerID),
 		fmt.Sprintf("Provider: %s", profile.Provider),
 		fmt.Sprintf("Dépôt: %s", profile.RepositoryID),
-		fmt.Sprintf("Catalogue: %s @ %s", profile.CatalogPath, profile.Ref),
+		fmt.Sprintf("Catalogue: %s @ %s", profile.CatalogPath, refValue),
 		fmt.Sprintf("Dossier cible: %s", profile.TargetDir),
 		"Accès au dépôt validé.",
 		"Prochaine étape : utilisez `loreskills list`.",

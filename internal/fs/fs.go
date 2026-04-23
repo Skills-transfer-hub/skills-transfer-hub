@@ -18,6 +18,7 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+	"time"
 )
 
 const (
@@ -25,6 +26,7 @@ const (
 	projectConfigDirName  = ".loreskills"
 	projectConfigFileName = "project.json"
 	stateFileName         = "lore-state.json"
+	stateFileNameV2       = "lore-state-v2.json"
 	defaultRef            = "main"
 	defaultCatalogPath    = "SKILLS.md"
 	defaultTargetDir      = ".claude/skills"
@@ -246,6 +248,8 @@ func ProjectProfilePath() (string, error) {
 }
 
 // ReadProjectProfileIfPresent loads the project-local profile if it exists.
+// For v2 format files it returns the first provider's data as a ProjectProfile
+// so that callers written against the v1 API continue to work.
 func ReadProjectProfileIfPresent() (*ProjectProfile, error) {
 	path, err := ProjectProfilePath()
 	if err != nil {
@@ -260,25 +264,42 @@ func ReadProjectProfileIfPresent() (*ProjectProfile, error) {
 		return nil, fmt.Errorf("lecture de %s échouée : %w", path, err)
 	}
 
+	// Try v1 format first.
 	var profile ProjectProfile
-	if err := json.Unmarshal(data, &profile); err != nil {
-		return nil, fmt.Errorf("profil projet malformé (%s) : %w", path, err)
-	}
-	if err := validateProjectProfile(profile); err != nil {
-		return nil, fmt.Errorf("profil projet invalide (%s) : %w", path, err)
+	if jsonErr := json.Unmarshal(data, &profile); jsonErr == nil {
+		if validateErr := validateProjectProfile(profile); validateErr == nil {
+			profile.Provider = normalizeProvider(profile.Provider)
+			profile.RepositoryID = strings.TrimSpace(profile.RepositoryID)
+			profile.Ref = normalizeRef(profile.Ref)
+			profile.CatalogPath = normalizeCatalogPath(profile.CatalogPath)
+			profile.TargetDir = filepath.Clean(strings.TrimSpace(profile.TargetDir))
+			return &profile, nil
+		}
 	}
 
-	profile.Provider = normalizeProvider(profile.Provider)
-	normalizedRepositoryID, err := NormalizeRepositoryID(profile.Provider, profile.RepositoryID)
-	if err != nil {
-		return nil, fmt.Errorf("profil projet invalide (%s) : %w", path, err)
+	// Try v2 fallback — return first provider as ProjectProfile so that
+	// list/install/update continue to work after init writes v2 format.
+	var v2cfg ProjectConfigV2
+	if jsonErr := json.Unmarshal(data, &v2cfg); jsonErr == nil && len(v2cfg.Providers) > 0 {
+		p := v2cfg.Providers[0]
+		profile = ProjectProfile{
+			Provider:     p.Provider,
+			RepositoryID: p.RepositoryID,
+			Ref:          p.CatalogRef,
+			CatalogPath:  p.CatalogPath,
+			TargetDir:    p.TargetDir,
+		}
+		if validateErr := validateProjectProfile(profile); validateErr == nil {
+			profile.Provider = normalizeProvider(profile.Provider)
+			profile.RepositoryID = strings.TrimSpace(profile.RepositoryID)
+			profile.Ref = normalizeRef(profile.Ref)
+			profile.CatalogPath = normalizeCatalogPath(profile.CatalogPath)
+			profile.TargetDir = filepath.Clean(strings.TrimSpace(profile.TargetDir))
+			return &profile, nil
+		}
 	}
-	profile.RepositoryID = normalizedRepositoryID
-	profile.Ref = normalizeRef(profile.Ref)
-	profile.CatalogPath = normalizeCatalogPath(profile.CatalogPath)
-	profile.TargetDir = filepath.Clean(strings.TrimSpace(profile.TargetDir))
 
-	return &profile, nil
+	return nil, fmt.Errorf("profil projet malformé (%s)", path)
 }
 
 // ReadProjectProfile loads the current project profile or returns a user-facing error when absent.
@@ -503,7 +524,7 @@ func ResolveManagedPath(managedRoot, relativePath string) (string, error) {
 
 // InstallCatalogEntry writes the catalog entry and updates lore-state.json.
 func InstallCatalogEntry(targetDir string, entry CatalogEntry, content []byte) (InstalledResourceRecord, error) {
-	record, err := SaveCatalogEntry(targetDir, entry, content)
+	record, _, err := SaveCatalogEntry(targetDir, entry, content)
 	if err != nil {
 		return InstalledResourceRecord{}, err
 	}
@@ -515,20 +536,25 @@ func InstallCatalogEntry(targetDir string, entry CatalogEntry, content []byte) (
 	return record, nil
 }
 
-// SaveCatalogEntry writes the resource content to disk and returns the tracked record.
-func SaveCatalogEntry(targetDir string, entry CatalogEntry, content []byte) (InstalledResourceRecord, error) {
+// SaveCatalogEntry writes the resource content to disk and returns the tracked record and managed file.
+func SaveCatalogEntry(targetDir string, entry CatalogEntry, content []byte) (InstalledResourceRecord, ManagedFile, error) {
 	installedPath, err := BuildInstalledPath(targetDir, entry)
 	if err != nil {
-		return InstalledResourceRecord{}, err
+		return InstalledResourceRecord{}, ManagedFile{}, err
 	}
 
 	if err := os.MkdirAll(filepath.Dir(installedPath), 0o755); err != nil {
-		return InstalledResourceRecord{}, fmt.Errorf("création du dossier %s échouée : %w", filepath.Dir(installedPath), err)
+		return InstalledResourceRecord{}, ManagedFile{}, fmt.Errorf("création du dossier %s échouée : %w", filepath.Dir(installedPath), err)
 	}
 
 	fileContent := addManagedHeaderIfMarkdown(installedPath, content)
 	if err := os.WriteFile(installedPath, fileContent, 0o644); err != nil {
-		return InstalledResourceRecord{}, fmt.Errorf("écriture de %s échouée : %w", installedPath, err)
+		return InstalledResourceRecord{}, ManagedFile{}, fmt.Errorf("écriture de %s échouée : %w", installedPath, err)
+	}
+
+	managedFile := ManagedFile{
+		Path:   filepath.ToSlash(filepath.Clean(installedPath)),
+		SHA256: ComputeSHA256(fileContent),
 	}
 
 	record := InstalledResourceRecord{
@@ -544,7 +570,7 @@ func SaveCatalogEntry(targetDir string, entry CatalogEntry, content []byte) (Ins
 		record.InstalledPath = filepath.ToSlash(filepath.Join(filepath.Clean(targetDir), filepath.Base(filepath.FromSlash(entry.SourcePath))))
 	}
 
-	return record, nil
+	return record, managedFile, nil
 }
 
 // SaveInstalledResource writes an existing tracked resource back to disk.
@@ -1137,17 +1163,189 @@ func splitNonEmpty(value string) []string {
 	return filtered
 }
 
-func supportedRepositoryHost(provider string) string {
-	switch normalizeProvider(provider) {
-	case "github":
-		return "github.com"
-	case "gitlab":
-		return "gitlab.com"
-	case "azure-devops":
-		return "dev.azure.com"
-	case "bitbucket":
-		return "bitbucket.org"
-	default:
-		return ""
+// ComputeSHA256 returns the lowercase hex-encoded SHA-256 digest of data.
+func ComputeSHA256(data []byte) string {
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
+}
+
+// ReadProjectConfigV2 loads the v2 project config, migrating from v1 if needed.
+// Returns an empty v2 config if the file does not exist.
+func ReadProjectConfigV2() (ProjectConfigV2, error) {
+	path, err := ProjectProfilePath()
+	if err != nil {
+		return ProjectConfigV2{}, err
 	}
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		return ProjectConfigV2{SchemaVersion: 2, Providers: []ProviderEntry{}, Resources: []ResourceEntry{}}, nil
+	}
+	return MigrateProjectConfig(path)
+}
+
+// ReadInstalledStateV2 loads the v2 installed state for targetDir.
+// Returns an empty v2 state if the file does not exist.
+func ReadInstalledStateV2(targetDir string) (InstalledResourceStateV2, error) {
+	if err := validateTargetDir(targetDir); err != nil {
+		return InstalledResourceStateV2{}, err
+	}
+	statePath := filepath.Join(filepath.Clean(targetDir), stateFileNameV2)
+	if _, err := os.Stat(statePath); os.IsNotExist(err) {
+		return InstalledResourceStateV2{SchemaVersion: 2, Entries: []InstalledResourceRecordV2{}}, nil
+	}
+	data, err := os.ReadFile(statePath)
+	if err != nil {
+		return InstalledResourceStateV2{}, fmt.Errorf("lecture de %s échouée : %w", statePath, err)
+	}
+	var state InstalledResourceStateV2
+	if err := json.Unmarshal(data, &state); err != nil {
+		return InstalledResourceStateV2{}, fmt.Errorf("désérialisation v2 échouée : %w", err)
+	}
+	return state, nil
+}
+
+// WriteProjectConfigV2 persists a v2 project config to disk.
+func WriteProjectConfigV2(cfg ProjectConfigV2) (string, error) {
+	cfg.SchemaVersion = 2
+	if cfg.Providers == nil {
+		cfg.Providers = []ProviderEntry{}
+	}
+	if cfg.Resources == nil {
+		cfg.Resources = []ResourceEntry{}
+	}
+	data, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return "", fmt.Errorf("sérialisation v2 échouée : %w", err)
+	}
+	path, err := ProjectProfilePath()
+	if err != nil {
+		return "", err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return "", fmt.Errorf("création du dossier de configuration projet échouée : %w", err)
+	}
+	if err := os.WriteFile(path, append(data, '\n'), 0o644); err != nil {
+		return "", fmt.Errorf("écriture de %s échouée : %w", path, err)
+	}
+	return path, nil
+}
+
+// WriteInstalledStateV2 persists a v2 installed state for targetDir to disk.
+func WriteInstalledStateV2(targetDir string, state InstalledResourceStateV2) error {
+	if err := validateTargetDir(targetDir); err != nil {
+		return err
+	}
+	state.SchemaVersion = 2
+	if state.Entries == nil {
+		state.Entries = []InstalledResourceRecordV2{}
+	}
+	data, err := json.MarshalIndent(state, "", "  ")
+	if err != nil {
+		return fmt.Errorf("sérialisation v2 échouée : %w", err)
+	}
+	statePath := filepath.Join(filepath.Clean(targetDir), stateFileNameV2)
+	return os.WriteFile(statePath, append(data, '\n'), 0o644)
+}
+
+// InstallCatalogEntryV2 writes the catalog entry to disk and records it in lore-state-v2.json.
+func InstallCatalogEntryV2(targetDir string, entry CatalogEntry, content []byte) (InstalledResourceRecordV2, error) {
+	record, managedFile, err := SaveCatalogEntry(targetDir, entry, content)
+	if err != nil {
+		return InstalledResourceRecordV2{}, err
+	}
+
+	v2record := InstalledResourceRecordV2{
+		ResourceName: record.CatalogID,
+		ProviderID:   "default",
+		InstalledAt:  time.Now().UTC().Format(time.RFC3339),
+		ManagedFiles: []ManagedFile{managedFile},
+	}
+
+	if err := UpsertInstalledResourceV2(targetDir, v2record); err != nil {
+		return InstalledResourceRecordV2{}, err
+	}
+
+	return v2record, nil
+}
+
+// UpsertInstalledResourceV2 stores or replaces the given record in lore-state-v2.json.
+func UpsertInstalledResourceV2(targetDir string, record InstalledResourceRecordV2) error {
+	if err := EnsureTargetDir(targetDir); err != nil {
+		return err
+	}
+
+	state, err := ReadInstalledStateV2(targetDir)
+	if err != nil {
+		return err
+	}
+
+	for i, existing := range state.Entries {
+		if existing.ResourceName == record.ResourceName {
+			state.Entries[i] = record
+			sort.Slice(state.Entries, func(a, b int) bool {
+				return state.Entries[a].ResourceName < state.Entries[b].ResourceName
+			})
+			return WriteInstalledStateV2(targetDir, state)
+		}
+	}
+
+	state.Entries = append(state.Entries, record)
+	sort.Slice(state.Entries, func(a, b int) bool {
+		return state.Entries[a].ResourceName < state.Entries[b].ResourceName
+	})
+	return WriteInstalledStateV2(targetDir, state)
+}
+
+// SaveInstalledResourceV2 writes an existing v2-tracked resource back to disk and updates its SHA256.
+// If the record has no managed files, it is a no-op.
+func SaveInstalledResourceV2(record InstalledResourceRecordV2, content []byte) (InstalledResourceRecordV2, error) {
+	if len(record.ManagedFiles) == 0 {
+		return record, nil
+	}
+
+	mf := record.ManagedFiles[0]
+	installedPath := filepath.Clean(filepath.FromSlash(mf.Path))
+	if err := os.MkdirAll(filepath.Dir(installedPath), 0o755); err != nil {
+		return record, fmt.Errorf("création du dossier %s échouée : %w", filepath.Dir(installedPath), err)
+	}
+
+	fileContent := addManagedHeaderIfMarkdown(installedPath, content)
+	if err := os.WriteFile(installedPath, fileContent, 0o644); err != nil {
+		return record, fmt.Errorf("écriture de %s échouée : %w", installedPath, err)
+	}
+
+	record.ManagedFiles[0].SHA256 = ComputeSHA256(fileContent)
+	return record, nil
+}
+
+// UpsertResourceEntry adds or replaces a ResourceEntry in cfg.Resources.
+// Returns an error if entry.ResourceName is empty or entry.ProviderID does not
+// reference an existing provider in cfg.Providers.
+func UpsertResourceEntry(cfg *ProjectConfigV2, entry ResourceEntry) error {
+	if strings.TrimSpace(entry.ResourceName) == "" {
+		return errors.New("resource_name doit être renseigné")
+	}
+	found := false
+	for _, p := range cfg.Providers {
+		if p.ID == entry.ProviderID {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return fmt.Errorf("provider_id %q introuvable dans la configuration", entry.ProviderID)
+	}
+	for i, existing := range cfg.Resources {
+		if existing.ResourceName == entry.ResourceName {
+			cfg.Resources[i] = entry
+			sort.Slice(cfg.Resources, func(a, b int) bool {
+				return cfg.Resources[a].ResourceName < cfg.Resources[b].ResourceName
+			})
+			return nil
+		}
+	}
+	cfg.Resources = append(cfg.Resources, entry)
+	sort.Slice(cfg.Resources, func(a, b int) bool {
+		return cfg.Resources[a].ResourceName < cfg.Resources[b].ResourceName
+	})
+	return nil
 }

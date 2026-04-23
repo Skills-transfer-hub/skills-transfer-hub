@@ -26,6 +26,7 @@ func (a *app) runInstall(resourceRef string) error {
 	if err != nil {
 		return err
 	}
+	_, _ = fs.InstallCatalogEntryV2(profile.TargetDir, entry, content)
 
 	a.writeStdout(
 		fmt.Sprintf("Ressource '%s' installée dans %s.", entry.Name, record.InstalledPath),

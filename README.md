@@ -184,15 +184,22 @@ Si aucune version stable plus récente n'existe, LoreSkills affiche `Aucune mise
 
 ### Profil projet
 
-LoreSkills crée `.loreskills/project.json` dans le projet courant :
+LoreSkills crée `.loreskills/project.json` dans le projet courant (format v2) :
 
 ```json
 {
-  "provider": "github",
-  "repository_id": "mon-org/mon-repo",
-  "ref": "main",
-  "catalog_path": "SKILLS.md",
-  "target_dir": ".claude/skills"
+  "schema_version": 2,
+  "providers": [
+    {
+      "id": "default",
+      "provider": "github",
+      "repository_id": "mon-org/mon-repo",
+      "catalog_ref": "main",
+      "catalog_path": "SKILLS.md",
+      "target_dir": ".claude/skills"
+    }
+  ],
+  "resources": []
 }
 ```
 
