@@ -3,6 +3,7 @@ package cmd
 import (
 	"bufio"
 	"fmt"
+	"io"
 	"loreskills/internal/fs"
 	"strings"
 )
@@ -130,7 +131,7 @@ func promptGuidedMenuAction(reader *bufio.Reader, a *app, state guidedStartupSta
 			return "", err
 		}
 		line, err := reader.ReadString('\n')
-		if err != nil && err.Error() != "EOF" {
+		if err != nil && err != io.EOF {
 			return "", fmt.Errorf("lecture de l'entrée utilisateur échouée : %w", err)
 		}
 		trimmed := strings.TrimSpace(line)

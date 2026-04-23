@@ -299,7 +299,7 @@ func promptOptionalToken(reader *bufio.Reader, stdout io.Writer) (string, error)
 		return "", err
 	}
 	line, err := reader.ReadString('\n')
-	if err != nil && err.Error() != "EOF" {
+	if err != nil && err != io.EOF {
 		return "", fmt.Errorf("lecture de l'entree utilisateur echouee : %w", err)
 	}
 	return strings.TrimSpace(line), nil
@@ -349,20 +349,6 @@ func providerRepositoryIDExample(provider string) string {
 	return guide.RepositoryIDExample
 }
 
-func splitRepositoryID(repositoryID string) []string {
-	rawParts := strings.Split(strings.TrimSpace(repositoryID), "/")
-	parts := make([]string, 0, len(rawParts))
-	for _, part := range rawParts {
-		trimmed := strings.TrimSpace(part)
-		if trimmed == "" {
-			continue
-		}
-		parts = append(parts, trimmed)
-	}
-
-	return parts
-}
-
 func promptProvider(reader *bufio.Reader, stdout io.Writer, defaultValue string) (string, error) {
 	allowed := supportedProviderKeys()
 	for {
@@ -387,7 +373,7 @@ func promptValue(reader *bufio.Reader, stdout io.Writer, label, defaultValue str
 		return "", err
 	}
 	line, err := reader.ReadString('\n')
-	if err != nil && err.Error() != "EOF" {
+	if err != nil && err != io.EOF {
 		return "", fmt.Errorf("lecture de l'entrée utilisateur échouée : %w", err)
 	}
 	trimmed := strings.TrimSpace(line)
@@ -410,7 +396,7 @@ func promptYesNo(reader *bufio.Reader, stdout io.Writer, label string, defaultYe
 		return false, err
 	}
 	line, err := reader.ReadString('\n')
-	if err != nil && err.Error() != "EOF" {
+	if err != nil && err != io.EOF {
 		return false, fmt.Errorf("lecture de l'entrée utilisateur échouée : %w", err)
 	}
 	trimmed := strings.ToLower(strings.TrimSpace(line))

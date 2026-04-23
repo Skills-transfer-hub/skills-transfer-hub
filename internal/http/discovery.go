@@ -206,21 +206,31 @@ func (c *Client) listGitHubTree(ctx context.Context, profile fs.ProjectProfile, 
 }
 
 func (c *Client) listGitLabTree(ctx context.Context, profile fs.ProjectProfile, headers credentialHeaders) ([]repositoryTreeEntry, error) {
+	const maxPages = 100
 	baseURL := strings.TrimRight(getEnvOrDefault("LORESKILLS_GITLAB_API_BASE_URL", "https://gitlab.com/api/v4"), "/")
-	requestURL := fmt.Sprintf("%s/projects/%s/repository/tree?ref=%s&recursive=true&per_page=100", baseURL, neturl.PathEscape(strings.TrimSpace(profile.RepositoryID)), neturl.QueryEscape(strings.TrimSpace(profile.Ref)))
-	data, err := c.downloadURL(ctx, requestURL, headers.headers)
-	if err != nil {
-		return nil, decorateAccessError(err, headers.source, profile.Provider)
-	}
+	entries := make([]repositoryTreeEntry, 0)
 
-	var response []gitLabTreeEntry
-	if err := json.Unmarshal(data, &response); err != nil {
-		return nil, fmt.Errorf("réponse GitLab tree invalide : %w", err)
-	}
+	for page := 1; page <= maxPages; page++ {
+		requestURL := fmt.Sprintf("%s/projects/%s/repository/tree?ref=%s&recursive=true&per_page=100&page=%d",
+			baseURL, neturl.PathEscape(strings.TrimSpace(profile.RepositoryID)),
+			neturl.QueryEscape(strings.TrimSpace(profile.Ref)), page)
+		data, err := c.downloadURL(ctx, requestURL, headers.headers)
+		if err != nil {
+			return nil, decorateAccessError(err, headers.source, profile.Provider)
+		}
 
-	entries := make([]repositoryTreeEntry, 0, len(response))
-	for _, item := range response {
-		entries = append(entries, repositoryTreeEntry{Path: normalizeDiscoveryPath(item.Path), Type: item.Type})
+		var response []gitLabTreeEntry
+		if err := json.Unmarshal(data, &response); err != nil {
+			return nil, fmt.Errorf("réponse GitLab tree invalide : %w", err)
+		}
+
+		for _, item := range response {
+			entries = append(entries, repositoryTreeEntry{Path: normalizeDiscoveryPath(item.Path), Type: item.Type})
+		}
+
+		if len(response) < 100 {
+			break
+		}
 	}
 
 	return entries, nil
