@@ -62,15 +62,88 @@ type CatalogEntry struct {
 	Description  string `json:"description,omitempty"`
 }
 
+// ManagedFileRecord describes one file owned by a managed bundle installation.
+type ManagedFileRecord struct {
+	RelativePath  string `json:"relative_path"`
+	InstalledPath string `json:"installed_path"`
+	SourcePath    string `json:"source_path"`
+}
+
+func NormalizeRepositoryID(provider, repositoryID string) (string, error) {
+	normalizedProvider := normalizeProvider(provider)
+	trimmed := strings.TrimSpace(repositoryID)
+	if trimmed == "" {
+		return "", errors.New("repository_id doit être renseigné")
+	}
+
+	normalized := strings.ReplaceAll(trimmed, "\\", "/")
+	expectedHost := supportedRepositoryHost(normalizedProvider)
+	hasScheme := strings.Contains(normalized, "://")
+	if !hasScheme {
+		if strings.HasPrefix(normalized, "/") || strings.HasSuffix(normalized, "/") || strings.Contains(normalized, "//") {
+			return "", fmt.Errorf("repository_id invalide pour %s", provider)
+		}
+	}
+
+	if hasScheme {
+		parsed, err := url.Parse(normalized)
+		if err != nil {
+			return "", fmt.Errorf("repository_id invalide : %w", err)
+		}
+		if expectedHost != "" && !strings.EqualFold(strings.TrimSpace(parsed.Host), expectedHost) {
+			return "", fmt.Errorf("repository_id doit référencer le host hébergé %s", expectedHost)
+		}
+		normalized = strings.Trim(parsed.Path, "/")
+	}
+
+	if expectedHost != "" && strings.HasPrefix(strings.ToLower(normalized), expectedHost+"/") {
+		normalized = normalized[len(expectedHost)+1:]
+	}
+
+	parts := splitNonEmpty(normalized)
+	if len(parts) > 0 && strings.Contains(parts[0], ".") && expectedHost != "" && !strings.EqualFold(parts[0], expectedHost) {
+		return "", fmt.Errorf("repository_id doit référencer le host hébergé %s", expectedHost)
+	}
+	if len(parts) > 0 && expectedHost != "" && strings.EqualFold(parts[0], expectedHost) {
+		parts = parts[1:]
+	}
+
+	if normalizedProvider == "azure-devops" && len(parts) == 4 && parts[2] == "_git" {
+		parts = []string{parts[0], parts[1], parts[3]}
+	}
+
+	switch normalizedProvider {
+	case "github", "bitbucket":
+		if len(parts) != 2 {
+			return "", fmt.Errorf("repository_id invalide pour %s", provider)
+		}
+	case "gitlab":
+		if len(parts) < 2 {
+			return "", fmt.Errorf("repository_id invalide pour %s", provider)
+		}
+	case "azure-devops":
+		if len(parts) != 3 {
+			return "", fmt.Errorf("repository_id invalide pour %s", provider)
+		}
+	default:
+		return "", fmt.Errorf("provider non pris en charge : %s", provider)
+	}
+
+	return strings.Join(parts, "/"), nil
+}
+
 // InstalledResourceRecord describes one installed resource in lore-state.json.
 type InstalledResourceRecord struct {
-	CatalogID    string `json:"catalog_id"`
-	ResourceType string `json:"resource_type"`
-	Name         string `json:"name"`
-	FolderName   string `json:"folder_name"`
-	InstalledPath string `json:"installed_path"`
-	SourcePath   string `json:"source_path"`
-	Status       string `json:"status"`
+	CatalogID     string              `json:"catalog_id"`
+	ResourceType  string              `json:"resource_type"`
+	Name          string              `json:"name"`
+	FolderName    string              `json:"folder_name"`
+	InstalledPath string              `json:"installed_path"`
+	SourcePath    string              `json:"source_path"`
+	ManagedRoot   string              `json:"managed_root,omitempty"`
+	SourceRoot    string              `json:"source_root,omitempty"`
+	ManagedFiles  []ManagedFileRecord `json:"managed_files,omitempty"`
+	Status        string              `json:"status"`
 }
 
 // InstalledResourceState stores the tracked installed resources.
@@ -109,7 +182,6 @@ func ReadConfigIfPresent() (*Config, error) {
 	if err := validateConfig(cfg); err != nil {
 		return nil, fmt.Errorf("configuration invalide (%s) : %w", path, err)
 	}
-
 	cfg.RepoRawURL = strings.TrimRight(strings.TrimSpace(cfg.RepoRawURL), "/")
 	cfg.TargetDir = filepath.Clean(strings.TrimSpace(cfg.TargetDir))
 
@@ -197,7 +269,11 @@ func ReadProjectProfileIfPresent() (*ProjectProfile, error) {
 	}
 
 	profile.Provider = normalizeProvider(profile.Provider)
-	profile.RepositoryID = strings.TrimSpace(profile.RepositoryID)
+	normalizedRepositoryID, err := NormalizeRepositoryID(profile.Provider, profile.RepositoryID)
+	if err != nil {
+		return nil, fmt.Errorf("profil projet invalide (%s) : %w", path, err)
+	}
+	profile.RepositoryID = normalizedRepositoryID
 	profile.Ref = normalizeRef(profile.Ref)
 	profile.CatalogPath = normalizeCatalogPath(profile.CatalogPath)
 	profile.TargetDir = filepath.Clean(strings.TrimSpace(profile.TargetDir))
@@ -237,7 +313,11 @@ func WriteProjectProfile(profile ProjectProfile) (string, error) {
 	}
 
 	profile.Provider = normalizeProvider(profile.Provider)
-	profile.RepositoryID = strings.TrimSpace(profile.RepositoryID)
+	normalizedRepositoryID, err := NormalizeRepositoryID(profile.Provider, profile.RepositoryID)
+	if err != nil {
+		return "", err
+	}
+	profile.RepositoryID = normalizedRepositoryID
 	profile.Ref = normalizeRef(profile.Ref)
 	profile.CatalogPath = normalizeCatalogPath(profile.CatalogPath)
 	profile.TargetDir = filepath.Clean(strings.TrimSpace(profile.TargetDir))
@@ -375,6 +455,50 @@ func BuildInstalledPath(targetDir string, entry CatalogEntry) (string, error) {
 	}
 
 	return filepath.Join(filepath.Clean(targetDir), relativePath), nil
+}
+
+func BundleID(categoryName, folderName string) string {
+	return strings.ToLower(strings.TrimSpace(categoryName) + "::" + strings.TrimSpace(folderName))
+}
+
+func BuildManagedRoot(targetDir, categoryName, folderName string) (string, error) {
+	if err := validateTargetDir(targetDir); err != nil {
+		return "", err
+	}
+	if err := validateManagedPathSegment(categoryName); err != nil {
+		return "", err
+	}
+	if err := validateManagedPathSegment(folderName); err != nil {
+		return "", err
+	}
+
+	return filepath.Join(filepath.Clean(targetDir), filepath.FromSlash(path.Join(categoryName, folderName))), nil
+}
+
+func ResolveManagedPath(managedRoot, relativePath string) (string, error) {
+	trimmedRoot := filepath.Clean(strings.TrimSpace(managedRoot))
+	if trimmedRoot == "" || trimmedRoot == "." {
+		return "", errors.New("managed_root doit être renseigné")
+	}
+
+	normalized := path.Clean(strings.ReplaceAll(strings.TrimSpace(relativePath), "\\", "/"))
+	if normalized == "." || normalized == "" {
+		return trimmedRoot, nil
+	}
+	if path.IsAbs(normalized) || normalized == ".." || strings.HasPrefix(normalized, "../") {
+		return "", fmt.Errorf("chemin géré invalide : %q", relativePath)
+	}
+
+	candidate := filepath.Join(trimmedRoot, filepath.FromSlash(normalized))
+	relative, err := filepath.Rel(trimmedRoot, candidate)
+	if err != nil {
+		return "", fmt.Errorf("impossible de résoudre le chemin géré : %w", err)
+	}
+	if relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("chemin géré invalide : %q", relativePath)
+	}
+
+	return candidate, nil
 }
 
 // InstallCatalogEntry writes the catalog entry and updates lore-state.json.
@@ -756,6 +880,9 @@ func validateProjectProfile(profile ProjectProfile) error {
 	if strings.TrimSpace(profile.RepositoryID) == "" {
 		return errors.New("repository_id doit être renseigné")
 	}
+	if _, err := NormalizeRepositoryID(provider, profile.RepositoryID); err != nil {
+		return err
+	}
 	if normalizeRef(profile.Ref) == "" {
 		return errors.New("ref doit être renseigné")
 	}
@@ -811,6 +938,26 @@ func validateInstalledRecord(record InstalledResourceRecord) error {
 	if err := validateSourcePath(record.SourcePath); err != nil {
 		return err
 	}
+	managedRoot := strings.TrimSpace(record.ManagedRoot)
+	if managedRoot != "" {
+		if filepath.IsAbs(filepath.FromSlash(managedRoot)) {
+			return errors.New("managed_root doit rester relatif au projet courant")
+		}
+		if filepath.Clean(filepath.FromSlash(managedRoot)) != filepath.Clean(filepath.FromSlash(record.InstalledPath)) {
+			return errors.New("managed_root doit correspondre à installed_path pour un bundle géré")
+		}
+		if strings.TrimSpace(record.SourceRoot) == "" {
+			return errors.New("source_root doit être renseigné pour un bundle géré")
+		}
+		if len(record.ManagedFiles) == 0 {
+			return errors.New("managed_files doit contenir au moins un fichier pour un bundle géré")
+		}
+		for _, managedFile := range record.ManagedFiles {
+			if err := validateManagedFileRecord(managedFile, record.ManagedRoot, record.SourceRoot); err != nil {
+				return err
+			}
+		}
+	}
 	if strings.TrimSpace(record.Status) == "" {
 		return errors.New("status doit être renseigné")
 	}
@@ -834,6 +981,59 @@ func validateTargetDir(targetDir string) error {
 	return nil
 }
 
+func validateManagedPathSegment(segment string) error {
+	trimmed := strings.TrimSpace(segment)
+	if trimmed == "" {
+		return errors.New("segment géré doit être renseigné")
+	}
+	if strings.Contains(trimmed, "/") || strings.Contains(trimmed, "\\") {
+		return fmt.Errorf("segment géré invalide : %q", segment)
+	}
+	if trimmed == "." || trimmed == ".." {
+		return fmt.Errorf("segment géré invalide : %q", segment)
+	}
+
+	return nil
+}
+
+func validateManagedFileRecord(record ManagedFileRecord, managedRoot, sourceRoot string) error {
+	trimmedRelativePath := strings.TrimSpace(record.RelativePath)
+	if trimmedRelativePath == "" {
+		return errors.New("relative_path doit être renseigné")
+	}
+	normalizedRelativePath := path.Clean(strings.ReplaceAll(trimmedRelativePath, "\\", "/"))
+	if normalizedRelativePath == "." || path.IsAbs(normalizedRelativePath) || normalizedRelativePath == ".." || strings.HasPrefix(normalizedRelativePath, "../") {
+		return fmt.Errorf("relative_path invalide : %q", record.RelativePath)
+	}
+	if strings.TrimSpace(record.InstalledPath) == "" {
+		return errors.New("installed_path doit être renseigné pour un fichier géré")
+	}
+	if filepath.IsAbs(filepath.FromSlash(record.InstalledPath)) {
+		return errors.New("installed_path doit rester relatif au projet courant")
+	}
+	if err := validateSourcePath(record.SourcePath); err != nil {
+		return err
+	}
+
+	resolvedInstalledPath, err := ResolveManagedPath(managedRoot, normalizedRelativePath)
+	if err != nil {
+		return err
+	}
+	if filepath.Clean(filepath.FromSlash(record.InstalledPath)) != filepath.Clean(resolvedInstalledPath) {
+		return errors.New("installed_path incohérent pour un fichier géré")
+	}
+
+	relativeSourcePath, err := relativeRepositoryPath(sourceRoot, record.SourcePath)
+	if err != nil {
+		return fmt.Errorf("source_path incohérent pour un fichier géré : %w", err)
+	}
+	if relativeSourcePath != normalizedRelativePath {
+		return errors.New("source_path incohérent pour un fichier géré")
+	}
+
+	return nil
+}
+
 func validateCatalogPath(catalogPath string) error {
 	normalized := normalizeCatalogPath(catalogPath)
 	if normalized == "" {
@@ -847,6 +1047,32 @@ func validateCatalogPath(catalogPath string) error {
 	}
 
 	return nil
+}
+
+func relativeRepositoryPath(root, fullPath string) (string, error) {
+	normalizedRoot := path.Clean(strings.ReplaceAll(strings.TrimSpace(root), "\\", "/"))
+	normalizedFullPath := path.Clean(strings.ReplaceAll(strings.TrimSpace(fullPath), "\\", "/"))
+	if normalizedRoot == "" || normalizedRoot == "." {
+		return "", errors.New("root distant doit être renseigné")
+	}
+	if normalizedFullPath == "" || normalizedFullPath == "." {
+		return "", errors.New("chemin distant doit être renseigné")
+	}
+	if normalizedFullPath == normalizedRoot {
+		return ".", nil
+	}
+
+	prefix := normalizedRoot + "/"
+	if !strings.HasPrefix(normalizedFullPath, prefix) {
+		return "", fmt.Errorf("%q n'est pas contenu dans %q", normalizedFullPath, normalizedRoot)
+	}
+
+	relativePath := path.Clean(strings.TrimPrefix(normalizedFullPath, prefix))
+	if relativePath == "" || relativePath == "." || relativePath == ".." || strings.HasPrefix(relativePath, "../") || path.IsAbs(relativePath) {
+		return "", fmt.Errorf("chemin relatif de dépôt invalide : %q", relativePath)
+	}
+
+	return relativePath, nil
 }
 
 func validateFolderName(folderName string) error {
@@ -909,4 +1135,19 @@ func splitNonEmpty(value string) []string {
 	}
 
 	return filtered
+}
+
+func supportedRepositoryHost(provider string) string {
+	switch normalizeProvider(provider) {
+	case "github":
+		return "github.com"
+	case "gitlab":
+		return "gitlab.com"
+	case "azure-devops":
+		return "dev.azure.com"
+	case "bitbucket":
+		return "bitbucket.org"
+	default:
+		return ""
+	}
 }

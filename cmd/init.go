@@ -80,7 +80,16 @@ func (a *app) runInit() error {
 	if err != nil {
 		return err
 	}
-	a.writeStdout(providerAccessGuidance(provider, isPrivate)...)
+	for {
+		a.writeStdout(providerAccessGuidance(provider, isPrivate)...)
+		reviewAgain, promptErr := promptYesNo(reader, a.stdout, "Relire la guidance provider avant de continuer ?", false)
+		if promptErr != nil {
+			return promptErr
+		}
+		if !reviewAgain {
+			break
+		}
+	}
 
 	var apiToken string
 	if isPrivate {
@@ -188,6 +197,16 @@ func providerPublicAccessGuidance(provider string) []string {
 }
 
 func providerPrivateAccessGuidance(provider string) []string {
+	guide, ok := findProviderGuide(provider)
+	if !ok {
+		return []string{
+			"Depot prive - Authentification requise",
+			"",
+			"Generez un token d'acces depuis l'interface de votre provider et definissez :",
+			"  export LORESKILLS_TOKEN=<votre-token>",
+		}
+	}
+
 	switch strings.ToLower(strings.TrimSpace(provider)) {
 	case "github":
 		return []string{
@@ -196,9 +215,9 @@ func providerPrivateAccessGuidance(provider string) []string {
 			"Pour acceder a ce depot GitHub prive, vous avez besoin d'un Personal Access Token (PAT).",
 			"",
 			"Comment generer votre token :",
-			"  1. Rendez-vous sur : https://github.com/settings/tokens/new",
+			"  1. Rendez-vous sur : " + guide.ActionURL,
 			"  2. Selectionnez \"Fine-grained token\" (recommande) ou \"Classic token\"",
-			"     Fine-grained : accordez la permission \"Contents: Read-only\" sur le depot cible",
+			"     Fine-grained : accordez la permission \"" + guide.MinimumPermission + "\" sur le depot cible",
 			"     Classic      : cochez \"repo\" pour l'acces complet aux depots prives",
 			"  3. Cliquez \"Generate token\" et copiez la valeur affichee",
 			"",
@@ -213,10 +232,9 @@ func providerPrivateAccessGuidance(provider string) []string {
 			"Pour acceder a ce depot GitLab prive, vous avez besoin d'un Personal Access Token.",
 			"",
 			"Comment generer votre token :",
-			"  1. Rendez-vous sur : https://gitlab.com/-/profile/personal_access_tokens",
-			"     (Pour GitLab auto-heberge : https://<votre-gitlab>/-/profile/personal_access_tokens)",
+			"  1. Rendez-vous sur : " + guide.ActionURL,
 			"  2. Donnez un nom au token et choisissez une date d'expiration",
-			"  3. Cochez la permission : \"read_repository\"",
+			"  3. Cochez la permission : \"" + guide.MinimumPermission + "\"",
 			"  4. Cliquez \"Create personal access token\" et copiez la valeur affichee",
 			"",
 			"Variable d'environnement a definir pour les prochaines utilisations :",
@@ -232,8 +250,8 @@ func providerPrivateAccessGuidance(provider string) []string {
 			"Comment generer votre token :",
 			"  1. Connectez-vous sur : https://dev.azure.com/<votre-organisation>",
 			"  2. Cliquez sur votre avatar en haut a droite > \"Personal access tokens\"",
-			"     Acces direct : https://dev.azure.com/<votre-organisation>/_usersSettings/tokens",
-			"  3. Cliquez \"New Token\", selectionnez la permission : \"Code (Read)\"",
+			"     Acces direct : " + guide.ActionURL,
+			"  3. Cliquez \"New Token\", selectionnez la permission : \"" + guide.MinimumPermission + "\"",
 			"  4. Cliquez \"Create\" et copiez la valeur affichee",
 			"",
 			"Variable d'environnement a definir pour les prochaines utilisations :",
@@ -244,18 +262,14 @@ func providerPrivateAccessGuidance(provider string) []string {
 		return []string{
 			"Depot prive - Authentification requise",
 			"",
-			"Pour acceder a ce depot Bitbucket prive, vous avez besoin d'un App Password.",
+			"Pour acceder a ce depot Bitbucket Cloud prive, vous avez besoin d'un API token Atlassian.",
 			"",
-			"Comment generer votre App Password :",
-			"  1. Rendez-vous sur : https://bitbucket.org/account/settings/app-passwords/new",
-			"  2. Donnez un nom au mot de passe d'application",
-			"  3. Cochez la permission : \"Repositories: Read\"",
-			"  4. Cliquez \"Create\" et copiez la valeur affichee",
+			"Documentation officielle : " + guide.DocumentationURL,
+			"Point d'entree compte Atlassian : " + guide.ActionURL,
+			"Permission minimale attendue : \"" + guide.MinimumPermission + "\"",
 			"",
-			"Variables d'environnement a definir pour les prochaines utilisations (une des options) :",
-			"  Option 1 : export BITBUCKET_TOKEN=<votre-app-password>",
-			"  Option 2 : export BITBUCKET_USERNAME=<votre-nom-utilisateur>",
-			"             export BITBUCKET_APP_PASSWORD=<votre-app-password>",
+			"Variables d'environnement a definir pour les prochaines utilisations :",
+			"  export BITBUCKET_TOKEN=<votre-token>",
 			"  ou LORESKILLS_TOKEN=<votre-token>   (compatible toutes plateformes)",
 		}
 	default:
@@ -270,18 +284,12 @@ func providerPrivateAccessGuidance(provider string) []string {
 
 // providerTokenEnvVar returns the primary environment variable name for the given provider's token.
 func providerTokenEnvVar(provider string) string {
-	switch strings.ToLower(strings.TrimSpace(provider)) {
-	case "github":
-		return "GITHUB_TOKEN"
-	case "gitlab":
-		return "GITLAB_TOKEN"
-	case "azure-devops":
-		return "AZURE_DEVOPS_EXT_PAT"
-	case "bitbucket":
-		return "BITBUCKET_TOKEN"
-	default:
+	guide, ok := findProviderGuide(provider)
+	if !ok || len(guide.EnvVars) == 0 {
 		return "LORESKILLS_TOKEN"
 	}
+
+	return guide.EnvVars[0]
 }
 
 // promptOptionalToken prompts the user to optionally enter an API token for immediate access validation.
@@ -291,7 +299,7 @@ func promptOptionalToken(reader *bufio.Reader, stdout io.Writer) (string, error)
 		return "", err
 	}
 	line, err := reader.ReadString('\n')
-	if err != nil && err.Error() != "EOF" {
+	if err != nil && err != io.EOF {
 		return "", fmt.Errorf("lecture de l'entree utilisateur echouee : %w", err)
 	}
 	return strings.TrimSpace(line), nil
@@ -303,104 +311,56 @@ func promptRepositoryID(reader *bufio.Reader, stdout io.Writer, provider, defaul
 		if err != nil {
 			return "", err
 		}
-		if err := validateRepositoryID(provider, value); err != nil {
+		normalizedValue, err := fs.NormalizeRepositoryID(provider, value)
+		if err != nil {
 			fmt.Fprintln(stdout, "Repository ID invalide.")
 			fmt.Fprintf(stdout, "Format attendu pour repository_id : %s\n", providerRepositoryIDFormat(provider))
 			fmt.Fprintf(stdout, "Exemple : %s\n", providerRepositoryIDExample(provider))
+			if hostedDomain := providerHostedDomain(provider); hostedDomain != "" {
+				fmt.Fprintf(stdout, "Host hébergé supporté : %s\n", hostedDomain)
+			}
 			continue
 		}
 
-		return value, nil
+		return normalizedValue, nil
 	}
 }
 
 func validateRepositoryID(provider, repositoryID string) error {
-	rawParts := strings.Split(strings.TrimSpace(repositoryID), "/")
-	if len(rawParts) == 0 {
-		return fmt.Errorf("repository_id invalide pour %s", provider)
-	}
-	for _, part := range rawParts {
-		if strings.TrimSpace(part) == "" {
-			return fmt.Errorf("repository_id invalide pour %s", provider)
-		}
-	}
-
-	parts := splitRepositoryID(repositoryID)
-
-	switch strings.ToLower(strings.TrimSpace(provider)) {
-	case "github", "bitbucket":
-		if len(parts) != 2 {
-			return fmt.Errorf("repository_id invalide pour %s", provider)
-		}
-	case "gitlab":
-		if len(parts) < 2 {
-			return fmt.Errorf("repository_id invalide pour %s", provider)
-		}
-	case "azure-devops":
-		if len(parts) != 3 {
-			return fmt.Errorf("repository_id invalide pour %s", provider)
-		}
-	}
-
-	return nil
+	_, err := fs.NormalizeRepositoryID(provider, repositoryID)
+	return err
 }
 
 func providerRepositoryIDFormat(provider string) string {
-	switch strings.ToLower(strings.TrimSpace(provider)) {
-	case "github":
-		return "owner/repo"
-	case "gitlab":
-		return "group/project ou group/subgroup/project"
-	case "azure-devops":
-		return "organisation/projet/repo"
-	case "bitbucket":
-		return "workspace/repo"
-	default:
+	guide, ok := findProviderGuide(provider)
+	if !ok {
 		return "provider/repository"
 	}
+
+	return guide.RepositoryIDFormat
 }
 
 func providerRepositoryIDExample(provider string) string {
-	switch strings.ToLower(strings.TrimSpace(provider)) {
-	case "github":
-		return "octo-org/skills-catalog"
-	case "gitlab":
-		return "plateforme/ia/skills-catalog"
-	case "azure-devops":
-		return "mon-org/mon-projet/skills-catalog"
-	case "bitbucket":
-		return "mon-workspace/skills-catalog"
-	default:
+	guide, ok := findProviderGuide(provider)
+	if !ok {
 		return "provider/repository"
 	}
-}
 
-func splitRepositoryID(repositoryID string) []string {
-	rawParts := strings.Split(strings.TrimSpace(repositoryID), "/")
-	parts := make([]string, 0, len(rawParts))
-	for _, part := range rawParts {
-		trimmed := strings.TrimSpace(part)
-		if trimmed == "" {
-			continue
-		}
-		parts = append(parts, trimmed)
-	}
-
-	return parts
+	return guide.RepositoryIDExample
 }
 
 func promptProvider(reader *bufio.Reader, stdout io.Writer, defaultValue string) (string, error) {
+	allowed := supportedProviderKeys()
 	for {
 		value, err := promptValue(reader, stdout, "Provider [github|gitlab|azure-devops|bitbucket]", defaultValue)
 		if err != nil {
 			return "", err
 		}
-		switch strings.ToLower(strings.TrimSpace(value)) {
-		case "github", "gitlab", "azure-devops", "bitbucket":
-			return strings.ToLower(strings.TrimSpace(value)), nil
-		default:
-			fmt.Fprintln(stdout, "Provider invalide. Choisissez github, gitlab, azure-devops ou bitbucket.")
+		normalized := strings.ToLower(strings.TrimSpace(value))
+		if _, ok := findProviderGuide(normalized); ok {
+			return normalized, nil
 		}
+		fmt.Fprintf(stdout, "Provider invalide. Choisissez %s.\n", strings.Join(allowed, ", "))
 	}
 }
 
@@ -413,7 +373,7 @@ func promptValue(reader *bufio.Reader, stdout io.Writer, label, defaultValue str
 		return "", err
 	}
 	line, err := reader.ReadString('\n')
-	if err != nil && err.Error() != "EOF" {
+	if err != nil && err != io.EOF {
 		return "", fmt.Errorf("lecture de l'entrée utilisateur échouée : %w", err)
 	}
 	trimmed := strings.TrimSpace(line)
@@ -436,7 +396,7 @@ func promptYesNo(reader *bufio.Reader, stdout io.Writer, label string, defaultYe
 		return false, err
 	}
 	line, err := reader.ReadString('\n')
-	if err != nil && err.Error() != "EOF" {
+	if err != nil && err != io.EOF {
 		return false, fmt.Errorf("lecture de l'entrée utilisateur échouée : %w", err)
 	}
 	trimmed := strings.ToLower(strings.TrimSpace(line))

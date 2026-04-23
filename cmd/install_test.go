@@ -103,3 +103,73 @@ func TestRun_installRejectsAmbiguousResourceName(t *testing.T) {
 		t.Fatalf("stderr %q does not contain ambiguous-resource details", result.stderr)
 	}
 }
+
+func TestRun_installSyncsWholeBundleAndState(t *testing.T) {
+	projectDir := t.TempDir()
+	server := httptest.NewServer(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		switch r.URL.Path {
+		case "/owner/repo/main/SKILLS.md":
+			stdhttp.NotFound(w, r)
+		case "/repos/owner/repo/git/trees/main":
+			_, _ = w.Write([]byte(`{"tree":[{"path":"react/form-wizard/SKILL.md","type":"blob"},{"path":"react/form-wizard/templates/prompt.md","type":"blob"},{"path":"react/form-wizard/bin/tool.js","type":"blob"}]}`))
+		case "/owner/repo/main/react/form-wizard/SKILL.md":
+			_, _ = w.Write([]byte("# Form Wizard\n"))
+		case "/owner/repo/main/react/form-wizard/templates/prompt.md":
+			_, _ = w.Write([]byte("Prompt body\n"))
+		case "/owner/repo/main/react/form-wizard/bin/tool.js":
+			_, _ = w.Write([]byte("console.log('bundle');\n"))
+		default:
+			stdhttp.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	t.Setenv("LORESKILLS_GITHUB_RAW_BASE_URL", server.URL)
+	t.Setenv("LORESKILLS_GITHUB_API_BASE_URL", server.URL)
+
+	writeProjectProfileForCommandTest(t, projectDir, fs.ProjectProfile{
+		Provider:     "github",
+		RepositoryID: "owner/repo",
+		Ref:          "main",
+		CatalogPath:  "SKILLS.md",
+		TargetDir:    ".claude/resources",
+	})
+
+	result := runCLI(t, projectDir, t.TempDir(), "install", "react/form-wizard")
+
+	if result.err != nil {
+		t.Fatalf("Run() error = %v\nstdout=%s\nstderr=%s", result.err, result.stdout, result.stderr)
+	}
+	assertContains(t, result.stdout, "Ressource 'form-wizard' installée")
+	assertContains(t, result.stdout, ".claude/resources/react/form-wizard")
+
+	for _, relativePath := range []string{
+		".claude/resources/react/form-wizard/SKILL.md",
+		".claude/resources/react/form-wizard/templates/prompt.md",
+		".claude/resources/react/form-wizard/bin/tool.js",
+	} {
+		fullPath := filepath.Join(projectDir, filepath.FromSlash(relativePath))
+		if _, err := os.Stat(fullPath); err != nil {
+			t.Fatalf("Stat(%s): %v", fullPath, err)
+		}
+	}
+
+	statePath := filepath.Join(projectDir, ".claude", "resources", "lore-state.json")
+	stateData, err := os.ReadFile(statePath)
+	if err != nil {
+		t.Fatalf("ReadFile(%s): %v", statePath, err)
+	}
+
+	var state fs.InstalledResourceState
+	if err := json.Unmarshal(stateData, &state); err != nil {
+		t.Fatalf("json.Unmarshal(): %v", err)
+	}
+	if len(state.Entries) != 1 {
+		t.Fatalf("len(state.Entries) = %d, want 1", len(state.Entries))
+	}
+	if got := state.Entries[0].ManagedRoot; got != ".claude/resources/react/form-wizard" {
+		t.Fatalf("state.Entries[0].ManagedRoot = %q, want .claude/resources/react/form-wizard", got)
+	}
+	if len(state.Entries[0].ManagedFiles) != 3 {
+		t.Fatalf("len(state.Entries[0].ManagedFiles) = %d, want 3", len(state.Entries[0].ManagedFiles))
+	}
+}

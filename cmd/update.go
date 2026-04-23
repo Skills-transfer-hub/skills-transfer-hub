@@ -4,8 +4,10 @@ import (
 	"context"
 	"fmt"
 	"loreskills/internal/fs"
+	lorehttp "loreskills/internal/http"
 	"os"
 	"strings"
+	"time"
 )
 
 func (a *app) runUpdate() error {
@@ -32,6 +34,24 @@ func (a *app) runUpdate() error {
 			Name:         record.Name,
 			FolderName:   record.FolderName,
 			SourcePath:   record.SourcePath,
+		}
+
+		if len(record.ManagedFiles) > 0 {
+			bundleContents, err := a.downloadBundleContents(context.Background(), *profile, entry)
+			if err != nil {
+				a.writeStderr(fmt.Sprintf("Échec de mise à jour pour '%s' : %v", record.Name, err))
+				failures++
+				continue
+			}
+
+			if _, err := fs.SyncManagedBundle(profile.TargetDir, entry, bundleContents); err != nil {
+				a.writeStderr(fmt.Sprintf("Échec de mise à jour pour '%s' : %v", record.Name, err))
+				failures++
+				continue
+			}
+
+			a.writeStdout(fmt.Sprintf("Ressource '%s' mise à jour.", record.Name))
+			continue
 		}
 
 		content, err := a.client.DownloadCatalogEntry(context.Background(), *profile, entry)
@@ -64,8 +84,7 @@ func (a *app) runUpdate() error {
 }
 
 func (a *app) runSelfUpdate() error {
-	metadata := currentReleaseMetadata()
-	release, err := a.client.CheckForStableUpdate(context.Background(), metadata)
+	release, _, err := a.resolveStableUpdate(context.Background(), true)
 	if err != nil {
 		return err
 	}
@@ -95,7 +114,50 @@ func (a *app) runSelfUpdate() error {
 		fmt.Sprintf("Version stable détectée : %s", release.Version),
 		"Mise à jour appliquée.",
 	)
+	_, _ = fs.WriteUpdateCheckState(fs.NewNoUpdateCheckState(time.Now().UTC(), release.Version))
 	return nil
+}
+
+func (a *app) startupStableUpdateOffer() *fs.StableUpdateOffer {
+	_, offer, _ := a.resolveStableUpdate(context.Background(), false)
+	return offer
+}
+
+func (a *app) resolveStableUpdate(ctx context.Context, force bool) (*lorehttp.ReleaseAsset, *fs.StableUpdateOffer, error) {
+	metadata := currentReleaseMetadata()
+	if strings.TrimSpace(metadata.ReleasesAPIURL) == "" {
+		return nil, nil, nil
+	}
+
+	now := time.Now().UTC()
+	if !force {
+		cachedState, err := fs.ReadUpdateCheckState()
+		if err == nil && cachedState != nil && cachedState.IsFresh(now, metadata.CurrentVersion) {
+			offer := fs.StableUpdateOfferFromState(*cachedState)
+			return nil, &offer, nil
+		}
+	}
+
+	release, err := a.client.CheckForStableUpdate(ctx, metadata)
+	if err != nil {
+		state := fs.NewErrorUpdateCheckState(now, metadata.CurrentVersion, err.Error())
+		_, _ = fs.WriteUpdateCheckState(state)
+		offer := fs.StableUpdateOfferFromState(state)
+		return nil, &offer, err
+	}
+
+	if release == nil {
+		state := fs.NewNoUpdateCheckState(now, metadata.CurrentVersion)
+		_, _ = fs.WriteUpdateCheckState(state)
+		offer := fs.StableUpdateOfferFromState(state)
+		return nil, &offer, nil
+	}
+
+	state := fs.NewAvailableUpdateCheckState(now, metadata.CurrentVersion, release.Version, release.DownloadURL, release.ChecksumURL, release.AssetName)
+	_, _ = fs.WriteUpdateCheckState(state)
+	offer := fs.StableUpdateOfferFromState(state)
+
+	return release, &offer, nil
 }
 
 func currentExecutablePath() (string, error) {

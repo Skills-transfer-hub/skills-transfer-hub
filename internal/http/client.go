@@ -75,14 +75,40 @@ func NewClient(httpClient *stdhttp.Client) *Client {
 // CheckProjectAccess verifies that the remote catalog is reachable.
 func (c *Client) CheckProjectAccess(ctx context.Context, profile fs.ProjectProfile) error {
 	_, err := c.fetchCatalogBytes(ctx, profile)
-	return err
+	if err == nil {
+		return nil
+	}
+	if !isNotFoundError(err) {
+		return err
+	}
+
+	entries, listErr := c.ListRepositoryTree(ctx, profile)
+	if listErr != nil {
+		return listErr
+	}
+	for _, entry := range entries {
+		if isSkillEntrypoint(entry.Path) {
+			return nil
+		}
+	}
+
+	return fmt.Errorf("catalogue introuvable et aucun bundle compatible détecté")
 }
 
 // ListCatalog returns the remote installable resources from SKILLS.md.
 func (c *Client) ListCatalog(ctx context.Context, profile fs.ProjectProfile) ([]fs.CatalogEntry, error) {
 	data, err := c.fetchCatalogBytes(ctx, profile)
 	if err != nil {
-		return nil, err
+		if !isNotFoundError(err) {
+			return nil, err
+		}
+
+		treeEntries, listErr := c.ListRepositoryTree(ctx, profile)
+		if listErr != nil {
+			return nil, listErr
+		}
+
+		return catalogEntriesFromRepositoryTree(treeEntries)
 	}
 
 	entries, err := parseCatalogEntries(string(data))
@@ -91,6 +117,51 @@ func (c *Client) ListCatalog(ctx context.Context, profile fs.ProjectProfile) ([]
 	}
 
 	return entries, nil
+}
+
+// ListBundleFiles enumerates every file tracked under the source root for a bundle entry.
+func (c *Client) ListBundleFiles(ctx context.Context, profile fs.ProjectProfile, entry fs.CatalogEntry) ([]string, error) {
+	if err := validateProfile(profile); err != nil {
+		return nil, err
+	}
+	if err := validateCatalogEntry(entry); err != nil {
+		return nil, err
+	}
+
+	sourceRoot := path.Dir(normalizeDiscoveryPath(entry.SourcePath))
+	if sourceRoot == "." || sourceRoot == "/" || sourceRoot == "" {
+		return nil, fmt.Errorf("source_path bundle invalide : %q", entry.SourcePath)
+	}
+
+	treeEntries, err := c.ListRepositoryTree(ctx, profile)
+	if err != nil {
+		return nil, err
+	}
+
+	results := make([]string, 0)
+	seen := make(map[string]struct{})
+	prefix := sourceRoot + "/"
+	for _, treeEntry := range treeEntries {
+		normalizedPath := normalizeDiscoveryPath(treeEntry.Path)
+		if normalizedPath == "" || !strings.HasPrefix(normalizedPath, prefix) {
+			continue
+		}
+		if !isRepositoryFileEntry(treeEntry.Type) {
+			continue
+		}
+		if _, exists := seen[normalizedPath]; exists {
+			continue
+		}
+		seen[normalizedPath] = struct{}{}
+		results = append(results, normalizedPath)
+	}
+
+	if len(results) == 0 {
+		return nil, fmt.Errorf("aucun fichier bundle détecté pour %s", entry.CatalogID)
+	}
+
+	sort.Strings(results)
+	return results, nil
 }
 
 // DownloadCatalogEntry downloads the remote resource body for one catalog entry.
@@ -628,4 +699,12 @@ func getEnvOrDefault(key, fallback string) string {
 	}
 
 	return fallback
+}
+
+func isNotFoundError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	return strings.Contains(err.Error(), "HTTP 404")
 }
