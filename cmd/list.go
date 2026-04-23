@@ -23,7 +23,10 @@ func (a *app) runList() error {
 
 	lines := []string{fmt.Sprintf("%d ressource(s) disponible(s) :", len(entries))}
 	for _, entry := range entries {
-		line := fmt.Sprintf("- [%s] %s (folder: %s)", entry.ResourceType, entry.Name, entry.FolderName)
+		line := fmt.Sprintf("- [%s] %s", entry.ResourceType, catalogDisplayRef(entry))
+		if entry.ResourceType != "bundle" {
+			line = fmt.Sprintf("%s (folder: %s)", line, entry.FolderName)
+		}
 		if entry.Description != "" {
 			line += fmt.Sprintf(" — %s", entry.Description)
 		}
@@ -32,4 +35,12 @@ func (a *app) runList() error {
 
 	a.writeStdout(lines...)
 	return nil
+}
+
+func catalogDisplayRef(entry fs.CatalogEntry) string {
+	if entry.ResourceType == "bundle" {
+		return entry.FolderName + "/" + entry.Name
+	}
+
+	return entry.Name
 }

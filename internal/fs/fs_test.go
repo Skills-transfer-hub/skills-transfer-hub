@@ -14,6 +14,35 @@ type testPaths struct {
 	targetDir  string
 }
 
+func newTestCatalogEntry(resourceType, folderName, name, sourcePath string) CatalogEntry {
+	return CatalogEntry{
+		CatalogID:    CatalogID(resourceType, folderName, name),
+		ResourceType: resourceType,
+		Name:         name,
+		FolderName:   folderName,
+		SourcePath:   sourcePath,
+	}
+}
+
+func writeInstalledStateForTest(t *testing.T, targetDir string, state InstalledResourceState) string {
+	t.Helper()
+
+	statePath := filepath.Join(filepath.Clean(targetDir), stateFileName)
+	if err := os.MkdirAll(filepath.Dir(statePath), 0o755); err != nil {
+		t.Fatalf("MkdirAll(%s): %v", filepath.Dir(statePath), err)
+	}
+
+	data, err := json.Marshal(state)
+	if err != nil {
+		t.Fatalf("json.Marshal(): %v", err)
+	}
+	if err := os.WriteFile(statePath, data, 0o644); err != nil {
+		t.Fatalf("WriteFile(%s): %v", statePath, err)
+	}
+
+	return statePath
+}
+
 func newTestPaths(t *testing.T) testPaths {
 	t.Helper()
 
@@ -235,5 +264,43 @@ func TestResolveCatalogEntry_reportsAmbiguousNames(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "ambiguë") {
 		t.Fatalf("error %q does not contain ambiguity detail", err)
+	}
+}
+
+func TestBuildManagedRoot_returnsCategoryFolderRoot(t *testing.T) {
+	root, err := BuildManagedRoot(".claude/resources", "react", "form-wizard")
+	if err != nil {
+		t.Fatalf("BuildManagedRoot() error = %v", err)
+	}
+	want := filepath.Join(".claude", "resources", "react", "form-wizard")
+	if root != want {
+		t.Fatalf("root = %q, want %q", root, want)
+	}
+}
+
+func TestResolveManagedPath_rejectsEscapes(t *testing.T) {
+	_, err := ResolveManagedPath(filepath.Join(".claude", "resources", "react", "form-wizard"), "../escape.txt")
+	if err == nil {
+		t.Fatal("ResolveManagedPath() error = nil, want error")
+	}
+}
+
+func TestBundleID_normalizesCaseAndWhitespace(t *testing.T) {
+	if got := BundleID(" React ", " Form-Wizard "); got != "react::form-wizard" {
+		t.Fatalf("BundleID() = %q, want react::form-wizard", got)
+	}
+}
+
+func TestNormalizeRepositoryID_supportsHostedURLsAndRejectsSelfHosted(t *testing.T) {
+	githubID, err := NormalizeRepositoryID("github", "https://github.com/owner/repo")
+	if err != nil {
+		t.Fatalf("NormalizeRepositoryID(github) error = %v", err)
+	}
+	if githubID != "owner/repo" {
+		t.Fatalf("githubID = %q, want owner/repo", githubID)
+	}
+
+	if _, err := NormalizeRepositoryID("gitlab", "https://git.example.com/group/project"); err == nil {
+		t.Fatal("NormalizeRepositoryID(gitlab, self-hosted) error = nil, want error")
 	}
 }

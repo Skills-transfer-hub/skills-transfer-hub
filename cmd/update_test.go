@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"crypto/sha256"
+	"encoding/json"
 	"encoding/hex"
 	"fmt"
 	"os"
@@ -13,6 +14,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"loreskills/internal/fs"
 	stdhttp "net/http"
@@ -128,6 +130,103 @@ func TestRun_updateReportsPartialFailures(t *testing.T) {
 	}
 }
 
+func TestRun_updateRefreshesTrackedBundleAndRemovesObsoleteFiles(t *testing.T) {
+	projectDir := t.TempDir()
+	server := httptest.NewServer(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		switch r.URL.Path {
+		case "/repos/owner/repo/git/trees/main":
+			_, _ = w.Write([]byte(`{"tree":[{"path":"react/form-wizard/SKILL.md","type":"blob"},{"path":"react/form-wizard/templates/prompt.md","type":"blob"}]}`))
+		case "/owner/repo/main/react/form-wizard/SKILL.md":
+			_, _ = w.Write([]byte("# Refreshed Bundle\n"))
+		case "/owner/repo/main/react/form-wizard/templates/prompt.md":
+			_, _ = w.Write([]byte("Updated prompt\n"))
+		default:
+			stdhttp.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	t.Setenv("LORESKILLS_GITHUB_RAW_BASE_URL", server.URL)
+	t.Setenv("LORESKILLS_GITHUB_API_BASE_URL", server.URL)
+
+	writeProjectProfileForCommandTest(t, projectDir, fs.ProjectProfile{
+		Provider:     "github",
+		RepositoryID: "owner/repo",
+		Ref:          "main",
+		CatalogPath:  "SKILLS.md",
+		TargetDir:    ".claude/resources",
+	})
+	writeInstalledStateForCommandTest(t, projectDir, ".claude/resources", fs.InstalledResourceState{Entries: []fs.InstalledResourceRecord{{
+		CatalogID:     fs.CatalogID("bundle", "react", "form-wizard"),
+		ResourceType:  "bundle",
+		Name:          "form-wizard",
+		FolderName:    "react",
+		InstalledPath: ".claude/resources/react/form-wizard",
+		SourcePath:    "react/form-wizard/SKILL.md",
+		ManagedRoot:   ".claude/resources/react/form-wizard",
+		SourceRoot:    "react/form-wizard",
+		ManagedFiles: []fs.ManagedFileRecord{
+			{RelativePath: "SKILL.md", InstalledPath: ".claude/resources/react/form-wizard/SKILL.md", SourcePath: "react/form-wizard/SKILL.md"},
+			{RelativePath: "templates/obsolete.md", InstalledPath: ".claude/resources/react/form-wizard/templates/obsolete.md", SourcePath: "react/form-wizard/templates/obsolete.md"},
+		},
+		Status: "installed",
+	}}})
+
+	if err := os.MkdirAll(filepath.Join(projectDir, ".claude", "resources", "react", "form-wizard", "templates"), 0o755); err != nil {
+		t.Fatalf("MkdirAll(bundle root): %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(projectDir, ".claude", "resources", "react", "form-wizard", "SKILL.md"), []byte("stale"), 0o644); err != nil {
+		t.Fatalf("WriteFile(SKILL.md): %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(projectDir, ".claude", "resources", "react", "form-wizard", "templates", "obsolete.md"), []byte("obsolete"), 0o644); err != nil {
+		t.Fatalf("WriteFile(obsolete.md): %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(projectDir, ".claude", "resources", "custom"), 0o755); err != nil {
+		t.Fatalf("MkdirAll(custom): %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(projectDir, ".claude", "resources", "custom", "keep.txt"), []byte("keep"), 0o644); err != nil {
+		t.Fatalf("WriteFile(keep.txt): %v", err)
+	}
+
+	result := runCLI(t, projectDir, t.TempDir(), "update")
+
+	if result.err != nil {
+		t.Fatalf("Run() error = %v\nstdout=%s\nstderr=%s", result.err, result.stdout, result.stderr)
+	}
+	assertContains(t, result.stdout, "Ressource 'form-wizard' mise à jour")
+
+	skillData, err := os.ReadFile(filepath.Join(projectDir, ".claude", "resources", "react", "form-wizard", "SKILL.md"))
+	if err != nil {
+		t.Fatalf("ReadFile(SKILL.md): %v", err)
+	}
+	assertContains(t, string(skillData), "Refreshed Bundle")
+	if _, err := os.Stat(filepath.Join(projectDir, ".claude", "resources", "react", "form-wizard", "templates", "prompt.md")); err != nil {
+		t.Fatalf("Stat(prompt.md): %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(projectDir, ".claude", "resources", "react", "form-wizard", "templates", "obsolete.md")); !os.IsNotExist(err) {
+		t.Fatalf("obsolete managed file still exists, err=%v", err)
+	}
+	keepData, err := os.ReadFile(filepath.Join(projectDir, ".claude", "resources", "custom", "keep.txt"))
+	if err != nil {
+		t.Fatalf("ReadFile(keep.txt): %v", err)
+	}
+	if string(keepData) != "keep" {
+		t.Fatalf("keep.txt = %q, want keep", keepData)
+	}
+
+	statePath := filepath.Join(projectDir, ".claude", "resources", "lore-state.json")
+	stateData, err := os.ReadFile(statePath)
+	if err != nil {
+		t.Fatalf("ReadFile(%s): %v", statePath, err)
+	}
+	var state fs.InstalledResourceState
+	if err := json.Unmarshal(stateData, &state); err != nil {
+		t.Fatalf("json.Unmarshal(): %v", err)
+	}
+	if len(state.Entries) != 1 || len(state.Entries[0].ManagedFiles) != 2 {
+		t.Fatalf("state after update = %+v, want one bundle entry with two managed files", state.Entries)
+	}
+}
+
 func TestRun_updateSelfAppliesStableRelease(t *testing.T) {
 	projectDir := t.TempDir()
 	homeDir := t.TempDir()
@@ -177,6 +276,73 @@ func TestRun_updateSelfAppliesStableRelease(t *testing.T) {
 	}
 	assertContains(t, result.stdout, "Version stable détectée : v9.9.9")
 	assertContains(t, result.stdout, "Mise à jour appliquée")
+
+	data, err := os.ReadFile(executablePath)
+	if err != nil {
+		t.Fatalf("ReadFile(%s): %v", executablePath, err)
+	}
+	assertContains(t, string(data), "new-binary")
+}
+
+func TestRun_updateSelfForcesRefreshEvenWhenCacheIsFresh(t *testing.T) {
+	projectDir := t.TempDir()
+	homeDir := t.TempDir()
+	cacheDir := t.TempDir()
+	executablePath := filepath.Join(projectDir, executableFileName())
+	if err := os.WriteFile(executablePath, []byte("old-binary"), 0o755); err != nil {
+		t.Fatalf("WriteFile(%s): %v", executablePath, err)
+	}
+	t.Setenv("LORESKILLS_EXECUTABLE_PATH", executablePath)
+	t.Setenv("LORESKILLS_USER_CACHE_DIR", cacheDir)
+
+	if _, err := fs.WriteUpdateCheckState(fs.NewNoUpdateCheckState(time.Now().UTC(), "v1.0.0")); err != nil {
+		t.Fatalf("WriteUpdateCheckState() error = %v", err)
+	}
+
+	assetName := defaultReleaseAssetName()
+	archiveData := releaseArchiveForTest(t, assetName)
+	checksum := sha256.Sum256(archiveData)
+	checksumBody := []byte(fmt.Sprintf("%s  %s\n", hex.EncodeToString(checksum[:]), assetName))
+
+	releaseRequests := 0
+	serverURL := ""
+	server := httptest.NewServer(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		switch r.URL.Path {
+		case "/releases":
+			releaseRequests++
+			_, _ = w.Write([]byte(fmt.Sprintf(`[{"tag_name":"v9.9.9","prerelease":false,"assets":[{"name":"%s","browser_download_url":"%s/asset"},{"name":"SHA256SUMS","browser_download_url":"%s/checksum"}]}]`, assetName, serverURL, serverURL)))
+		case "/asset":
+			_, _ = w.Write(archiveData)
+		case "/checksum":
+			_, _ = w.Write(checksumBody)
+		default:
+			stdhttp.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	serverURL = server.URL
+
+	previousVersion := version
+	previousReleaseAPIURL := releaseAPIURL
+	previousReleaseAssetName := releaseAssetName
+	version = "v1.0.0"
+	releaseAPIURL = server.URL + "/releases"
+	releaseAssetName = assetName
+	t.Cleanup(func() {
+		version = previousVersion
+		releaseAPIURL = previousReleaseAPIURL
+		releaseAssetName = previousReleaseAssetName
+	})
+
+	result := runCLI(t, projectDir, homeDir, "update", "self")
+
+	if result.err != nil {
+		t.Fatalf("Run() error = %v\nstdout=%s\nstderr=%s", result.err, result.stdout, result.stderr)
+	}
+	if releaseRequests != 1 {
+		t.Fatalf("releaseRequests = %d, want forced refresh despite cache", releaseRequests)
+	}
+	assertContains(t, result.stdout, "Version stable détectée : v9.9.9")
 
 	data, err := os.ReadFile(executablePath)
 	if err != nil {

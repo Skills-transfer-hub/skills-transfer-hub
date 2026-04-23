@@ -25,7 +25,7 @@ func TestRun_initCreatesProjectProfile(t *testing.T) {
 	defer server.Close()
 	t.Setenv("LORESKILLS_GITHUB_RAW_BASE_URL", server.URL)
 
-	result := runCLIWithInput(t, projectDir, homeDir, "\n\n\nowner/repo\n\n\n\n", "init")
+	result := runCLIWithInput(t, projectDir, homeDir, "\n\n\n\nowner/repo\n\n\n\n", "init")
 
 	if result.err != nil {
 		t.Fatalf("Run() error = %v", result.err)
@@ -145,7 +145,7 @@ func TestRun_initGuidesUserThroughPublicGitHubSetup(t *testing.T) {
 	defer server.Close()
 	t.Setenv("LORESKILLS_GITHUB_RAW_BASE_URL", server.URL)
 
-	result := runCLIWithInput(t, projectDir, homeDir, "github\nn\nowner-only\nowner/repo\n\n\n\n", "init")
+	result := runCLIWithInput(t, projectDir, homeDir, "github\nn\nn\nowner-only\nowner/repo\n\n\n\n", "init")
 
 	if result.err != nil {
 		t.Fatalf("Run() error = %v\nstdout=%s\nstderr=%s", result.err, result.stdout, result.stderr)
@@ -193,7 +193,7 @@ func TestRun_initShowsTokenGuidanceForPrivateRepo(t *testing.T) {
 	}{
 		{
 			name:          "github",
-			wantURL:       "https://github.com/settings/tokens/new",
+			wantURL:       "https://github.com/settings/personal-access-tokens/new",
 			wantEnvVar:    "GITHUB_TOKEN",
 			repoID:        "owner/repo",
 			serverPathFmt: "/owner/repo/main/SKILLS.md",
@@ -201,7 +201,7 @@ func TestRun_initShowsTokenGuidanceForPrivateRepo(t *testing.T) {
 		},
 		{
 			name:          "gitlab",
-			wantURL:       "https://gitlab.com/-/profile/personal_access_tokens",
+			wantURL:       "https://gitlab.com/-/user_settings/personal_access_tokens",
 			wantEnvVar:    "GITLAB_TOKEN",
 			repoID:        "owner/repo",
 			serverPathFmt: "/api/v4/projects/owner%2Frepo/repository/files/SKILLS.md/raw",
@@ -209,7 +209,7 @@ func TestRun_initShowsTokenGuidanceForPrivateRepo(t *testing.T) {
 		},
 		{
 			name:          "bitbucket",
-			wantURL:       "https://bitbucket.org/account/settings/app-passwords/new",
+			wantURL:       "https://support.atlassian.com/bitbucket-cloud/docs/create-an-api-token/",
 			wantEnvVar:    "BITBUCKET_TOKEN",
 			repoID:        "owner/repo",
 			serverPathFmt: "/2.0/repositories/owner/repo/src/main/SKILLS.md",
@@ -239,7 +239,7 @@ func TestRun_initShowsTokenGuidanceForPrivateRepo(t *testing.T) {
 			t.Setenv("LORESKILLS_TOKEN", "dummy-test-token")
 
 			// Input: provider, private=y, skip token, repoID, ref, catalogPath, targetDir
-			input := p.name + "\ny\n\n" + p.repoID + "\n\n\n\n"
+			input := p.name + "\ny\nn\n\n" + p.repoID + "\n\n\n\n"
 			result := runCLIWithInput(t, projectDir, homeDir, input, "init")
 
 			if result.err != nil {
@@ -249,10 +249,80 @@ func TestRun_initShowsTokenGuidanceForPrivateRepo(t *testing.T) {
 			assertContains(t, result.stdout, p.wantURL)
 			assertContains(t, result.stdout, p.wantEnvVar)
 			assertContains(t, result.stdout, "LORESKILLS_TOKEN")
+			switch p.name {
+			case "github":
+				assertContains(t, result.stdout, "Contents: Read")
+			case "gitlab":
+				assertContains(t, result.stdout, "read_repository")
+			case "bitbucket":
+				assertContains(t, result.stdout, "Repositories: Read")
+			}
 			assertContains(t, result.stdout, "Token d'acces pour valider maintenant")
 			assertContains(t, result.stdout, "Configuration projet enregistrée")
 		})
 	}
+}
+
+func TestRun_initRejectsUnsupportedProviderThenContinues(t *testing.T) {
+	homeDir := t.TempDir()
+	projectDir := t.TempDir()
+	server := httptest.NewServer(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		_, _ = w.Write([]byte(testCatalogMarkdown("| skill | alpha | react | react/alpha/SKILL.md | Alpha |")))
+	}))
+	defer server.Close()
+	t.Setenv("LORESKILLS_GITHUB_RAW_BASE_URL", server.URL)
+
+	result := runCLIWithInput(t, projectDir, homeDir, "gitea\ngithub\nn\nn\nowner/repo\n\n\n\n", "init")
+
+	if result.err != nil {
+		t.Fatalf("Run() error = %v\nstdout=%s\nstderr=%s", result.err, result.stdout, result.stderr)
+	}
+	assertContains(t, result.stdout, "Provider invalide")
+	assertContains(t, result.stdout, "Choisissez azure-devops, bitbucket, github, gitlab")
+	assertContains(t, result.stdout, "Configuration projet enregistrée")
+}
+
+func TestRun_initRejectsSelfHostedRepositoryURLThenAcceptsHostedIdentifier(t *testing.T) {
+	homeDir := t.TempDir()
+	projectDir := t.TempDir()
+	server := httptest.NewServer(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		_, _ = w.Write([]byte(testCatalogMarkdown("| skill | alpha | react | react/alpha/SKILL.md | Alpha |")))
+	}))
+	defer server.Close()
+	t.Setenv("LORESKILLS_GITLAB_API_BASE_URL", server.URL+"/api/v4")
+	t.Setenv("LORESKILLS_TOKEN", "dummy-test-token")
+
+	input := "gitlab\nn\nn\nhttps://git.example.com/group/project\ngroup/project\n\n\n\n"
+	result := runCLIWithInput(t, projectDir, homeDir, input, "init")
+
+	if result.err != nil {
+		t.Fatalf("Run() error = %v\nstdout=%s\nstderr=%s", result.err, result.stdout, result.stderr)
+	}
+	assertContains(t, result.stdout, "Repository ID invalide")
+	assertContains(t, result.stdout, "gitlab.com")
+	assertContains(t, result.stdout, "Configuration projet enregistrée")
+}
+
+func TestRun_initAllowsReviewingProviderGuidanceAgain(t *testing.T) {
+	homeDir := t.TempDir()
+	projectDir := t.TempDir()
+	server := httptest.NewServer(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		_, _ = w.Write([]byte(testCatalogMarkdown("| skill | alpha | react | react/alpha/SKILL.md | Alpha |")))
+	}))
+	defer server.Close()
+	t.Setenv("LORESKILLS_GITHUB_RAW_BASE_URL", server.URL)
+	t.Setenv("LORESKILLS_TOKEN", "dummy-test-token")
+
+	input := "github\ny\ny\nn\n\nowner/repo\n\n\n\n"
+	result := runCLIWithInput(t, projectDir, homeDir, input, "init")
+
+	if result.err != nil {
+		t.Fatalf("Run() error = %v\nstdout=%s\nstderr=%s", result.err, result.stdout, result.stderr)
+	}
+	if strings.Count(result.stdout, "https://github.com/settings/personal-access-tokens/new") < 2 {
+		t.Fatalf("stdout %q does not show the provider guidance twice", result.stdout)
+	}
+	assertContains(t, result.stdout, "Configuration projet enregistrée")
 }
 
 func TestRun_initPrivateGitHubWithTokenPassesValidation(t *testing.T) {
@@ -271,7 +341,7 @@ func TestRun_initPrivateGitHubWithTokenPassesValidation(t *testing.T) {
 	t.Setenv("LORESKILLS_GITHUB_RAW_BASE_URL", server.URL)
 
 	// Input: provider=github, private=y, enter token, repoID, ref, catalogPath, targetDir
-	input := "github\ny\n" + testToken + "\nowner/repo\n\n\n\n"
+	input := "github\ny\nn\n" + testToken + "\nowner/repo\n\n\n\n"
 	result := runCLIWithInput(t, projectDir, homeDir, input, "init")
 
 	if result.err != nil {
@@ -295,7 +365,7 @@ func TestRun_initAzureDevOpsShowsTokenGuidance(t *testing.T) {
 	t.Setenv("LORESKILLS_TOKEN", "dummy-test-token")
 
 	// Input: azure-devops, private=y, skip token, org/project/repo, ref, catalogPath, targetDir
-	input := "azure-devops\ny\n\norg/project/repo\n\n\n\n"
+	input := "azure-devops\ny\nn\n\norg/project/repo\n\n\n\n"
 	result := runCLIWithInput(t, projectDir, homeDir, input, "init")
 
 	if result.err != nil {

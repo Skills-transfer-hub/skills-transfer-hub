@@ -3,6 +3,7 @@ package cmd
 import (
 	"bytes"
 	"encoding/json"
+	lorehttp "loreskills/internal/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -15,6 +16,16 @@ type cliResult struct {
 	stdout string
 	stderr string
 	err    error
+}
+
+type cliOptions struct {
+	workDir      string
+	homeDir      string
+	input        string
+	args         []string
+	client       *lorehttp.Client
+	interactive  func() bool
+	userCacheDir string
 }
 
 func assertContains(t *testing.T, got, want string) {
@@ -40,30 +51,47 @@ func assertEmpty(t *testing.T, got string) {
 
 func runCLI(t *testing.T, workDir, homeDir string, args ...string) cliResult {
 	t.Helper()
-	return runCLIWithInput(t, workDir, homeDir, "", args...)
+	return runCLIWithOptions(t, cliOptions{
+		workDir: workDir,
+		homeDir: homeDir,
+		args:    args,
+	})
 }
 
 func runCLIWithInput(t *testing.T, workDir, homeDir, input string, args ...string) cliResult {
 	t.Helper()
+	return runCLIWithOptions(t, cliOptions{
+		workDir: workDir,
+		homeDir: homeDir,
+		input:   input,
+		args:    args,
+	})
+}
 
-	if workDir == "" {
-		workDir = t.TempDir()
+func runCLIWithOptions(t *testing.T, options cliOptions) cliResult {
+	t.Helper()
+
+	if options.workDir == "" {
+		options.workDir = t.TempDir()
 	}
-	if homeDir == "" {
-		homeDir = t.TempDir()
+	if options.homeDir == "" {
+		options.homeDir = t.TempDir()
 	}
 
-	t.Setenv("HOME", homeDir)
-	t.Setenv("USERPROFILE", homeDir)
-	t.Setenv("HOMEDRIVE", filepath.VolumeName(homeDir))
-	t.Setenv("HOMEPATH", strings.TrimPrefix(homeDir, filepath.VolumeName(homeDir)))
+	t.Setenv("HOME", options.homeDir)
+	t.Setenv("USERPROFILE", options.homeDir)
+	t.Setenv("HOMEDRIVE", filepath.VolumeName(options.homeDir))
+	t.Setenv("HOMEPATH", strings.TrimPrefix(options.homeDir, filepath.VolumeName(options.homeDir)))
+	if options.userCacheDir != "" {
+		t.Setenv("LORESKILLS_USER_CACHE_DIR", options.userCacheDir)
+	}
 
 	oldWD, err := os.Getwd()
 	if err != nil {
 		t.Fatalf("getwd: %v", err)
 	}
-	if err := os.Chdir(workDir); err != nil {
-		t.Fatalf("chdir %s: %v", workDir, err)
+	if err := os.Chdir(options.workDir); err != nil {
+		t.Fatalf("chdir %s: %v", options.workDir, err)
 	}
 	t.Cleanup(func() {
 		_ = os.Chdir(oldWD)
@@ -71,8 +99,11 @@ func runCLIWithInput(t *testing.T, workDir, homeDir, input string, args ...strin
 
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
-	app := newApp(strings.NewReader(input), &stdout, &stderr, nil)
-	runErr := app.run(args)
+	app := newApp(strings.NewReader(options.input), &stdout, &stderr, options.client)
+	if options.interactive != nil {
+		app.interactive = options.interactive
+	}
+	runErr := app.run(options.args)
 
 	return cliResult{stdout: stdout.String(), stderr: stderr.String(), err: runErr}
 }
@@ -120,15 +151,30 @@ func testCatalogMarkdown(rows ...string) string {
 	return strings.Join(lines, "\n") + "\n"
 }
 
-func TestRun_noArgumentsShowsVersionSignature(t *testing.T) {
+func TestRun_noArgumentsNonInteractiveShowsNextStepGuidance(t *testing.T) {
 	result := runCLI(t, "", "")
 
 	if result.err != nil {
 		t.Fatalf("Run() error = %v", result.err)
 	}
-	assertContains(t, result.stdout, "LoreSkills dev")
-	assertContains(t, result.stdout, versionByline)
-	assertNotContains(t, result.stdout, "Commandes visibles")
+	assertContains(t, result.stdout, "Etat projet : unconfigured")
+	assertContains(t, result.stdout, "Action recommandée : loreskills init")
+	assertNotContains(t, result.stdout, "LoreSkills dev")
+	assertEmpty(t, result.stderr)
+}
+
+func TestRun_noArgumentsInteractiveShowsGuidedMenuAndAllowsQuit(t *testing.T) {
+	result := runCLIWithOptions(t, cliOptions{
+		input:       "3\n",
+		interactive: func() bool { return true },
+	})
+
+	if result.err != nil {
+		t.Fatalf("Run() error = %v\nstdout=%s\nstderr=%s", result.err, result.stdout, result.stderr)
+	}
+	assertContains(t, result.stdout, "Menu guidé LoreSkills")
+	assertContains(t, result.stdout, "1. init (recommandé)")
+	assertContains(t, result.stdout, "3. quit")
 	assertEmpty(t, result.stderr)
 }
 

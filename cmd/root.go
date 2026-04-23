@@ -12,6 +12,7 @@ type commandSpec struct {
 	name     string
 	usage    string
 	summary  string
+	details  []string
 	examples []string
 }
 
@@ -19,7 +20,13 @@ var commandCatalog = []commandSpec{
 	{
 		name:    "init",
 		usage:   "loreskills init",
-		summary: "Configure pas a pas le depot distant public ou prive du projet courant",
+		summary: "Configure pas a pas un depot distant heberge supporte pour le projet courant",
+		details: []string{
+			"Providers heberges supportes : github.com, gitlab.com, dev.azure.com et bitbucket.org.",
+			"Le wizard affiche les URLs officielles pour creer le token/API token, la permission minimale attendue et les variables d'environnement reconnues.",
+			"Le repository_id accepte un identifiant canonique ou une URL hebergee supportee. Les hosts self-hosted sont rejetes.",
+			"La guidance provider peut etre relue pendant le wizard et aucun secret n'est persiste dans .loreskills/project.json.",
+		},
 		examples: []string{
 			"loreskills init",
 		},
@@ -27,7 +34,11 @@ var commandCatalog = []commandSpec{
 	{
 		name:    "list",
 		usage:   "loreskills list",
-		summary: "Lit SKILLS.md et liste les ressources installables du dépôt courant",
+		summary: "Lit SKILLS.md ou détecte les bundles category/folder/SKILL.md du dépôt courant",
+		details: []string{
+			"SKILLS.md garde toujours la priorité quand il existe et se parse correctement.",
+			"Si SKILLS.md est absent, LoreSkills scanne les bundles compatibles et affiche leurs références canoniques category/folder.",
+		},
 		examples: []string{
 			"loreskills list",
 		},
@@ -35,8 +46,13 @@ var commandCatalog = []commandSpec{
 	{
 		name:    "install",
 		usage:   "loreskills install <resource-ref>",
-		summary: "Installe une ressource du catalogue distant dans le projet courant",
+		summary: "Installe une ressource du catalogue distant ou un bundle compatible dans le projet courant",
+		details: []string{
+			"Accepte un nom catalogue classique ou une référence bundle canonique category/folder.",
+			"Pour un bundle détecté par scan, LoreSkills synchronise tous les fichiers du dossier source et suit leur manifeste dans lore-state.json.",
+		},
 		examples: []string{
+			"loreskills install react/form-wizard",
 			"loreskills install skills/analyse-risque",
 		},
 	},
@@ -69,10 +85,11 @@ var commandCatalog = []commandSpec{
 }
 
 type app struct {
-	stdin  io.Reader
-	stdout io.Writer
-	stderr io.Writer
-	client *lorehttp.Client
+	stdin       io.Reader
+	stdout      io.Writer
+	stderr      io.Writer
+	client      *lorehttp.Client
+	interactive func() bool
 }
 
 func newApp(stdin io.Reader, stdout, stderr io.Writer, client *lorehttp.Client) *app {
@@ -97,6 +114,18 @@ func newApp(stdin io.Reader, stdout, stderr io.Writer, client *lorehttp.Client) 
 	}
 }
 
+func (a *app) isInteractiveSession() bool {
+	if a.interactive != nil {
+		return a.interactive()
+	}
+
+	return false
+}
+
+func (a *app) nextStepGuidanceLines() []string {
+	return startupGuidanceLines(a.loadGuidedStartupState())
+}
+
 // Run routes CLI arguments to the appropriate LoreSkills command.
 func Run(args []string) error {
 	return newApp(os.Stdin, os.Stdout, os.Stderr, nil).run(args)
@@ -104,7 +133,10 @@ func Run(args []string) error {
 
 func (a *app) run(args []string) error {
 	if len(args) == 0 {
-		a.writeStdout(formatVersionSignature())
+		if a.isInteractiveSession() {
+			return a.runGuidedMenu()
+		}
+		a.writeStdout(a.nextStepGuidanceLines()...)
 		return nil
 	}
 
@@ -245,7 +277,8 @@ func (a *app) writeStderr(lines ...string) {
 
 func helpText() string {
 	var builder strings.Builder
-	builder.WriteString("LoreSkills\n\n")
+	builder.WriteString("LoreSkills\n")
+	builder.WriteString("Sans argument, `loreskills` ouvre le menu guidé en TTY et affiche la prochaine étape utile hors TTY.\n\n")
 	builder.WriteString("Commandes visibles :\n")
 	for _, spec := range commandCatalog {
 		builder.WriteString(fmt.Sprintf("  %-20s %s\n", commandDisplayName(spec), spec.summary))
@@ -279,6 +312,12 @@ func commandHelpText(name string) string {
 	var builder strings.Builder
 	builder.WriteString(fmt.Sprintf("%s\n\n", spec.usage))
 	builder.WriteString(fmt.Sprintf("%s\n", spec.summary))
+	if len(spec.details) > 0 {
+		builder.WriteString("\n")
+		for _, detail := range spec.details {
+			builder.WriteString(fmt.Sprintf("- %s\n", detail))
+		}
+	}
 	if len(spec.examples) > 0 {
 		builder.WriteString("\nExemples :\n")
 		for _, example := range spec.examples {
