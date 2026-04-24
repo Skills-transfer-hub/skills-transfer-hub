@@ -1330,6 +1330,16 @@ func RefreshManagedFileHashes(record InstalledResourceRecordV2, content []byte) 
 	return record
 }
 
+// ResolveManagedFilePath returns the expected on-disk path for a catalog entry,
+// using the same logic as SaveCatalogEntry/BuildInstalledPath.
+func ResolveManagedFilePath(targetDir string, entry CatalogEntry) string {
+	p, err := BuildInstalledPath(targetDir, entry)
+	if err != nil {
+		return filepath.ToSlash(filepath.Join(targetDir, entry.FolderName, filepath.Base(filepath.FromSlash(entry.SourcePath))))
+	}
+	return filepath.ToSlash(filepath.Clean(p))
+}
+
 // UpsertResourceEntry adds or replaces a ResourceEntry in cfg.Resources.
 // Returns an error if entry.ResourceName is empty or entry.ProviderID does not
 // reference an existing provider in cfg.Providers.

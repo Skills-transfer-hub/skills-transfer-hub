@@ -6,14 +6,59 @@ import (
 	"loreskills/internal/fs"
 	lorehttp "loreskills/internal/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 )
 
-func (a *app) runUpdate() error {
+func (a *app) runUpdate(args []string) error {
+	flags, _ := parseFlags(args, "--dry-run")
+	dryRun := flags["--dry-run"]
+
 	profile, err := fs.ReadProjectProfile()
 	if err != nil {
 		return err
+	}
+
+	cfg, _ := fs.ReadProjectConfigV2()
+
+	if dryRun {
+		v2State, err := fs.ReadInstalledStateV2(profile.TargetDir)
+		if err != nil {
+			return err
+		}
+		if len(v2State.Entries) == 0 {
+			a.writeStdout("Aucune ressource à mettre à jour.")
+			return nil
+		}
+		workingDir, _ := filepath.Abs(".")
+		ignorePats, _ := fs.ReadLoreSkillsIgnore(workingDir)
+		for _, rec := range v2State.Entries {
+			if pinnedVer := fs.PinnedVersion(cfg, rec.ResourceName); pinnedVer != "" {
+				a.writeStdout(fmt.Sprintf("  [pinned at %s] %s", pinnedVer, rec.ResourceName))
+				continue
+			}
+			entry := fs.CatalogEntry{
+				CatalogID:    rec.ResourceName,
+				ResourceType: "skill",
+				Name:         rec.ResourceName,
+				FolderName:   rec.ResourceName,
+				SourcePath:   rec.ResourceName,
+			}
+			content, fetchErr := a.client.DownloadCatalogEntry(context.Background(), *profile, entry)
+			if fetchErr != nil {
+				a.writeStderr(fmt.Sprintf("Échec de récupération pour '%s' : %v", rec.ResourceName, fetchErr))
+				continue
+			}
+			incomingRecord := fs.RefreshManagedFileHashes(fs.InstalledResourceRecordV2{
+				ResourceName: rec.ResourceName,
+				ManagedFiles: []fs.ManagedFile{{Path: fs.ResolveManagedFilePath(profile.TargetDir, entry)}},
+			}, content)
+			changes := fs.ComputeDryRunChanges(&rec, incomingRecord.ManagedFiles, ignorePats)
+			a.writeStdout(fmt.Sprintf("--- %s ---", rec.ResourceName))
+			a.writeStdout(fs.FormatDryRunText(changes))
+		}
+		return nil
 	}
 
 	records, err := fs.ListInstalledResources(profile.TargetDir)
@@ -28,6 +73,11 @@ func (a *app) runUpdate() error {
 
 	failures := 0
 	for _, record := range records {
+		if pinnedVer := fs.PinnedVersion(cfg, record.CatalogID); pinnedVer != "" {
+			a.writeStdout(fmt.Sprintf("  [pinned at %s] %s", pinnedVer, record.CatalogID))
+			continue
+		}
+
 		entry := fs.CatalogEntry{
 			CatalogID:    record.CatalogID,
 			ResourceType: record.ResourceType,

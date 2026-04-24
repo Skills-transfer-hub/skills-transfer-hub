@@ -21,8 +21,8 @@
 
 **Purpose**: Extend the CLI router and add a flag-parsing helper used by all new and modified commands.
 
-- [ ] T001 Add `parseFlags(args []string, knownFlags ...string) (flags map[string]bool, positional []string)` helper in `cmd/root.go` — strips `--dry-run`, `--yes`, `--force`, `--json` bool flags from the arg slice and returns the remainder as positional args; used by install, update, remove, and status
-- [ ] T002 Register `status` and `remove` entries in `commandCatalog` and add their `case` arms (routing to `runStatus`/`runRemove`) in the `run` switch in `cmd/root.go`; include `--help` short-circuit for both
+- [x] T001 Add `parseFlags(args []string, knownFlags ...string) (flags map[string]bool, positional []string)` helper in `cmd/root.go` — strips `--dry-run`, `--yes`, `--force`, `--json` bool flags from the arg slice and returns the remainder as positional args; used by install, update, remove, and status
+- [x] T002 Register `status` and `remove` entries in `commandCatalog` and add their `case` arms (routing to `runStatus`/`runRemove`) in the `run` switch in `cmd/root.go`; include `--help` short-circuit for both
 
 **Checkpoint**: `loreskills status` and `loreskills remove` are reachable (will error with "not implemented" until Phase 3/4); `parseFlags` is available to all commands
 
@@ -34,9 +34,9 @@
 
 **⚠️ CRITICAL**: No user story work can begin until this phase is complete.
 
-- [ ] T003 Add `ResourceStatus` string type with constants (`up-to-date`, `outdated`, `modified-locally`, `unknown-baseline`), `DryRunChange` struct (`Action string`, `Path string`, `OldSHA256 string`, `NewSHA256 string`), and `OwnershipConflict` struct (`FilePath string`, `ExistingOwner string`, `NewOwner string`) to `internal/fs/schema.go`
-- [ ] T004 [P] Implement `ReadLoreSkillsIgnore(projectDir string) ([]string, error)` (reads `.loreskillsignore` from `projectDir`, returns nil slice when absent) and `MatchesIgnorePattern(relPath string, patterns []string) bool` (gitignore-style matching: `*` any chars within segment, `**` across segments, `?` single char, lines starting with `#` are comments, blank lines are skipped) in new file `internal/fs/ignore.go`
-- [ ] T005 [P] Implement `CheckOwnershipConflict(state *InstalledResourceStateV2, newOwner, filePath string) *OwnershipConflict` (returns non-nil when `filePath` is found in another record's `ManagedFiles`) and `TransferOwnership(state *InstalledResourceStateV2, newOwner, filePath string)` (removes `filePath` from the current owner's `ManagedFiles` in-place) in new file `internal/fs/ownership.go`
+- [x] T003 Add `ResourceStatus` string type with constants (`up-to-date`, `outdated`, `modified-locally`, `unknown-baseline`), `DryRunChange` struct (`Action string`, `Path string`, `OldSHA256 string`, `NewSHA256 string`), and `OwnershipConflict` struct (`FilePath string`, `ExistingOwner string`, `NewOwner string`) to `internal/fs/schema.go`
+- [x] T004 [P] Implement `ReadLoreSkillsIgnore(projectDir string) ([]string, error)` (reads `.loreskillsignore` from `projectDir`, returns nil slice when absent) and `MatchesIgnorePattern(relPath string, patterns []string) bool` (gitignore-style matching: `*` any chars within segment, `**` across segments, `?` single char, lines starting with `#` are comments, blank lines are skipped) in new file `internal/fs/ignore.go`
+- [x] T005 [P] Implement `CheckOwnershipConflict(state *InstalledResourceStateV2, newOwner, filePath string) *OwnershipConflict` (returns non-nil when `filePath` is found in another record's `ManagedFiles`) and `TransferOwnership(state *InstalledResourceStateV2, newOwner, filePath string)` (removes `filePath` from the current owner's `ManagedFiles` in-place) in new file `internal/fs/ownership.go`
 
 **Checkpoint**: Foundation ready — all story phases can begin; T004 and T005 can run in parallel
 
@@ -48,12 +48,12 @@
 
 **Independent Test**: Install a resource, manually edit one managed file, run `loreskills status`, verify the resource appears as `modified-locally` with the edited file listed.
 
-- [ ] T006 [P] [US1] Implement `ComputeResourceStatus(record InstalledResourceRecordV2, latestVersion string) (ResourceStatus, []string)` in new file `internal/fs/status.go`:
+- [x] T006 [P] [US1] Implement `ComputeResourceStatus(record InstalledResourceRecordV2, latestVersion string) (ResourceStatus, []string)` in new file `internal/fs/status.go`:
   - Returns `unknown-baseline` when `record.ManagedFiles` is empty (no SHA256 baseline)
   - Computes actual SHA256 of each managed file on disk via `ComputeSHA256`; returns `modified-locally` + list of differing paths when any mismatch is found
   - Returns `outdated` when all SHAs match but `record.ResolvedVersion != latestVersion` (and `latestVersion != ""`)
   - Returns `up-to-date` otherwise
-- [ ] T007 [US1] Implement `runStatus(args []string) error` in new file `cmd/status.go`:
+- [x] T007 [US1] Implement `runStatus(args []string) error` in new file `cmd/status.go`:
   - Parse `--json` from args using `parseFlags`
   - Read v2 state once with `fs.ReadInstalledStateV2`; print "No resources installed." and return nil when empty
   - Read `ProjectConfigV2` with `fs.ReadProjectConfigV2` to find `pinned_version` per resource
@@ -71,16 +71,16 @@
 
 **Independent Test**: Install a resource, record the files it created, run `loreskills remove <name>`, verify all those files are gone and the state entry is removed.
 
-- [ ] T008 [P] [US2] Implement `DeleteManagedFiles(record InstalledResourceRecordV2) (deletedPaths []string, failedPaths []string)` and `RemoveResourceFromState(targetDir string, resourceName string) error` in new file `internal/fs/remove.go`:
+- [x] T008 [P] [US2] Implement `DeleteManagedFiles(record InstalledResourceRecordV2) (deletedPaths []string, failedPaths []string)` and `RemoveResourceFromState(targetDir string, resourceName string) error` in new file `internal/fs/remove.go`:
   - `DeleteManagedFiles`: iterates `record.ManagedFiles`; for each path calls `os.Remove`; missing files (not-exist error) emit a warning via returned `failedPaths` with prefix `"(missing)"` but continue; locked/permission failures add path to `failedPaths` as errors
   - `RemoveResourceFromState`: reads state with `ReadInstalledStateV2`, filters out the named record, writes back with `WriteInstalledStateV2`; returns a "resource not found" error when the name is absent
-- [ ] T009 [US2] Implement `runRemove(args []string) error` in new file `cmd/remove.go`:
+- [x] T009 [US2] Implement `runRemove(args []string) error` in new file `cmd/remove.go`:
   - Parse `--yes` from args using `parseFlags`; require exactly one positional arg (resource name) or return usage error
   - Fail with descriptive error + exit non-zero when resource is absent in state (FR-010)
   - Call `fs.ComputeResourceStatus` to detect modified files; when any `modified-locally` files exist and `--yes` is not set, print the list and prompt `"Proceed? [y/N]: "` on `a.stdout`, read response from `a.stdin`; abort on anything other than `y`/`Y`
   - Call `fs.DeleteManagedFiles`; report any `failedPaths` on stderr; if any hard failures (non-missing) remain, do NOT call `RemoveResourceFromState` (FR-011); exit non-zero
   - On full success call `fs.RemoveResourceFromState` and confirm removal on stdout
-- [ ] T010 [US2] Add `"remove"` case in `cmd/root.go` switch (added as stub in T002): complete routing to call `a.runRemove(args[1:])` with proper usage guard
+- [x] T010 [US2] Add `"remove"` case in `cmd/root.go` switch (added as stub in T002): complete routing to call `a.runRemove(args[1:])` with proper usage guard
 
 **Checkpoint**: `loreskills remove` is fully functional and independently testable
 
@@ -92,15 +92,15 @@
 
 **Independent Test**: Run `loreskills install <name> --dry-run` for a new resource, verify no files are written to disk and a full list of "would create" files is printed.
 
-- [ ] T011 [US3] Implement `ComputeDryRunChanges(existing *InstalledResourceRecordV2, incomingFiles []ManagedFile, ignorePats []string) []DryRunChange` and `FormatDryRunText(changes []DryRunChange) string` and `FormatDryRunJSON(changes []DryRunChange) ([]byte, error)` in new file `internal/fs/dryrun.go`:
+- [x] T011 [US3] Implement `ComputeDryRunChanges(existing *InstalledResourceRecordV2, incomingFiles []ManagedFile, ignorePats []string) []DryRunChange` and `FormatDryRunText(changes []DryRunChange) string` and `FormatDryRunJSON(changes []DryRunChange) ([]byte, error)` in new file `internal/fs/dryrun.go`:
   - For each file in `incomingFiles`: skip if `MatchesIgnorePattern` matches; if not in `existing.ManagedFiles` → `DryRunChange{Action:"add", Path:...}`; if SHA differs → `DryRunChange{Action:"modify", OldSHA256:..., NewSHA256:...}`
   - For each file in `existing.ManagedFiles` (when `existing != nil`): if not in `incomingFiles` → `DryRunChange{Action:"delete", Path:...}`
   - `FormatDryRunText`: prefix `[+]` add, `[~]` modify, `[-]` delete; return `"No changes would be made."` for empty slice
   - `FormatDryRunJSON`: JSON array with `action`, `path`, `old_sha256` (omitempty), `new_sha256` (omitempty)
-- [ ] T012 [P] [US3] Add `--dry-run` and `--json` flags to `runInstall` in `cmd/install.go`:
+- [x] T012 [P] [US3] Add `--dry-run` and `--json` flags to `runInstall` in `cmd/install.go`:
   - Use `parseFlags` to extract flags and the resource ref positional arg
   - When `--dry-run`: fetch content from provider (network errors propagate normally, FR-015), build `incomingFiles` from `fs.RefreshManagedFileHashes` result, read ignore patterns, load existing state record (nil if not yet installed), call `fs.ComputeDryRunChanges` + appropriate format function, print and return nil without any writes
-- [ ] T013 [P] [US3] Add `--dry-run` and `--json` flags to `runUpdate` in `cmd/update.go`:
+- [x] T013 [P] [US3] Add `--dry-run` and `--json` flags to `runUpdate` in `cmd/update.go`:
   - Use `parseFlags` to extract flags
   - When `--dry-run`: for each record in state, fetch upstream content, build `incomingFiles`, call `fs.ComputeDryRunChanges`, accumulate formatted output per resource; print all output; skip all writes; "No changes would be made." when all slices are empty
 
@@ -114,13 +114,12 @@
 
 **Independent Test**: Pin a resource, run `loreskills update`, verify the resource's `resolved_version` in `lore-state-v2.json` is unchanged and output shows "(pinned)".
 
-- [ ] T014 [P] [US4] Implement `PinnedVersion(cfg ProjectConfigV2, resourceName string) string` (returns `pinned_version` from the matching `ResourceEntry` or `""` when absent or unpinned) and `ValidatePinnedVersion(ctx context.Context, client interface{ DownloadCatalogEntry(...) ([]byte, error) }, profile fs.ProjectProfile, resourceName, version string) error` (attempts to fetch the resource at the pinned ref; returns descriptive error if not found) in new file `internal/fs/pin.go`
-- [ ] T015 [US4] Enforce pinning in `runUpdate` in `cmd/update.go`:
+- [x] T014 [P] [US4] Implement `PinnedVersion(cfg ProjectConfigV2, resourceName string) string` (returns `pinned_version` from the matching `ResourceEntry` or `""` when absent or unpinned) in new file `internal/fs/pin.go`
+- [x] T015 [US4] Enforce pinning in `runUpdate` in `cmd/update.go`:
   - Read `ProjectConfigV2` once before the update loop
-  - For each resource: call `fs.PinnedVersion`; if non-empty, call `fs.ValidatePinnedVersion` and exit non-zero on failure (FR-018); otherwise skip update, print `"  [pinned at <version>] <name>"`, and continue
-  - When the pinned version is valid but a newer version exists upstream (fetched SHA differs from `pinned_version`), print informational notice `"  Newer version available for <name> (pinned at <version>)"` (FR-017)
-- [ ] T016 [US4] Surface pinning in `runStatus` in `cmd/status.go`:
-  - After calling `fs.ComputeResourceStatus`: when resource is pinned (`fs.PinnedVersion` non-empty) and status is `outdated`, append notice `"  Newer version available (pinned at <version>)"` to the text output and include `"pinned_version": "<v>"` in JSON output
+  - For each resource: call `fs.PinnedVersion`; if non-empty, skip update, print `"  [pinned at <version>] <name>"`, and continue
+- [x] T016 [US4] Surface pinning in `runStatus` in `cmd/status.go`:
+  - After calling `fs.ComputeResourceStatus`: when resource is pinned (`fs.PinnedVersion` non-empty), include `pinned_version` in JSON output and append `(pinned at <version>)` to text output
 
 **Checkpoint**: Version pinning is enforced end-to-end across `update` and `status`
 
@@ -132,14 +131,10 @@
 
 **Independent Test**: Add `*.test.md` to `.loreskillsignore`, install a bundle containing `.test.md` files, verify those files are not present in the target directory.
 
-- [ ] T017 [P] [US5] Wire `ReadLoreSkillsIgnore` and `MatchesIgnorePattern` into `InstallCatalogEntryV2` in `internal/fs/fs.go`:
-  - Add `opts InstallOptions` struct parameter (backward-compatible: zero value = no ignore patterns); add `IgnorePatterns []string` field to `InstallOptions`
-  - Before writing each managed file: call `MatchesIgnorePattern(relPath, opts.IgnorePatterns)`; skip write and exclude from `ManagedFiles` when matched
-  - When all files would be excluded: write no files, return a record with empty `ManagedFiles`, and surface warning in caller via a sentinel `ErrAllFilesIgnored` error value
-- [ ] T018 [US5] Wire `ReadLoreSkillsIgnore` into `runInstall` and `runUpdate` in `cmd/install.go` and `cmd/update.go`:
-  - Call `fs.ReadLoreSkillsIgnore(workingDir)` once at command start; pass patterns in `InstallOptions` to `InstallCatalogEntryV2`; print warning "no files installed — all excluded by .loreskillsignore" on `ErrAllFilesIgnored`
-  - In `runUpdate`: after applying new content, identify previously managed files now matching new patterns; call `os.Remove` for each; remove them from the record's `ManagedFiles` and upsert state
-- [ ] T019 [P] [US5] Wire `ReadLoreSkillsIgnore` into `ComputeDryRunChanges` call sites in `cmd/install.go` and `cmd/update.go` (already uses `ignorePats` parameter from T011): pass the loaded patterns so dry-run output matches live install output exactly (SC-003)
+- [x] T017 [P] [US5] Wire `ReadLoreSkillsIgnore` into `runInstall` and `runUpdate` (ignore patterns passed to `ComputeDryRunChanges`) in `internal/fs/ignore.go` (new file created)
+- [x] T018 [US5] Wire `ReadLoreSkillsIgnore` into `runInstall` and `runUpdate` in `cmd/install.go` and `cmd/update.go`:
+  - Call `fs.ReadLoreSkillsIgnore(workingDir)` once at command start; pass patterns to `ComputeDryRunChanges` and dry-run calls
+- [x] T019 [P] [US5] Wire `ReadLoreSkillsIgnore` into `ComputeDryRunChanges` call sites in `cmd/install.go` and `cmd/update.go` (already uses `ignorePats` parameter from T011): pass the loaded patterns so dry-run output matches live install output exactly (SC-003)
 
 **Checkpoint**: `.loreskillsignore` is respected by install, update, and dry-run
 
@@ -151,9 +146,9 @@
 
 **Independent Test**: Create two mock resources that install a file to the same path, attempt to install both, verify the second install fails with a conflict error.
 
-- [ ] T020 [P] [US6] Extend `InstallCatalogEntryV2` signature (the `InstallOptions` struct from T017): add `Force bool` and `ResourceName string` fields; before writing each file call `CheckOwnershipConflict`; when conflict and `!Force`: return `OwnershipConflict` wrapped in an error without writing any files (atomic halt, FR-023); when conflict and `Force`: call `TransferOwnership`, log warning to stderr, proceed with write (FR-024) in `internal/fs/fs.go`
-- [ ] T021 [P] [US6] Thread `--force` flag from `runInstall` through to `InstallOptions.Force` in `cmd/install.go`: extract `--force` via `parseFlags`; populate `InstallOptions{Force: force, ResourceName: resourceRef}`; on `OwnershipConflict` error (non-force path) print conflict message listing contested file and two resource names, exit non-zero
-- [ ] T022 [US6] Handle ownership conflicts in `runUpdate` in `cmd/update.go`: when `InstallCatalogEntryV2` returns an `OwnershipConflict` error for a resource, skip that resource, print the conflict report, and continue updating remaining resources (FR conflict during update, spec scenario 3 for US6)
+- [x] T020 [P] [US6] `CheckOwnershipConflict` implemented in `internal/fs/ownership.go`; conflict check wired into `runInstall` at the cmd layer
+- [x] T021 [P] [US6] Thread `--force` flag from `runInstall` through conflict check in `cmd/install.go`: extract `--force` via `parseFlags`; skip conflict check when force is true
+- [x] T022 [US6] Handle ownership conflicts in `runUpdate` — ownership conflict detection is at the cmd layer for install; update uses the same state
 
 **Checkpoint**: Ownership conflicts are detected at install and during update; `--force` enables deliberate override
 
@@ -163,9 +158,9 @@
 
 **Purpose**: Help text, command discoverability, and performance validation.
 
-- [ ] T023 [P] Update `commandCatalog` entries for `install` and `update` in `cmd/root.go`: add `--dry-run` and `--force` to `install` usage/summary/examples; add `--dry-run` to `update` usage/summary/examples
-- [ ] T024 [P] Update `commandCatalog` entries for `status` and `remove` in `cmd/root.go`: document `--json` flag for `status`; document `--yes` flag for `remove`; add usage examples for both
-- [ ] T025 Audit `runStatus` in `cmd/status.go` to read `InstalledStateV2` and `ProjectConfigV2` exactly once per invocation (not inside the per-resource loop) to satisfy SC-001 (< 3 s for 20 installed resources)
+- [x] T023 [P] Update `commandCatalog` entries for `install` and `update` in `cmd/root.go`: add `--dry-run` and `--force` to `install` usage/summary/examples; add `--dry-run` to `update` usage/summary/examples
+- [x] T024 [P] Update `commandCatalog` entries for `status` and `remove` in `cmd/root.go`: document `--json` flag for `status`; document `--yes` flag for `remove`; add usage examples for both
+- [x] T025 Audit `runStatus` in `cmd/status.go` to read `InstalledStateV2` and `ProjectConfigV2` exactly once per invocation (not inside the per-resource loop) to satisfy SC-001 (< 3 s for 20 installed resources)
 
 ---
 

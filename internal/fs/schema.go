@@ -1,5 +1,37 @@
 package fs
 
+import "fmt"
+
+// ResourceStatus represents the lifecycle state of an installed resource.
+type ResourceStatus string
+
+const (
+	ResourceStatusUpToDate        ResourceStatus = "up-to-date"
+	ResourceStatusOutdated        ResourceStatus = "outdated"
+	ResourceStatusModifiedLocally ResourceStatus = "modified-locally"
+	ResourceStatusUnknownBaseline ResourceStatus = "unknown-baseline"
+)
+
+// DryRunChange describes a single file change that would be made by install/update.
+type DryRunChange struct {
+	Action    string `json:"action"` // "add", "modify", "delete"
+	Path      string `json:"path"`
+	OldSHA256 string `json:"old_sha256,omitempty"`
+	NewSHA256 string `json:"new_sha256,omitempty"`
+}
+
+// OwnershipConflict describes a file path claimed by two resources.
+type OwnershipConflict struct {
+	FilePath      string
+	ExistingOwner string
+	NewOwner      string
+}
+
+func (c *OwnershipConflict) Error() string {
+	return fmt.Sprintf("conflict: file %q is already owned by resource %q (installing %q); use --force to override",
+		c.FilePath, c.ExistingOwner, c.NewOwner)
+}
+
 // ProjectConfigV2 is the v2 project configuration stored in .loreskills/project.json.
 type ProjectConfigV2 struct {
 	SchemaVersion int             `json:"schema_version"`
