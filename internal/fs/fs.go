@@ -1131,6 +1131,21 @@ func normalizeProvider(provider string) string {
 	return strings.ToLower(strings.TrimSpace(provider))
 }
 
+func supportedRepositoryHost(provider string) string {
+	switch normalizeProvider(provider) {
+	case "github":
+		return "github.com"
+	case "gitlab":
+		return "gitlab.com"
+	case "azure-devops":
+		return "dev.azure.com"
+	case "bitbucket":
+		return "bitbucket.org"
+	default:
+		return ""
+	}
+}
+
 func normalizeRef(ref string) string {
 	trimmed := strings.TrimSpace(ref)
 	if trimmed == "" {

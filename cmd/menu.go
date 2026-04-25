@@ -163,9 +163,9 @@ func (a *app) executeGuidedMenuAction(reader *bufio.Reader, action string) (bool
 		if err != nil {
 			return false, err
 		}
-		return false, a.runInstall(resourceRef)
+		return false, a.runInstall([]string{resourceRef})
 	case "update":
-		return false, a.runUpdate()
+		return false, a.runUpdate([]string{})
 	case "update-self":
 		return false, a.runSelfUpdate()
 	case "init":
