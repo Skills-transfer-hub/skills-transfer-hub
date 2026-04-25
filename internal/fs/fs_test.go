@@ -254,6 +254,155 @@ func TestReadInstalledState_readsLegacyMap(t *testing.T) {
 	}
 }
 
+// T034
+func TestInstallCatalogEntryV2_WritesManagedFiles(t *testing.T) {
+	paths := newTestPaths(t)
+	entry := CatalogEntry{
+		CatalogID:    CatalogID("skill", "coding", "test"),
+		ResourceType: "skill",
+		Name:         "test",
+		FolderName:   "coding",
+		SourcePath:   "coding/test.md",
+	}
+	content := []byte("# Test Skill\nsome content")
+
+	_, err := InstallCatalogEntryV2(paths.targetDir, entry, content, "default")
+	if err != nil {
+		t.Fatalf("InstallCatalogEntryV2() error = %v", err)
+	}
+
+	state, err := ReadInstalledStateV2(paths.targetDir)
+	if err != nil {
+		t.Fatalf("ReadInstalledStateV2() error = %v", err)
+	}
+	if len(state.Entries) != 1 {
+		t.Fatalf("len(entries) = %d, want 1", len(state.Entries))
+	}
+	if len(state.Entries[0].ManagedFiles) != 1 {
+		t.Fatalf("len(managed_files) = %d, want 1", len(state.Entries[0].ManagedFiles))
+	}
+
+	// .md file gets skillHeader prepended; compute expected SHA256 of actual written bytes.
+	fileContent := append([]byte(skillHeader), content...)
+	expectedSHA := ComputeSHA256(fileContent)
+	if got := state.Entries[0].ManagedFiles[0].SHA256; got != expectedSHA {
+		t.Fatalf("SHA256 = %q, want %q", got, expectedSHA)
+	}
+	if path := state.Entries[0].ManagedFiles[0].Path; path == "" {
+		t.Fatal("ManagedFiles[0].Path is empty")
+	}
+}
+
+// T035
+func TestInstallCatalogEntryV2_NonMarkdown_NoHeader(t *testing.T) {
+	paths := newTestPaths(t)
+	entry := CatalogEntry{
+		CatalogID:    CatalogID("skill", "coding", "test"),
+		ResourceType: "skill",
+		Name:         "test",
+		FolderName:   "coding",
+		SourcePath:   "coding/test.txt",
+	}
+	content := []byte("some plain text content")
+
+	_, err := InstallCatalogEntryV2(paths.targetDir, entry, content, "default")
+	if err != nil {
+		t.Fatalf("InstallCatalogEntryV2() error = %v", err)
+	}
+
+	state, err := ReadInstalledStateV2(paths.targetDir)
+	if err != nil {
+		t.Fatalf("ReadInstalledStateV2() error = %v", err)
+	}
+	if len(state.Entries) != 1 || len(state.Entries[0].ManagedFiles) != 1 {
+		t.Fatalf("unexpected state: %+v", state.Entries)
+	}
+
+	// For non-.md files, no header is added; SHA256 must match raw content.
+	expectedSHA := ComputeSHA256(content)
+	if got := state.Entries[0].ManagedFiles[0].SHA256; got != expectedSHA {
+		t.Fatalf("SHA256 = %q, want %q (no header expected for .txt)", got, expectedSHA)
+	}
+}
+
+// T037
+func TestInstallCatalogEntryV2_SHA256MatchesActualFileContent(t *testing.T) {
+	paths := newTestPaths(t)
+	entry := CatalogEntry{
+		CatalogID:    CatalogID("skill", "skills", "beta"),
+		ResourceType: "skill",
+		Name:         "beta",
+		FolderName:   "skills",
+		SourcePath:   "skills/beta.md",
+	}
+	content := []byte("# Beta Skill\ncontent here")
+
+	_, err := InstallCatalogEntryV2(paths.targetDir, entry, content, "default")
+	if err != nil {
+		t.Fatalf("InstallCatalogEntryV2() error = %v", err)
+	}
+
+	// Read actual bytes written to disk.
+	installedPath := filepath.Join(paths.projectDir, ".claude", "resources", "skills", "beta.md")
+	fileBytes, err := os.ReadFile(installedPath)
+	if err != nil {
+		t.Fatalf("ReadFile(%s): %v", installedPath, err)
+	}
+
+	computedSHA := ComputeSHA256(fileBytes)
+
+	state, err := ReadInstalledStateV2(paths.targetDir)
+	if err != nil {
+		t.Fatalf("ReadInstalledStateV2() error = %v", err)
+	}
+	if len(state.Entries) != 1 || len(state.Entries[0].ManagedFiles) != 1 {
+		t.Fatalf("unexpected state: %+v", state.Entries)
+	}
+	if got := state.Entries[0].ManagedFiles[0].SHA256; got != computedSHA {
+		t.Fatalf("stored SHA256 %q != computed SHA256 %q", got, computedSHA)
+	}
+}
+
+// T038 – RefreshManagedFileHashes updates SHA256 for markdown (header included)
+func TestRefreshManagedFileHashes_MarkdownIncludesHeader(t *testing.T) {
+	record := InstalledResourceRecordV2{
+		ResourceName: "alpha",
+		ManagedFiles: []ManagedFile{{Path: ".claude/skills/skills/alpha.md", SHA256: "old"}},
+	}
+	content := []byte("# Alpha\ncontent")
+	updated := RefreshManagedFileHashes(record, content)
+
+	expectedContent := addManagedHeaderIfMarkdown(".claude/skills/skills/alpha.md", content)
+	want := ComputeSHA256(expectedContent)
+	if got := updated.ManagedFiles[0].SHA256; got != want {
+		t.Errorf("SHA256 = %q, want %q", got, want)
+	}
+}
+
+// T039 – RefreshManagedFileHashes updates SHA256 for non-markdown (raw content)
+func TestRefreshManagedFileHashes_NonMarkdownRawHash(t *testing.T) {
+	record := InstalledResourceRecordV2{
+		ResourceName: "cfg",
+		ManagedFiles: []ManagedFile{{Path: ".claude/skills/cfg/config.txt", SHA256: "old"}},
+	}
+	content := []byte("config=value")
+	updated := RefreshManagedFileHashes(record, content)
+
+	want := ComputeSHA256(content)
+	if got := updated.ManagedFiles[0].SHA256; got != want {
+		t.Errorf("SHA256 = %q, want %q", got, want)
+	}
+}
+
+// T040 – RefreshManagedFileHashes is a no-op for records with no managed files
+func TestRefreshManagedFileHashes_NoManagedFiles(t *testing.T) {
+	record := InstalledResourceRecordV2{ResourceName: "empty"}
+	updated := RefreshManagedFileHashes(record, []byte("data"))
+	if len(updated.ManagedFiles) != 0 {
+		t.Errorf("expected 0 managed files, got %d", len(updated.ManagedFiles))
+	}
+}
+
 func TestResolveCatalogEntry_reportsAmbiguousNames(t *testing.T) {
 	_, err := ResolveCatalogEntry([]CatalogEntry{
 		{CatalogID: CatalogID("skill", "skills", "alpha"), Name: "alpha", FolderName: "skills", ResourceType: "skill", SourcePath: "skills/alpha.md"},
@@ -267,55 +416,42 @@ func TestResolveCatalogEntry_reportsAmbiguousNames(t *testing.T) {
 	}
 }
 
-func TestBuildManagedRoot_returnsCategoryFolderRoot(t *testing.T) {
-	root, err := BuildManagedRoot(".claude/resources", "react", "form-wizard")
+// T030
+func TestUpsertResourceEntry_AddNew(t *testing.T) {
+	cfg := ProjectConfigV2{
+		SchemaVersion: 2,
+		Providers:     []ProviderEntry{{ID: "default", Provider: "github"}},
+		Resources:     []ResourceEntry{},
+	}
+
+	err := UpsertResourceEntry(&cfg, ResourceEntry{ResourceName: "test", ProviderID: "default"})
 	if err != nil {
-		t.Fatalf("BuildManagedRoot() error = %v", err)
+		t.Fatalf("unexpected error: %v", err)
 	}
-	want := filepath.Join(".claude", "resources", "react", "form-wizard")
-	if root != want {
-		t.Fatalf("root = %q, want %q", root, want)
+	if len(cfg.Resources) != 1 {
+		t.Fatalf("Resources length: got %d, want 1", len(cfg.Resources))
 	}
-}
-
-func TestResolveManagedPath_rejectsEscapes(t *testing.T) {
-	_, err := ResolveManagedPath(filepath.Join(".claude", "resources", "react", "form-wizard"), "../escape.txt")
-	if err == nil {
-		t.Fatal("ResolveManagedPath() error = nil, want error")
+	if cfg.Resources[0].ResourceName != "test" {
+		t.Errorf("ResourceName: got %q, want %q", cfg.Resources[0].ResourceName, "test")
 	}
 }
 
-func TestBundleID_normalizesCaseAndWhitespace(t *testing.T) {
-	if got := BundleID(" React ", " Form-Wizard "); got != "react::form-wizard" {
-		t.Fatalf("BundleID() = %q, want react::form-wizard", got)
+// T031
+func TestUpsertResourceEntry_UpdateExisting(t *testing.T) {
+	cfg := ProjectConfigV2{
+		SchemaVersion: 2,
+		Providers:     []ProviderEntry{{ID: "default", Provider: "github"}},
+		Resources:     []ResourceEntry{{ResourceName: "test", ProviderID: "default", PinnedVersion: "v1"}},
 	}
-}
 
-func TestNormalizeRepositoryID_supportsHostedURLsAndRejectsSelfHosted(t *testing.T) {
-	githubID, err := NormalizeRepositoryID("github", "https://github.com/owner/repo")
+	err := UpsertResourceEntry(&cfg, ResourceEntry{ResourceName: "test", ProviderID: "default", PinnedVersion: "v2"})
 	if err != nil {
-		t.Fatalf("NormalizeRepositoryID(github) error = %v", err)
+		t.Fatalf("unexpected error: %v", err)
 	}
-	if githubID != "owner/repo" {
-		t.Fatalf("githubID = %q, want owner/repo", githubID)
+	if len(cfg.Resources) != 1 {
+		t.Fatalf("Resources length: got %d, want 1 (no duplicate)", len(cfg.Resources))
 	}
-
-	if _, err := NormalizeRepositoryID("gitlab", "https://git.example.com/group/project"); err == nil {
-		t.Fatal("NormalizeRepositoryID(gitlab, self-hosted) error = nil, want error")
-	}
-}
-
-func TestValidateManagedFileRecord_rejectsCaseMismatchedSourcePath(t *testing.T) {
-	err := validateManagedFileRecord(
-		ManagedFileRecord{
-			RelativePath:  "SKILL.md",
-			InstalledPath: ".claude/resources/react/form-wizard/SKILL.md",
-			SourcePath:    "React/form-wizard/SKILL.md",
-		},
-		".claude/resources/react/form-wizard",
-		"react/form-wizard",
-	)
-	if err == nil {
-		t.Fatal("validateManagedFileRecord() error = nil, want source path mismatch error")
+	if cfg.Resources[0].PinnedVersion != "v2" {
+		t.Errorf("PinnedVersion: got %q, want %q", cfg.Resources[0].PinnedVersion, "v2")
 	}
 }

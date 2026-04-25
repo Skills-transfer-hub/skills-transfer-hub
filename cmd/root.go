@@ -45,7 +45,7 @@ var commandCatalog = []commandSpec{
 	},
 	{
 		name:    "install",
-		usage:   "loreskills install <resource-ref>",
+		usage:   "loreskills install <resource-ref> [--dry-run] [--force]",
 		summary: "Installe une ressource du catalogue distant ou un bundle compatible dans le projet courant",
 		details: []string{
 			"Accepte un nom catalogue classique ou une référence bundle canonique category/folder.",
@@ -54,15 +54,35 @@ var commandCatalog = []commandSpec{
 		examples: []string{
 			"loreskills install react/form-wizard",
 			"loreskills install skills/analyse-risque",
+			"loreskills install skills/analyse-risque --dry-run",
 		},
 	},
 	{
 		name:    "update",
-		usage:   "loreskills update [self]",
+		usage:   "loreskills update [self] [--dry-run]",
 		summary: "Met à jour les ressources suivies ou le binaire LoreSkills lui-même",
 		examples: []string{
 			"loreskills update",
+			"loreskills update --dry-run",
 			"loreskills update self",
+		},
+	},
+	{
+		name:    "status",
+		usage:   "loreskills status [--json]",
+		summary: "Affiche l'état de chaque ressource installée (à jour, obsolète, modifiée localement)",
+		examples: []string{
+			"loreskills status",
+			"loreskills status --json",
+		},
+	},
+	{
+		name:    "remove",
+		usage:   "loreskills remove <resource-name> [--yes]",
+		summary: "Supprime une ressource installée et ses fichiers gérés",
+		examples: []string{
+			"loreskills remove skills/analyse-risque",
+			"loreskills remove skills/analyse-risque --yes",
 		},
 	},
 	{
@@ -167,32 +187,37 @@ func (a *app) run(args []string) error {
 		}
 		err = a.runList()
 	case "install":
-		if len(args) == 2 && isHelpFlag(args[1]) {
+		if len(args) >= 2 && isHelpFlag(args[1]) {
 			a.writeStdout(commandHelpText("install"))
 			return nil
 		}
-		if len(args) != 2 {
-			err = fmt.Errorf("usage : loreskills install <resource-ref>")
-			break
-		}
-		err = a.runInstall(args[1])
+		err = a.runInstall(args[1:])
 	case "update":
-		if len(args) == 2 && isHelpFlag(args[1]) {
+		if len(args) >= 2 && isHelpFlag(args[1]) {
 			a.writeStdout(commandHelpText("update"))
 			return nil
 		}
-		switch len(args) {
-		case 1:
-			err = a.runUpdate()
-		case 2:
-			if args[1] != "self" {
+		if len(args) >= 2 && args[1] == "self" {
+			if len(args) != 2 {
 				err = fmt.Errorf("usage : loreskills update [self]")
 				break
 			}
 			err = a.runSelfUpdate()
-		default:
-			err = fmt.Errorf("usage : loreskills update [self]")
+		} else {
+			err = a.runUpdate(args[1:])
 		}
+	case "status":
+		if len(args) >= 2 && isHelpFlag(args[1]) {
+			a.writeStdout(commandHelpText("status"))
+			return nil
+		}
+		err = a.runStatus(args[1:])
+	case "remove":
+		if len(args) >= 2 && isHelpFlag(args[1]) {
+			a.writeStdout(commandHelpText("remove"))
+			return nil
+		}
+		err = a.runRemove(args[1:])
 	case "help":
 		switch len(args) {
 		case 1:
@@ -335,4 +360,24 @@ func commandDisplayName(spec commandSpec) string {
 	}
 
 	return strings.Join(parts[1:], " ")
+}
+
+// parseFlags strips bool flags from args and returns the remainder as positional.
+// knownFlags examples: "--dry-run", "--yes", "--force", "--json"
+func parseFlags(args []string, knownFlags ...string) (flags map[string]bool, positional []string) {
+	flags = make(map[string]bool)
+	for _, arg := range args {
+		matched := false
+		for _, f := range knownFlags {
+			if arg == f {
+				flags[f] = true
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			positional = append(positional, arg)
+		}
+	}
+	return
 }

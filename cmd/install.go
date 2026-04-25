@@ -4,12 +4,28 @@ import (
 	"context"
 	"fmt"
 	"loreskills/internal/fs"
+	"path/filepath"
 )
 
-func (a *app) runInstall(resourceRef string) error {
+func (a *app) runInstall(args []string) error {
+	flags, positional := parseFlags(args, "--dry-run", "--json", "--force")
+	dryRun := flags["--dry-run"]
+	jsonOut := flags["--json"]
+	force := flags["--force"]
+
+	if len(positional) != 1 {
+		return fmt.Errorf("usage: loreskills install <resource-ref> [--dry-run] [--force]")
+	}
+	resourceRef := positional[0]
+
 	profile, err := fs.ReadProjectProfile()
 	if err != nil {
 		return err
+	}
+
+	providerID := "default"
+	if cfg, cfgErr := fs.ReadProjectConfigV2(); cfgErr == nil && len(cfg.Providers) > 0 {
+		providerID = cfg.Providers[0].ID
 	}
 
 	entries, err := a.client.ListCatalog(context.Background(), *profile)
@@ -22,8 +38,76 @@ func (a *app) runInstall(resourceRef string) error {
 		return err
 	}
 
-	record, err := a.installCatalogEntry(context.Background(), *profile, entry)
+	if entry.ResourceType == "bundle" {
+		bundleContents, bundleErr := a.downloadBundleContents(context.Background(), *profile, entry)
+		if bundleErr != nil {
+			return bundleErr
+		}
+		record, syncErr := fs.SyncManagedBundle(profile.TargetDir, entry, bundleContents)
+		if syncErr != nil {
+			return syncErr
+		}
+		a.writeStdout(
+			fmt.Sprintf("Ressource '%s' installée dans %s.", entry.Name, record.InstalledPath),
+			fmt.Sprintf("Type: %s", entry.ResourceType),
+			fmt.Sprintf("Dossier: %s", entry.FolderName),
+			"Prochaine étape : utilisez `loreskills update` pour rafraîchir les ressources suivies.",
+		)
+		return nil
+	}
+
+	content, err := a.client.DownloadCatalogEntry(context.Background(), *profile, entry)
 	if err != nil {
+		return err
+	}
+
+	workingDir, _ := filepath.Abs(".")
+	ignorePats, _ := fs.ReadLoreSkillsIgnore(workingDir)
+
+	// Build incoming managed files for dry-run or conflict check.
+	incomingRecord := fs.RefreshManagedFileHashes(fs.InstalledResourceRecordV2{
+		ResourceName: entry.CatalogID,
+		ManagedFiles: []fs.ManagedFile{{Path: fs.ResolveManagedFilePath(profile.TargetDir, entry)}},
+	}, content)
+
+	if dryRun {
+		state, _ := fs.ReadInstalledStateV2(profile.TargetDir)
+		var existing *fs.InstalledResourceRecordV2
+		for _, rec := range state.Entries {
+			rec := rec
+			if rec.ResourceName == entry.CatalogID {
+				existing = &rec
+				break
+			}
+		}
+		changes := fs.ComputeDryRunChanges(existing, incomingRecord.ManagedFiles, ignorePats)
+		if jsonOut {
+			data, err := fs.FormatDryRunJSON(changes)
+			if err != nil {
+				return err
+			}
+			a.writeStdout(string(data))
+		} else {
+			a.writeStdout(fs.FormatDryRunText(changes))
+		}
+		return nil
+	}
+
+	// Ownership conflict check.
+	if !force {
+		state, _ := fs.ReadInstalledStateV2(profile.TargetDir)
+		for _, mf := range incomingRecord.ManagedFiles {
+			if conflict := fs.CheckOwnershipConflict(&state, entry.CatalogID, mf.Path); conflict != nil {
+				return conflict
+			}
+		}
+	}
+
+	record, err := fs.InstallCatalogEntry(profile.TargetDir, entry, content)
+	if err != nil {
+		return err
+	}
+	if _, err := fs.InstallCatalogEntryV2(profile.TargetDir, entry, content, providerID); err != nil {
 		return err
 	}
 
@@ -34,24 +118,6 @@ func (a *app) runInstall(resourceRef string) error {
 		"Prochaine étape : utilisez `loreskills update` pour rafraîchir les ressources suivies.",
 	)
 	return nil
-}
-
-func (a *app) installCatalogEntry(ctx context.Context, profile fs.ProjectProfile, entry fs.CatalogEntry) (fs.InstalledResourceRecord, error) {
-	if entry.ResourceType != "bundle" {
-		content, err := a.client.DownloadCatalogEntry(ctx, profile, entry)
-		if err != nil {
-			return fs.InstalledResourceRecord{}, err
-		}
-
-		return fs.InstallCatalogEntry(profile.TargetDir, entry, content)
-	}
-
-	bundleContents, err := a.downloadBundleContents(ctx, profile, entry)
-	if err != nil {
-		return fs.InstalledResourceRecord{}, err
-	}
-
-	return fs.SyncManagedBundle(profile.TargetDir, entry, bundleContents)
 }
 
 func (a *app) downloadBundleContents(ctx context.Context, profile fs.ProjectProfile, entry fs.CatalogEntry) (map[string][]byte, error) {
@@ -74,3 +140,4 @@ func (a *app) downloadBundleContents(ctx context.Context, profile fs.ProjectProf
 
 	return bundleContents, nil
 }
+

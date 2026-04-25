@@ -6,14 +6,59 @@ import (
 	"loreskills/internal/fs"
 	lorehttp "loreskills/internal/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 )
 
-func (a *app) runUpdate() error {
+func (a *app) runUpdate(args []string) error {
+	flags, _ := parseFlags(args, "--dry-run")
+	dryRun := flags["--dry-run"]
+
 	profile, err := fs.ReadProjectProfile()
 	if err != nil {
 		return err
+	}
+
+	cfg, _ := fs.ReadProjectConfigV2()
+
+	if dryRun {
+		v2State, err := fs.ReadInstalledStateV2(profile.TargetDir)
+		if err != nil {
+			return err
+		}
+		if len(v2State.Entries) == 0 {
+			a.writeStdout("Aucune ressource à mettre à jour.")
+			return nil
+		}
+		workingDir, _ := filepath.Abs(".")
+		ignorePats, _ := fs.ReadLoreSkillsIgnore(workingDir)
+		for _, rec := range v2State.Entries {
+			if pinnedVer := fs.PinnedVersion(cfg, rec.ResourceName); pinnedVer != "" {
+				a.writeStdout(fmt.Sprintf("  [pinned at %s] %s", pinnedVer, rec.ResourceName))
+				continue
+			}
+			entry := fs.CatalogEntry{
+				CatalogID:    rec.ResourceName,
+				ResourceType: "skill",
+				Name:         rec.ResourceName,
+				FolderName:   rec.ResourceName,
+				SourcePath:   rec.ResourceName,
+			}
+			content, fetchErr := a.client.DownloadCatalogEntry(context.Background(), *profile, entry)
+			if fetchErr != nil {
+				a.writeStderr(fmt.Sprintf("Échec de récupération pour '%s' : %v", rec.ResourceName, fetchErr))
+				continue
+			}
+			incomingRecord := fs.RefreshManagedFileHashes(fs.InstalledResourceRecordV2{
+				ResourceName: rec.ResourceName,
+				ManagedFiles: []fs.ManagedFile{{Path: fs.ResolveManagedFilePath(profile.TargetDir, entry)}},
+			}, content)
+			changes := fs.ComputeDryRunChanges(&rec, incomingRecord.ManagedFiles, ignorePats)
+			a.writeStdout(fmt.Sprintf("--- %s ---", rec.ResourceName))
+			a.writeStdout(fs.FormatDryRunText(changes))
+		}
+		return nil
 	}
 
 	records, err := fs.ListInstalledResources(profile.TargetDir)
@@ -27,7 +72,15 @@ func (a *app) runUpdate() error {
 	}
 
 	failures := 0
+	v2State, v2StateErr := fs.ReadInstalledStateV2(profile.TargetDir)
+	v2Updated := false
+
 	for _, record := range records {
+		if pinnedVer := fs.PinnedVersion(cfg, record.CatalogID); pinnedVer != "" {
+			a.writeStdout(fmt.Sprintf("  [pinned at %s] %s", pinnedVer, record.CatalogID))
+			continue
+		}
+
 		entry := fs.CatalogEntry{
 			CatalogID:    record.CatalogID,
 			ResourceType: record.ResourceType,
@@ -73,7 +126,26 @@ func (a *app) runUpdate() error {
 			continue
 		}
 
+		if v2StateErr == nil {
+			for i, v2rec := range v2State.Entries {
+				if v2rec.ResourceName == record.CatalogID {
+					v2State.Entries[i] = fs.RefreshManagedFileHashes(v2rec, content)
+					v2State.Entries[i].PreviousVersion = v2rec.ResolvedVersion
+					v2State.Entries[i].ResolvedVersion = fs.ComputeSHA256(content)
+					v2State.Entries[i].InstalledAt = time.Now().UTC().Format(time.RFC3339)
+					v2Updated = true
+					break
+				}
+			}
+		}
+
 		a.writeStdout(fmt.Sprintf("Ressource '%s' mise à jour.", record.Name))
+	}
+
+	if v2Updated {
+		if err := fs.WriteInstalledStateV2(profile.TargetDir, v2State); err != nil {
+			a.writeStderr(fmt.Sprintf("Avertissement : impossible de mettre à jour l'état v2 : %v", err))
+		}
 	}
 
 	if failures > 0 {

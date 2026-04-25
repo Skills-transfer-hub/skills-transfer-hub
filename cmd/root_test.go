@@ -124,6 +124,22 @@ func writeProjectProfileForCommandTest(t *testing.T, projectDir string, profile 
 	}
 }
 
+func writeProjectConfigV2ForTest(t *testing.T, projectDir string, cfg fs.ProjectConfigV2) {
+	t.Helper()
+
+	configDir := filepath.Join(projectDir, ".loreskills")
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(%s): %v", configDir, err)
+	}
+	data, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		t.Fatalf("json.MarshalIndent(): %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(configDir, "project.json"), append(data, '\n'), 0o644); err != nil {
+		t.Fatalf("WriteFile(project.json): %v", err)
+	}
+}
+
 func writeInstalledStateForCommandTest(t *testing.T, projectDir, targetDir string, state fs.InstalledResourceState) {
 	t.Helper()
 

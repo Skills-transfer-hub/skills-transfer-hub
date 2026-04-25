@@ -1,0 +1,95 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "loreskills/project-config-v2",
+  "title": "LoreSkills Project Configuration v2",
+  "description": "Schema for .loreskills/project.json (schema_version: 2)",
+  "type": "object",
+  "required": ["schema_version", "providers", "resources"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "const": 2,
+      "description": "Schema version identifier. Must be 2 for this format."
+    },
+    "providers": {
+      "type": "array",
+      "description": "Ordered list of configured skill repository providers.",
+      "items": {
+        "$ref": "#/definitions/ProviderEntry"
+      },
+      "minItems": 0
+    },
+    "resources": {
+      "type": "array",
+      "description": "Declared resources (for pinning). May be empty; resources can be installed without a declaration.",
+      "items": {
+        "$ref": "#/definitions/ResourceEntry"
+      }
+    }
+  },
+  "definitions": {
+    "ProviderEntry": {
+      "type": "object",
+      "required": ["id", "provider", "repository_id", "catalog_ref", "catalog_path", "target_dir"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_-]+$",
+          "description": "Unique short name for this provider within the project."
+        },
+        "provider": {
+          "type": "string",
+          "enum": ["github", "gitlab", "azure-devops", "bitbucket"],
+          "description": "The hosting platform type."
+        },
+        "repository_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Provider-specific repository identifier (e.g., owner/repo for GitHub)."
+        },
+        "catalog_ref": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The Git branch, tag, or commit SHA of the catalog in the remote repository.",
+          "default": "main"
+        },
+        "catalog_path": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Path to the SKILLS.md catalog file within the repository.",
+          "default": "SKILLS.md"
+        },
+        "target_dir": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Project-relative directory where resources from this provider are installed.",
+          "default": ".claude/skills"
+        }
+      }
+    },
+    "ResourceEntry": {
+      "type": "object",
+      "required": ["resource_name", "provider_id"],
+      "additionalProperties": false,
+      "properties": {
+        "resource_name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Stable identity of the resource, matching the catalog_id format (type::folder::name)."
+        },
+        "provider_id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_-]+$",
+          "description": "References the id of a ProviderEntry in the providers array."
+        },
+        "pinned_version": {
+          "type": "string",
+          "description": "Optional commit SHA or tag to lock this resource to. Empty or absent means unpinned.",
+          "default": ""
+        }
+      }
+    }
+  }
+}
