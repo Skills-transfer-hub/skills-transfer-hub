@@ -37,21 +37,25 @@ func (a *app) runStatus(args []string) error {
 		return nil
 	}
 
-	cfg, _ := fs.ReadProjectConfigV2()
+	cfg, err := fs.ReadProjectConfigV2()
+	if err != nil {
+		return err
+	}
+
+	// Build per-provider catalog maps (one ListCatalog request per unique provider).
+	catalogs := buildProviderCatalogs(context.Background(), a, state.Entries, cfg, *profile)
 
 	var results []statusJSON
 	for _, rec := range state.Entries {
-		entry := fs.CatalogEntry{
-			CatalogID:    rec.ResourceName,
-			ResourceType: "skill",
-			Name:         rec.ResourceName,
-			FolderName:   rec.ResourceName,
-			SourcePath:   rec.ResourceName,
-		}
-		content, fetchErr := a.client.DownloadCatalogEntry(context.Background(), *profile, entry)
 		latestVersion := ""
-		if fetchErr == nil {
-			latestVersion = fs.ComputeSHA256(content)
+		if catalog, ok := catalogs[rec.ProviderID]; ok {
+			if entry, ok := catalog[rec.ResourceName]; ok {
+				provProf := providerProfile(rec.ProviderID, cfg, *profile)
+				content, fetchErr := a.client.DownloadCatalogEntry(context.Background(), provProf, entry)
+				if fetchErr == nil {
+					latestVersion = fs.ComputeSHA256(content)
+				}
+			}
 		}
 
 		status, modFiles := fs.ComputeResourceStatus(rec, latestVersion)
@@ -99,4 +103,34 @@ func (a *app) runStatus(args []string) error {
 		a.writeStdout(string(data))
 	}
 	return nil
+}
+
+// buildProviderCatalogs fetches the catalog once per unique provider in entries.
+// Returns providerID → (catalogID → CatalogEntry). Failed fetches produce an empty map.
+func buildProviderCatalogs(ctx context.Context, a *app, entries []fs.InstalledResourceRecordV2, cfg fs.ProjectConfigV2, fallback fs.ProjectProfile) map[string]map[string]fs.CatalogEntry {
+	result := map[string]map[string]fs.CatalogEntry{}
+	for _, rec := range entries {
+		if _, seen := result[rec.ProviderID]; seen {
+			continue
+		}
+		provProf := providerProfile(rec.ProviderID, cfg, fallback)
+		catalogEntries, _ := a.client.ListCatalog(ctx, provProf)
+		m := make(map[string]fs.CatalogEntry, len(catalogEntries))
+		for _, e := range catalogEntries {
+			m[e.CatalogID] = e
+		}
+		result[rec.ProviderID] = m
+	}
+	return result
+}
+
+// providerProfile returns the ProjectProfile for the given providerID from cfg,
+// falling back to fallback if the provider is not found.
+func providerProfile(providerID string, cfg fs.ProjectConfigV2, fallback fs.ProjectProfile) fs.ProjectProfile {
+	for _, p := range cfg.Providers {
+		if p.ID == providerID {
+			return fs.ProjectProfileFromProvider(p, fallback.TargetDir)
+		}
+	}
+	return fallback
 }

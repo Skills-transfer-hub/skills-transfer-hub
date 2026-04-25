@@ -400,6 +400,36 @@ func CatalogID(resourceType, folderName, name string) string {
 	}, "::"))
 }
 
+// ParseCatalogID splits a catalog ID (type::folder::name) into its components.
+// Returns false if the ID does not have exactly three non-empty parts.
+func ParseCatalogID(id string) (resourceType, folderName, name string, ok bool) {
+	parts := strings.SplitN(id, "::", 3)
+	if len(parts) != 3 || strings.TrimSpace(parts[0]) == "" || strings.TrimSpace(parts[1]) == "" || strings.TrimSpace(parts[2]) == "" {
+		return "", "", "", false
+	}
+	return strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1]), strings.TrimSpace(parts[2]), true
+}
+
+// ProjectProfileFromProvider builds a ProjectProfile from a ProviderEntry.
+// If the entry's TargetDir is empty, fallbackTargetDir is used instead.
+func ProjectProfileFromProvider(p ProviderEntry, fallbackTargetDir string) ProjectProfile {
+	ref := p.CatalogRef
+	if ref == "" {
+		ref = "main"
+	}
+	targetDir := p.TargetDir
+	if targetDir == "" {
+		targetDir = fallbackTargetDir
+	}
+	return ProjectProfile{
+		Provider:     p.Provider,
+		RepositoryID: p.RepositoryID,
+		Ref:          ref,
+		CatalogPath:  p.CatalogPath,
+		TargetDir:    targetDir,
+	}
+}
+
 // ResolveCatalogEntry resolves a user-facing resource reference from the catalog.
 func ResolveCatalogEntry(entries []CatalogEntry, resourceRef string) (CatalogEntry, error) {
 	trimmed := strings.TrimSpace(resourceRef)

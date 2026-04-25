@@ -41,6 +41,9 @@ func (a *app) runRemove(args []string) error {
 
 	status, modFiles := fs.ComputeResourceStatus(*record, "")
 	if status == fs.ResourceStatusModifiedLocally && !skipConfirm {
+		if !a.isInteractiveSession() {
+			return fmt.Errorf("ressource %q modifiée localement ; utilisez --yes pour confirmer la suppression en mode non-interactif", resourceName)
+		}
 		a.writeStdout("Warning: the following files have been locally modified:")
 		for _, f := range modFiles {
 			a.writeStdout(fmt.Sprintf("  %s", f))
