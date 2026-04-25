@@ -242,7 +242,9 @@ func (a *app) runUpdate(args []string) error {
 // When the record's ResourceName uses the catalog ID format (e.g., "skill::skills::alpha"),
 // the first managed file's path is resolved relative to targetDir to reconstruct
 // the original source path (e.g., "skills/alpha.md").
-// Falls back to ResourceName when no managed files are present.
+// Falls back to ResourceName when no managed files are present or path resolution
+// fails; in both cases the DownloadCatalogEntry call will use the raw ResourceName,
+// which is acceptable for legacy records that already store a valid source path.
 func sourcePath(rec fs.InstalledResourceRecordV2, targetDir string) string {
 	if len(rec.ManagedFiles) > 0 {
 		rel, err := filepath.Rel(targetDir, rec.ManagedFiles[0].Path)
@@ -250,6 +252,7 @@ func sourcePath(rec fs.InstalledResourceRecordV2, targetDir string) string {
 			return filepath.ToSlash(rel)
 		}
 	}
+	// Fallback: ResourceName may itself be a valid source path (legacy records).
 	return rec.ResourceName
 }
 

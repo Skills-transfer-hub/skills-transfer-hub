@@ -3,10 +3,11 @@ package cmd
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"loreskills/internal/fs"
+	lorehttp "loreskills/internal/http"
 	"path/filepath"
-	"strings"
 )
 
 func (a *app) runStatus(args []string) error {
@@ -99,15 +100,13 @@ func (a *app) runStatus(args []string) error {
 	return nil
 }
 
-// isProviderConfigError reports whether err came from a provider configuration
-// problem (missing provider, unsupported type, missing required fields) rather
-// than a genuine network or HTTP failure. Such errors are non-fatal for the
-// status command: the resource is reported with an unknown latest version.
+// isProviderConfigError reports whether err is a ProviderConfigError —
+// a configuration problem (missing provider, unsupported type, missing required
+// fields) rather than a genuine network or HTTP failure. Such errors are
+// non-fatal for the status command: the resource is reported with an unknown
+// latest version.
 func isProviderConfigError(err error) bool {
-	msg := err.Error()
-	return strings.Contains(msg, "not found in project config") ||
-		strings.Contains(msg, "unsupported provider") ||
-		strings.Contains(msg, "repository ID is required") ||
-		strings.Contains(msg, "catalog ref is required")
+	var pce *lorehttp.ProviderConfigError
+	return errors.As(err, &pce)
 }
 

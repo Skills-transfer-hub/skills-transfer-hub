@@ -30,6 +30,16 @@ type AccessSource struct {
 	Resolved bool
 }
 
+// ProviderConfigError is returned by GetLatestCommitSHA when the provider
+// configuration is incomplete or unsupported (e.g., unknown provider type,
+// missing repository ID or catalog ref). It is distinct from network errors so
+// callers can decide whether to fail hard or degrade gracefully.
+type ProviderConfigError struct {
+	Msg string
+}
+
+func (e *ProviderConfigError) Error() string { return e.Msg }
+
 // ReleaseMetadata describes the build-injected stable release channel.
 type ReleaseMetadata struct {
 	CurrentVersion string
@@ -264,22 +274,22 @@ func (c *Client) GetLatestCommitSHA(ctx context.Context, cfg fs.ProjectConfigV2,
 		}
 	}
 	if provider == nil {
-		return "", fmt.Errorf("provider %q not found in project config", providerID)
+		return "", &ProviderConfigError{Msg: fmt.Sprintf("provider %q not found in project config", providerID)}
 	}
 
 	providerName := strings.ToLower(strings.TrimSpace(provider.Provider))
 	if providerName != "github" {
-		return "", fmt.Errorf("GetLatestCommitSHA: unsupported provider %q", provider.Provider)
+		return "", &ProviderConfigError{Msg: fmt.Sprintf("GetLatestCommitSHA: unsupported provider %q", provider.Provider)}
 	}
 
 	repositoryID := strings.TrimSpace(provider.RepositoryID)
 	if repositoryID == "" {
-		return "", errors.New("GetLatestCommitSHA: provider repository ID is required")
+		return "", &ProviderConfigError{Msg: "GetLatestCommitSHA: provider repository ID is required"}
 	}
 
 	catalogRef := strings.TrimSpace(provider.CatalogRef)
 	if catalogRef == "" {
-		return "", errors.New("GetLatestCommitSHA: provider catalog ref is required")
+		return "", &ProviderConfigError{Msg: "GetLatestCommitSHA: provider catalog ref is required"}
 	}
 
 	baseURL := strings.TrimRight(getEnvOrDefault("LORESKILLS_GITHUB_API_BASE_URL", "https://api.github.com"), "/")
