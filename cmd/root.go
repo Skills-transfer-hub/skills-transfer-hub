@@ -46,7 +46,11 @@ var commandCatalog = []commandSpec{
 	{
 		name:    "install",
 		usage:   "loreskills install <resource-ref> [--dry-run] [--force]",
-		summary: "Installe une ressource du catalogue distant dans le projet courant",
+		summary: "Installe une ressource du catalogue distant ou un bundle compatible dans le projet courant",
+		details: []string{
+			"Accepte un nom catalogue classique ou une référence bundle canonique category/folder.",
+			"Pour un bundle détecté par scan, LoreSkills synchronise tous les fichiers du dossier source et suit leur manifeste dans lore-state.json.",
+		},
 		examples: []string{
 			"loreskills install react/form-wizard",
 			"loreskills install skills/analyse-risque",

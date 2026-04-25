@@ -25,8 +25,8 @@ func TestRun_initCreatesProjectProfile(t *testing.T) {
 	defer server.Close()
 	t.Setenv("LORESKILLS_GITHUB_RAW_BASE_URL", server.URL)
 
-	// providerID(default), provider(default=github), private(default=yes), skip token, repoID, ref, catalogPath, targetDir
-	result := runCLIWithInput(t, projectDir, homeDir, "\n\n\n\nowner/repo\n\n\n\n", "init")
+	// providerID(default), provider(default=github), private(default=yes), reviewAgain(no), skip token, repoID, ref, catalogPath, targetDir
+	result := runCLIWithInput(t, projectDir, homeDir, "\n\n\n\n\nowner/repo\n\n\n\n", "init")
 
 	if result.err != nil {
 		t.Fatalf("Run() error = %v", result.err)
@@ -84,9 +84,9 @@ func TestRun_initImportsLegacyConfigWhenAccepted(t *testing.T) {
 		t.Fatalf("WriteFile(%s): %v", configPath, err)
 	}
 
-	// import legacy=y, then providerID(default), provider(default), private(default=yes), skip token,
+	// import legacy=y, then providerID(default), provider(default), private(default=yes), reviewAgain(no), skip token,
 	// repositoryID(default=owner/repo), ref(default), catalogPath(default), targetDir(default)
-	result := runCLIWithInput(t, projectDir, homeDir, "y\n\n\n\n\n\n\n\n\n", "init")
+	result := runCLIWithInput(t, projectDir, homeDir, "y\n\n\n\n\n\n\n\n\n\n", "init")
 
 	if result.err != nil {
 		t.Fatalf("Run() error = %v\nstdout=%s\nstderr=%s", result.err, result.stdout, result.stderr)
@@ -154,7 +154,7 @@ func TestRun_initGuidesUserThroughPublicGitHubSetup(t *testing.T) {
 	defer server.Close()
 	t.Setenv("LORESKILLS_GITHUB_RAW_BASE_URL", server.URL)
 
-	result := runCLIWithInput(t, projectDir, homeDir, "\ngithub\nn\nowner-only\nowner/repo\n\n\n\n", "init")
+	result := runCLIWithInput(t, projectDir, homeDir, "\ngithub\nn\n\nowner-only\nowner/repo\n\n\n\n", "init")
 
 	if result.err != nil {
 		t.Fatalf("Run() error = %v\nstdout=%s\nstderr=%s", result.err, result.stdout, result.stderr)
@@ -247,8 +247,8 @@ func TestRun_initShowsTokenGuidanceForPrivateRepo(t *testing.T) {
 			// Set a dummy token so the credential fallback does not block waiting for git credentials.
 			t.Setenv("LORESKILLS_TOKEN", "dummy-test-token")
 
-			// Input: providerID(default), provider, private=y, skip token, repoID, ref, catalogPath, targetDir
-			input := "\n" + p.name + "\ny\n\n" + p.repoID + "\n\n\n\n"
+			// Input: providerID(default), provider, private=y, reviewAgain(no), skip token, repoID, ref, catalogPath, targetDir
+			input := "\n" + p.name + "\ny\n\n\n" + p.repoID + "\n\n\n\n"
 			result := runCLIWithInput(t, projectDir, homeDir, input, "init")
 
 			if result.err != nil {
@@ -281,7 +281,7 @@ func TestRun_initRejectsUnsupportedProviderThenContinues(t *testing.T) {
 	defer server.Close()
 	t.Setenv("LORESKILLS_GITHUB_RAW_BASE_URL", server.URL)
 
-	result := runCLIWithInput(t, projectDir, homeDir, "gitea\ngithub\nn\nn\nowner/repo\n\n\n\n", "init")
+	result := runCLIWithInput(t, projectDir, homeDir, "\ngitea\ngithub\nn\nn\nowner/repo\n\n\n\n", "init")
 
 	if result.err != nil {
 		t.Fatalf("Run() error = %v\nstdout=%s\nstderr=%s", result.err, result.stdout, result.stderr)
@@ -301,7 +301,7 @@ func TestRun_initRejectsSelfHostedRepositoryURLThenAcceptsHostedIdentifier(t *te
 	t.Setenv("LORESKILLS_GITLAB_API_BASE_URL", server.URL+"/api/v4")
 	t.Setenv("LORESKILLS_TOKEN", "dummy-test-token")
 
-	input := "gitlab\nn\nn\nhttps://git.example.com/group/project\ngroup/project\n\n\n\n"
+	input := "\ngitlab\nn\nn\nhttps://git.example.com/group/project\ngroup/project\n\n\n\n"
 	result := runCLIWithInput(t, projectDir, homeDir, input, "init")
 
 	if result.err != nil {
@@ -322,7 +322,7 @@ func TestRun_initAllowsReviewingProviderGuidanceAgain(t *testing.T) {
 	t.Setenv("LORESKILLS_GITHUB_RAW_BASE_URL", server.URL)
 	t.Setenv("LORESKILLS_TOKEN", "dummy-test-token")
 
-	input := "github\ny\ny\nn\n\nowner/repo\n\n\n\n"
+	input := "\ngithub\ny\ny\nn\n\nowner/repo\n\n\n\n"
 	result := runCLIWithInput(t, projectDir, homeDir, input, "init")
 
 	if result.err != nil {
@@ -349,8 +349,8 @@ func TestRun_initPrivateGitHubWithTokenPassesValidation(t *testing.T) {
 	defer server.Close()
 	t.Setenv("LORESKILLS_GITHUB_RAW_BASE_URL", server.URL)
 
-	// Input: providerID(default), provider=github, private=y, enter token, repoID, ref, catalogPath, targetDir
-	input := "\ngithub\ny\n" + testToken + "\nowner/repo\n\n\n\n"
+	// Input: providerID(default), provider=github, private=y, reviewAgain(no), enter token, repoID, ref, catalogPath, targetDir
+	input := "\ngithub\ny\n\n" + testToken + "\nowner/repo\n\n\n\n"
 	result := runCLIWithInput(t, projectDir, homeDir, input, "init")
 
 	if result.err != nil {
@@ -373,8 +373,8 @@ func TestRun_initAzureDevOpsShowsTokenGuidance(t *testing.T) {
 	// Set a dummy token so the credential fallback does not block waiting for git credentials.
 	t.Setenv("LORESKILLS_TOKEN", "dummy-test-token")
 
-	// Input: providerID(default), azure-devops, private=y, skip token, org/project/repo, ref, catalogPath, targetDir
-	input := "\nazure-devops\ny\n\norg/project/repo\n\n\n\n"
+	// Input: providerID(default), azure-devops, private=y, reviewAgain(no), skip token, org/project/repo, ref, catalogPath, targetDir
+	input := "\nazure-devops\ny\n\n\norg/project/repo\n\n\n\n"
 	result := runCLIWithInput(t, projectDir, homeDir, input, "init")
 
 	if result.err != nil {
@@ -415,8 +415,8 @@ func TestRunInit_EmptyProject_CreatesV2WithOneProvider(t *testing.T) {
 	defer server.Close()
 	t.Setenv("LORESKILLS_GITHUB_RAW_BASE_URL", server.URL)
 
-	// providerID=default, provider=github, private=no, repoID=org/repo, ref=main, catalogPath=SKILLS.md, targetDir=.claude/skills
-	input := "default\ngithub\nn\norg/repo\nmain\nSKILLS.md\n.claude/skills\n"
+	// providerID=default, provider=github, private=no, reviewAgain(no), repoID=org/repo, ref=main, catalogPath=SKILLS.md, targetDir=.claude/skills
+	input := "default\ngithub\nn\n\norg/repo\nmain\nSKILLS.md\n.claude/skills\n"
 	result := runCLIWithInput(t, projectDir, homeDir, input, "init")
 
 	if result.err != nil {
@@ -473,8 +473,8 @@ func TestRunInit_ExistingV2_AppendsSecondProvider(t *testing.T) {
 		Resources: []fs.ResourceEntry{},
 	})
 
-	// yes to add provider, providerID=second, provider=github, private=no, repoID, ref, catalogPath, targetDir
-	input := "y\nsecond\ngithub\nn\norg/second\nmain\nSKILLS.md\n.claude/skills\n"
+	// yes to add provider, providerID=second, provider=github, private=no, reviewAgain(no), repoID, ref, catalogPath, targetDir
+	input := "y\nsecond\ngithub\nn\n\norg/second\nmain\nSKILLS.md\n.claude/skills\n"
 	result := runCLIWithInput(t, projectDir, homeDir, input, "init")
 
 	if result.err != nil {
@@ -552,7 +552,7 @@ func TestRunInit_V2WrittenCorrectly_ProvidersArray(t *testing.T) {
 	defer server.Close()
 	t.Setenv("LORESKILLS_GITHUB_RAW_BASE_URL", server.URL)
 
-	input := "myprovider\ngithub\nn\norg/repo\nmain\nSKILLS.md\n.claude/skills\n"
+	input := "myprovider\ngithub\nn\n\norg/repo\nmain\nSKILLS.md\n.claude/skills\n"
 	result := runCLIWithInput(t, projectDir, homeDir, input, "init")
 
 	if result.err != nil {

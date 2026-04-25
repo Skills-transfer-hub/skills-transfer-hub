@@ -38,6 +38,24 @@ func (a *app) runInstall(args []string) error {
 		return err
 	}
 
+	if entry.ResourceType == "bundle" {
+		bundleContents, bundleErr := a.downloadBundleContents(context.Background(), *profile, entry)
+		if bundleErr != nil {
+			return bundleErr
+		}
+		record, syncErr := fs.SyncManagedBundle(profile.TargetDir, entry, bundleContents)
+		if syncErr != nil {
+			return syncErr
+		}
+		a.writeStdout(
+			fmt.Sprintf("Ressource '%s' installée dans %s.", entry.Name, record.InstalledPath),
+			fmt.Sprintf("Type: %s", entry.ResourceType),
+			fmt.Sprintf("Dossier: %s", entry.FolderName),
+			"Prochaine étape : utilisez `loreskills update` pour rafraîchir les ressources suivies.",
+		)
+		return nil
+	}
+
 	content, err := a.client.DownloadCatalogEntry(context.Background(), *profile, entry)
 	if err != nil {
 		return err
@@ -100,5 +118,26 @@ func (a *app) runInstall(args []string) error {
 		"Prochaine étape : utilisez `loreskills update` pour rafraîchir les ressources suivies.",
 	)
 	return nil
+}
+
+func (a *app) downloadBundleContents(ctx context.Context, profile fs.ProjectProfile, entry fs.CatalogEntry) (map[string][]byte, error) {
+	bundlePaths, err := a.client.ListBundleFiles(ctx, profile, entry)
+	if err != nil {
+		return nil, err
+	}
+
+	bundleContents := make(map[string][]byte, len(bundlePaths))
+	for _, sourcePath := range bundlePaths {
+		fileEntry := entry
+		fileEntry.SourcePath = sourcePath
+
+		content, err := a.client.DownloadCatalogEntry(ctx, profile, fileEntry)
+		if err != nil {
+			return nil, err
+		}
+		bundleContents[sourcePath] = content
+	}
+
+	return bundleContents, nil
 }
 
