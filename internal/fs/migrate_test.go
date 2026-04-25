@@ -2,6 +2,7 @@ package fs
 
 import (
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -28,7 +29,7 @@ func TestMigrateProjectConfig_V1ToV2(t *testing.T) {
 		t.Fatalf("failed to write v1 project.json: %v", err)
 	}
 
-	cfg, err := MigrateProjectConfig(p)
+	cfg, err := MigrateProjectConfig(p, io.Discard)
 	if err != nil {
 		t.Fatalf("MigrateProjectConfig returned error: %v", err)
 	}
@@ -100,7 +101,7 @@ func TestMigrateInstalledState_V1ToV2(t *testing.T) {
 		t.Fatalf("failed to write v1 lore-state.json: %v", err)
 	}
 
-	state, err := MigrateInstalledState(p)
+	state, err := MigrateInstalledState(p, io.Discard)
 	if err != nil {
 		t.Fatalf("MigrateInstalledState returned error: %v", err)
 	}
@@ -170,7 +171,7 @@ func TestMigrateProjectConfig_CreatesBackup(t *testing.T) {
 		t.Fatalf("failed to write v1 project.json: %v", err)
 	}
 
-	if _, err := MigrateProjectConfig(p); err != nil {
+	if _, err := MigrateProjectConfig(p, io.Discard); err != nil {
 		t.Fatalf("MigrateProjectConfig returned error: %v", err)
 	}
 
@@ -193,7 +194,7 @@ func TestMigrateProjectConfig_WriteFailure_LeavesOriginalUntouched(t *testing.T)
 
 	// Pass a path whose parent directory does not exist — os.ReadFile will fail.
 	nonExistentPath := filepath.Join(tmpDir, "nonexistent", "project.json")
-	_, err = MigrateProjectConfig(nonExistentPath)
+	_, err = MigrateProjectConfig(nonExistentPath, io.Discard)
 	if err == nil {
 		t.Error("expected non-nil error for non-existent path, got nil")
 	}
@@ -233,7 +234,7 @@ func TestMigrateProjectConfig_AlreadyV2_ReturnsAsIs(t *testing.T) {
 	}
 	modTimeBefore := info.ModTime()
 
-	cfg, err := MigrateProjectConfig(p)
+	cfg, err := MigrateProjectConfig(p, io.Discard)
 	if err != nil {
 		t.Fatalf("MigrateProjectConfig returned error: %v", err)
 	}
@@ -267,7 +268,7 @@ func TestMigrateProjectConfig_CorruptJSON_ReturnsError(t *testing.T) {
 		t.Fatalf("failed to write corrupt file: %v", err)
 	}
 
-	_, err = MigrateProjectConfig(p)
+	_, err = MigrateProjectConfig(p, io.Discard)
 	if err == nil {
 		t.Error("expected non-nil error for corrupt JSON, got nil")
 	}

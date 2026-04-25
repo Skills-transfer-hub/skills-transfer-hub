@@ -16,10 +16,11 @@ func (a *app) runRemove(args []string) error {
 	}
 	resourceName := positional[0]
 
-	profile, err := fs.ReadProjectProfile()
+	profile, release, err := a.prepareStateAccess()
 	if err != nil {
 		return err
 	}
+	defer release()
 
 	state, err := fs.ReadInstalledStateV2(profile.TargetDir)
 	if err != nil {

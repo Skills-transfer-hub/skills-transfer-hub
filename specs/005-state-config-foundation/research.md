@@ -124,3 +124,85 @@ function approach lets each command be migrated and tested independently (SC-005
 **Alternatives considered**:
 - Return `ProjectConfigV2` from the existing `ReadProjectProfile()`: would require
   renaming the return type, breaking existing callers in one shot. Rejected for this spec.
+
+---
+
+## Decision 8: Advisory File Lock — `O_CREATE|O_EXCL` approach
+
+**Decision**: Implement advisory locking via `os.OpenFile(lockPath, os.O_CREATE|os.O_EXCL, 0o644)`.
+- If the call succeeds, the lock is held and the file descriptor is kept open until
+  `io.Closer.Close()` is called, which removes the lock file via `os.Remove`.
+- If `O_EXCL` fails (file already exists), return an error immediately (fail-fast, FR-015).
+- Lock file path: `<stateDir>/.lore-state.lock` (same directory as `lore-state.json`).
+
+**API**:
+```go
+func AcquireStateLock(lockPath string) (io.Closer, error)
+```
+Callers use `defer lock.Close()` to guarantee release even on panic.
+
+**Rationale**: `O_CREATE|O_EXCL` is the only cross-platform atomic test-and-set available
+in Go stdlib without CGO. No platform-specific syscalls needed.
+
+**Alternatives considered**:
+- `flock(2)` via `syscall` package: non-portable to Windows without build tags. Rejected.
+- In-process `sync.Mutex`: does not protect against concurrent processes. Rejected.
+- Wait/retry loop: explicitly prohibited by FR-015. Rejected.
+
+---
+
+## Decision 9: `lore-state.json` vs `lore-state-v2.json` — File Consolidation
+
+**Decision**: Retire `lore-state-v2.json` and consolidate on `lore-state.json` as the
+single state file. `ReadInstalledStateV2` and `WriteInstalledStateV2` are updated to use
+`stateFileName` (`lore-state.json`); the `stateFileNameV2` constant is removed.
+
+**Background**: The codebase currently maintains two parallel state files:
+- `lore-state.json` — legacy v1 file, read by `ReadInstalledState`
+- `lore-state-v2.json` — separate v2 file, read/written by `ReadInstalledStateV2` / `WriteInstalledStateV2`
+
+The spec (FR-002, FR-010) mandates that `lore-state.json` contains a `schema_version` field
+and is migrated in-place. Parallel files split the source of truth (violates SC-003).
+
+**Migration path**: On first access, `MigrateInstalledState` detects v1 (no `schema_version`),
+backs up to `lore-state.json.bak`, rewrites atomically to v2 in-place. Any existing
+`lore-state-v2.json` on disk is left as-is but is no longer read or written.
+
+**Alternatives considered**:
+- Keep both files and merge on read: complex, error-prone, violates single source of truth. Rejected.
+
+---
+
+## Decision 10: Auto-Migration Entry Point
+
+**Decision**: Inject a shared `runMigrations(stderr io.Writer) error` helper that is
+called at the start of each `cmd/` command handler (before any state/config read).
+`runMigrations` calls `MigrateProjectConfig(path, stderr)` and `MigrateInstalledState(path, stderr)`
+in sequence; both are idempotent for already-v2 files (return immediately with zero I/O).
+
+**Rationale**: FR-003 requires migration before the requested command executes. Making
+it the first call in every handler guarantees no handler reads unmigrated files.
+Idempotency means the cost is one `os.ReadFile` + JSON parse for already-v2 files
+(negligible against FR migration time budget of 2 seconds for 50 resources).
+
+**Alternatives considered**:
+- Sentinel file (`.loreskills-migrated`): adds a file, is itself subject to corruption;
+  idempotent migrate functions make the sentinel unnecessary. Rejected.
+- Run only for install/update: `list` and `status` also read state; too narrow. Rejected.
+
+---
+
+## Decision 11: `resolved_version` / `previous_version` Population
+
+**Decision**: `InstallCatalogEntryV2` accepts a new `resolvedVersion string` parameter.
+Before upserting, `UpsertInstalledResourceV2` reads the existing record for the
+`(resource_name, provider_id)` key and copies its `resolved_version` to `previous_version`.
+
+**Rationale**: The commit SHA is returned by the HTTP client in `cmd/`; threading it as
+a parameter preserves the fs/http layer separation (constitution IV). Reading the prior
+version inside `UpsertInstalledResourceV2` before overwriting satisfies FR-012.
+
+**Alternatives considered**:
+- Have `cmd/` pre-read the state to capture previous version: duplicates logic already
+  needed inside upsert. Rejected.
+- Store previous version in the caller: leaks state management into `cmd/`. Rejected.

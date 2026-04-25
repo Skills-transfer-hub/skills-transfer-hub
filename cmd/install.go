@@ -18,10 +18,11 @@ func (a *app) runInstall(args []string) error {
 	}
 	resourceRef := positional[0]
 
-	profile, err := fs.ReadProjectProfile()
+	profile, release, err := a.prepareStateAccess()
 	if err != nil {
 		return err
 	}
+	defer release()
 
 	providerID := "default"
 	if cfg, cfgErr := fs.ReadProjectConfigV2(); cfgErr == nil && len(cfg.Providers) > 0 {

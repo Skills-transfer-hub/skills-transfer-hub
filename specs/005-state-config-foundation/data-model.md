@@ -209,3 +209,27 @@ Top-level v2 structure for `<target_dir>/lore-state.json`.
 | ManagedFile | `sha256` | Exactly 64 hex chars (`[0-9a-f]{64}`) |
 | InstalledResourceRecordV2 | `installed_at` | ISO 8601 UTC or empty string |
 | ProjectConfigV2 | `providers` | Length >= 1 after init (may be 0 in empty projects before init) |
+
+---
+
+## New Internal Type: `StateLock` (to be created)
+
+Advisory concurrency lock — not persisted to any application schema.
+
+```go
+// stateLock (unexported) holds the lock file descriptor and path.
+// Implements io.Closer; Close() releases the lock.
+type stateLock struct {
+    file *os.File
+    path string
+}
+```
+
+| Field | Description |
+|-------|-------------|
+| `file` | Open `*os.File` created with `O_CREATE\|O_EXCL`; kept open until `Close()` |
+| `path` | Absolute path to the lock file (e.g. `.claude/skills/.lore-state.lock`) |
+
+**Lock file path**: `filepath.Join(stateDir, ".lore-state.lock")`  
+**Error format when already locked**: `"fichier de verrouillage déjà présent (%s) — supprimez-le si aucun processus loreskills n'est en cours"`
+

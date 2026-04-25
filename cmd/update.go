@@ -15,10 +15,11 @@ func (a *app) runUpdate(args []string) error {
 	flags, _ := parseFlags(args, "--dry-run")
 	dryRun := flags["--dry-run"]
 
-	profile, err := fs.ReadProjectProfile()
+	profile, release, err := a.prepareStateAccess()
 	if err != nil {
 		return err
 	}
+	defer release()
 
 	cfg, _ := fs.ReadProjectConfigV2()
 
