@@ -178,7 +178,7 @@ func (a *app) runUpdate(args []string) error {
 		}
 
 		// T021: Skip if installed path is excluded by .loreskillsignore (SC-003).
-		if fs.MatchesIgnorePattern(record.InstalledPath, ignorePats) {
+if fs.MatchesIgnorePattern(record.SourcePath, ignorePats) {
 			a.writeStdout(fmt.Sprintf("Ressource '%s' exclue par .loreskillsignore.", record.Name))
 			continue
 		}
