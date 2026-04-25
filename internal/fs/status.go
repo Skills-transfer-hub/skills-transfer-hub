@@ -19,7 +19,7 @@ const StatusUpToDate = ResourceStatusUpToDate
 
 // ComputeAllStatuses returns a StatusResult for every entry in state.
 // latestSHAs maps providerID → latest HEAD commit SHA (empty = unknown).
-func ComputeAllStatuses(state InstalledResourceStateV2, config ProjectConfigV2, latestSHAs map[string]string, _ string) []StatusResult {
+func ComputeAllStatuses(state InstalledResourceStateV2, config ProjectConfigV2, latestSHAs map[string]string) []StatusResult {
 	results := make([]StatusResult, 0, len(state.Entries))
 	for _, rec := range state.Entries {
 		latestVersion := latestSHAs[rec.ProviderID]
