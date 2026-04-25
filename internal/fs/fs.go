@@ -1247,7 +1247,11 @@ func WriteInstalledStateV2(targetDir string, state InstalledResourceStateV2) err
 }
 
 // InstallCatalogEntryV2 writes the catalog entry to disk and records it in lore-state-v2.json.
-func InstallCatalogEntryV2(targetDir string, entry CatalogEntry, content []byte) (InstalledResourceRecordV2, error) {
+// providerID identifies the source provider in the v2 state; pass "default" for legacy v1 installs.
+func InstallCatalogEntryV2(targetDir string, entry CatalogEntry, content []byte, providerID string) (InstalledResourceRecordV2, error) {
+	if providerID == "" {
+		providerID = "default"
+	}
 	record, managedFile, err := SaveCatalogEntry(targetDir, entry, content)
 	if err != nil {
 		return InstalledResourceRecordV2{}, err
@@ -1255,7 +1259,7 @@ func InstallCatalogEntryV2(targetDir string, entry CatalogEntry, content []byte)
 
 	v2record := InstalledResourceRecordV2{
 		ResourceName: record.CatalogID,
-		ProviderID:   "default",
+		ProviderID:   providerID,
 		InstalledAt:  time.Now().UTC().Format(time.RFC3339),
 		ManagedFiles: []ManagedFile{managedFile},
 	}
@@ -1281,9 +1285,6 @@ func UpsertInstalledResourceV2(targetDir string, record InstalledResourceRecordV
 	for i, existing := range state.Entries {
 		if existing.ResourceName == record.ResourceName {
 			state.Entries[i] = record
-			sort.Slice(state.Entries, func(a, b int) bool {
-				return state.Entries[a].ResourceName < state.Entries[b].ResourceName
-			})
 			return WriteInstalledStateV2(targetDir, state)
 		}
 	}

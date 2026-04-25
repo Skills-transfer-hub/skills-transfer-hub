@@ -85,8 +85,8 @@ func TestRun_initImportsLegacyConfigWhenAccepted(t *testing.T) {
 	}
 
 	// import legacy=y, then providerID(default), provider(default), private(default=yes), skip token,
-	// repositoryID(default=owner/repo), ref(default), catalogPath(default), targetDir(EOF default)
-	result := runCLIWithInput(t, projectDir, homeDir, "y\n\n\n\n\n\n\n", "init")
+	// repositoryID(default=owner/repo), ref(default), catalogPath(default), targetDir(default)
+	result := runCLIWithInput(t, projectDir, homeDir, "y\n\n\n\n\n\n\n\n\n", "init")
 
 	if result.err != nil {
 		t.Fatalf("Run() error = %v\nstdout=%s\nstderr=%s", result.err, result.stdout, result.stderr)
@@ -504,7 +504,7 @@ func TestRunInit_ExistingV2_AppendsSecondProvider(t *testing.T) {
 	}
 }
 
-// T022 — duplicate provider ID returns an error; file is untouched.
+// T022 — duplicate provider ID shows a warning and loops; file is untouched.
 func TestRunInit_DuplicateProviderID_ReturnsError(t *testing.T) {
 	homeDir := t.TempDir()
 	projectDir := t.TempDir()
@@ -517,15 +517,15 @@ func TestRunInit_DuplicateProviderID_ReturnsError(t *testing.T) {
 		Resources: []fs.ResourceEntry{},
 	})
 
-	// yes to add provider, then duplicate providerID
+	// yes to add provider, then duplicate providerID; input exhausted → wizard terminates with io.EOF
 	input := "y\ndefault\n"
 	result := runCLIWithInput(t, projectDir, homeDir, input, "init")
 
 	if result.err == nil {
-		t.Fatal("Run() error = nil, want error for duplicate provider ID")
+		t.Fatal("Run() error = nil, want error when input exhausted after duplicate provider ID")
 	}
-	if !strings.Contains(result.err.Error(), "default") && !strings.Contains(result.stderr, "default") {
-		t.Fatalf("expected error mentioning 'default', got: err=%v stderr=%s", result.err, result.stderr)
+	if !strings.Contains(result.stdout, "default") {
+		t.Fatalf("expected stdout to mention 'default', got: stdout=%s", result.stdout)
 	}
 
 	configPath := filepath.Join(projectDir, ".loreskills", "project.json")

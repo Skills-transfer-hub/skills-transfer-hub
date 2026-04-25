@@ -23,6 +23,11 @@ func (a *app) runInstall(args []string) error {
 		return err
 	}
 
+	providerID := "default"
+	if cfg, cfgErr := fs.ReadProjectConfigV2(); cfgErr == nil && len(cfg.Providers) > 0 {
+		providerID = cfg.Providers[0].ID
+	}
+
 	entries, err := a.client.ListCatalog(context.Background(), *profile)
 	if err != nil {
 		return err
@@ -84,7 +89,9 @@ func (a *app) runInstall(args []string) error {
 	if err != nil {
 		return err
 	}
-	_, _ = fs.InstallCatalogEntryV2(profile.TargetDir, entry, content)
+	if _, err := fs.InstallCatalogEntryV2(profile.TargetDir, entry, content, providerID); err != nil {
+		return err
+	}
 
 	a.writeStdout(
 		fmt.Sprintf("Ressource '%s' installée dans %s.", entry.Name, record.InstalledPath),

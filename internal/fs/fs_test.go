@@ -266,7 +266,7 @@ func TestInstallCatalogEntryV2_WritesManagedFiles(t *testing.T) {
 	}
 	content := []byte("# Test Skill\nsome content")
 
-	_, err := InstallCatalogEntryV2(paths.targetDir, entry, content)
+	_, err := InstallCatalogEntryV2(paths.targetDir, entry, content, "default")
 	if err != nil {
 		t.Fatalf("InstallCatalogEntryV2() error = %v", err)
 	}
@@ -305,7 +305,7 @@ func TestInstallCatalogEntryV2_NonMarkdown_NoHeader(t *testing.T) {
 	}
 	content := []byte("some plain text content")
 
-	_, err := InstallCatalogEntryV2(paths.targetDir, entry, content)
+	_, err := InstallCatalogEntryV2(paths.targetDir, entry, content, "default")
 	if err != nil {
 		t.Fatalf("InstallCatalogEntryV2() error = %v", err)
 	}
@@ -337,7 +337,7 @@ func TestInstallCatalogEntryV2_SHA256MatchesActualFileContent(t *testing.T) {
 	}
 	content := []byte("# Beta Skill\ncontent here")
 
-	_, err := InstallCatalogEntryV2(paths.targetDir, entry, content)
+	_, err := InstallCatalogEntryV2(paths.targetDir, entry, content, "default")
 	if err != nil {
 		t.Fatalf("InstallCatalogEntryV2() error = %v", err)
 	}

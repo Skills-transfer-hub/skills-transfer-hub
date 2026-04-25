@@ -72,6 +72,9 @@ func (a *app) runUpdate(args []string) error {
 	}
 
 	failures := 0
+	v2State, v2StateErr := fs.ReadInstalledStateV2(profile.TargetDir)
+	v2Updated := false
+
 	for _, record := range records {
 		if pinnedVer := fs.PinnedVersion(cfg, record.CatalogID); pinnedVer != "" {
 			a.writeStdout(fmt.Sprintf("  [pinned at %s] %s", pinnedVer, record.CatalogID))
@@ -123,20 +126,26 @@ func (a *app) runUpdate(args []string) error {
 			continue
 		}
 
-		if v2State, err2 := fs.ReadInstalledStateV2(profile.TargetDir); err2 == nil {
-			for _, v2rec := range v2State.Entries {
+		if v2StateErr == nil {
+			for i, v2rec := range v2State.Entries {
 				if v2rec.ResourceName == record.CatalogID {
-					v2rec = fs.RefreshManagedFileHashes(v2rec, content)
-					v2rec.PreviousVersion = v2rec.ResolvedVersion
-					v2rec.ResolvedVersion = fs.ComputeSHA256(content)
-					v2rec.InstalledAt = time.Now().UTC().Format(time.RFC3339)
-					_ = fs.UpsertInstalledResourceV2(profile.TargetDir, v2rec)
+					v2State.Entries[i] = fs.RefreshManagedFileHashes(v2rec, content)
+					v2State.Entries[i].PreviousVersion = v2rec.ResolvedVersion
+					v2State.Entries[i].ResolvedVersion = fs.ComputeSHA256(content)
+					v2State.Entries[i].InstalledAt = time.Now().UTC().Format(time.RFC3339)
+					v2Updated = true
 					break
 				}
 			}
 		}
 
 		a.writeStdout(fmt.Sprintf("Ressource '%s' mise à jour.", record.Name))
+	}
+
+	if v2Updated {
+		if err := fs.WriteInstalledStateV2(profile.TargetDir, v2State); err != nil {
+			a.writeStderr(fmt.Sprintf("Avertissement : impossible de mettre à jour l'état v2 : %v", err))
+		}
 	}
 
 	if failures > 0 {

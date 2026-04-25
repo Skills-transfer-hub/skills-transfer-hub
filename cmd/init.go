@@ -79,7 +79,8 @@ func (a *app) runInit() error {
 			}
 		}
 		if isDuplicate {
-			return fmt.Errorf("provider ID %q déjà configuré", id)
+			fmt.Fprintf(a.stdout, "L'identifiant %q est déjà utilisé. Veuillez en choisir un autre.\n", id)
+			continue
 		}
 		providerID = id
 		break
@@ -406,8 +407,13 @@ func promptValue(reader *bufio.Reader, stdout io.Writer, label, defaultValue str
 		return "", err
 	}
 	line, err := reader.ReadString('\n')
-	if err != nil && err != io.EOF {
-		return "", fmt.Errorf("lecture de l'entrée utilisateur échouée : %w", err)
+	if err != nil {
+		if err == io.EOF && strings.TrimSpace(line) == "" {
+			return "", io.EOF
+		}
+		if err != io.EOF {
+			return "", fmt.Errorf("lecture de l'entrée utilisateur échouée : %w", err)
+		}
 	}
 	trimmed := strings.TrimSpace(line)
 	if trimmed == "" {
