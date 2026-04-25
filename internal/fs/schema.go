@@ -14,10 +14,11 @@ const (
 
 // DryRunChange describes a single file change that would be made by install/update.
 type DryRunChange struct {
-	Action    string `json:"action"` // "add", "modify", "delete"
-	Path      string `json:"path"`
-	OldSHA256 string `json:"old_sha256,omitempty"`
-	NewSHA256 string `json:"new_sha256,omitempty"`
+	Action       string `json:"action"` // "add", "modify", "delete"
+	Path         string `json:"path"`
+	OldSHA256    string `json:"old_sha256,omitempty"`
+	NewSHA256    string `json:"new_sha256,omitempty"`
+	ResourceName string `json:"resource_name,omitempty"`
 }
 
 // OwnershipConflict describes a file path claimed by two resources.

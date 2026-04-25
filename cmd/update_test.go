@@ -398,3 +398,410 @@ func releaseArchiveForTest(t *testing.T, assetName string) []byte {
 	}
 	return tarBuffer.Bytes()
 }
+
+func TestRunUpdate_dryRunTextGroupsPerResource(t *testing.T) {
+	projectDir := t.TempDir()
+	server := httptest.NewServer(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		switch r.URL.Path {
+		case "/owner/repo/main/skills/alpha.md":
+			_, _ = w.Write([]byte("# Alpha updated\n"))
+		case "/owner/repo/main/agents/beta.md":
+			_, _ = w.Write([]byte("# Beta updated\n"))
+		default:
+			stdhttp.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	t.Setenv("LORESKILLS_GITHUB_RAW_BASE_URL", server.URL)
+
+	writeProjectProfileForCommandTest(t, projectDir, fs.ProjectProfile{
+		Provider:     "github",
+		RepositoryID: "owner/repo",
+		Ref:          "main",
+		CatalogPath:  "SKILLS.md",
+		TargetDir:    ".claude/resources",
+	})
+
+	targetPath := filepath.Join(projectDir, ".claude", "resources")
+	if err := os.MkdirAll(targetPath, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	v2State := fs.InstalledResourceStateV2{
+		SchemaVersion: 2,
+		Entries: []fs.InstalledResourceRecordV2{
+			{ResourceName: "skills/alpha.md", ProviderID: "default", ResolvedVersion: "old", ManagedFiles: []fs.ManagedFile{{Path: ".claude/resources/skills/alpha.md", SHA256: "old-sha"}}},
+			{ResourceName: "agents/beta.md", ProviderID: "default", ResolvedVersion: "old", ManagedFiles: []fs.ManagedFile{{Path: ".claude/resources/agents/beta.md", SHA256: "old-sha"}}},
+		},
+	}
+	v2Data, _ := json.Marshal(v2State)
+	if err := os.WriteFile(filepath.Join(targetPath, "lore-state-v2.json"), v2Data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result := runCLI(t, projectDir, t.TempDir(), "update", "--dry-run")
+	if result.err != nil {
+		t.Fatalf("Run() error = %v\nstderr=%s", result.err, result.stderr)
+	}
+	assertContains(t, result.stdout, "skills/alpha.md")
+	assertContains(t, result.stdout, "agents/beta.md")
+	assertContains(t, result.stdout, "[~]")
+}
+
+func TestRunUpdate_dryRunJSONIncludesResourceName(t *testing.T) {
+	projectDir := t.TempDir()
+	server := httptest.NewServer(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		switch r.URL.Path {
+		case "/owner/repo/main/skills/alpha.md":
+			_, _ = w.Write([]byte("# Alpha updated\n"))
+		case "/owner/repo/main/agents/beta.md":
+			_, _ = w.Write([]byte("# Beta updated\n"))
+		default:
+			stdhttp.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	t.Setenv("LORESKILLS_GITHUB_RAW_BASE_URL", server.URL)
+
+	writeProjectProfileForCommandTest(t, projectDir, fs.ProjectProfile{
+		Provider:     "github",
+		RepositoryID: "owner/repo",
+		Ref:          "main",
+		CatalogPath:  "SKILLS.md",
+		TargetDir:    ".claude/resources",
+	})
+
+	targetPath := filepath.Join(projectDir, ".claude", "resources")
+	if err := os.MkdirAll(targetPath, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	v2State := fs.InstalledResourceStateV2{
+		SchemaVersion: 2,
+		Entries: []fs.InstalledResourceRecordV2{
+			{ResourceName: "skills/alpha.md", ProviderID: "default", ResolvedVersion: "old", ManagedFiles: []fs.ManagedFile{{Path: ".claude/resources/skills/alpha.md", SHA256: "old-sha"}}},
+			{ResourceName: "agents/beta.md", ProviderID: "default", ResolvedVersion: "old", ManagedFiles: []fs.ManagedFile{{Path: ".claude/resources/agents/beta.md", SHA256: "old-sha"}}},
+		},
+	}
+	v2Data, _ := json.Marshal(v2State)
+	if err := os.WriteFile(filepath.Join(targetPath, "lore-state-v2.json"), v2Data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result := runCLI(t, projectDir, t.TempDir(), "update", "--dry-run", "--json")
+	if result.err != nil {
+		t.Fatalf("Run() error = %v\nstderr=%s", result.err, result.stderr)
+	}
+	var changes []fs.DryRunChange
+	if err := json.Unmarshal([]byte(result.stdout), &changes); err != nil {
+		t.Fatalf("json.Unmarshal: %v\nstdout=%s", err, result.stdout)
+	}
+	if len(changes) == 0 {
+		t.Fatal("expected non-empty JSON changes array")
+	}
+	for _, c := range changes {
+		if c.ResourceName == "" {
+			t.Errorf("change %+v has empty resource_name", c)
+		}
+	}
+}
+
+func TestRunUpdate_dryRunNoChangesWhenAllCurrent(t *testing.T) {
+	projectDir := t.TempDir()
+	content := []byte("# Alpha\n")
+	header := "> ⚠️ ATTENTION : Skill géré par LoreSkills. Ne pas modifier manuellement.\n\n"
+	fullContent := []byte(header + "# Alpha\n")
+	sha := fs.ComputeSHA256(fullContent)
+
+	server := httptest.NewServer(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		if r.URL.Path == "/owner/repo/main/skills/alpha.md" {
+			_, _ = w.Write(content)
+			return
+		}
+		stdhttp.NotFound(w, r)
+	}))
+	defer server.Close()
+	t.Setenv("LORESKILLS_GITHUB_RAW_BASE_URL", server.URL)
+
+	writeProjectProfileForCommandTest(t, projectDir, fs.ProjectProfile{
+		Provider:     "github",
+		RepositoryID: "owner/repo",
+		Ref:          "main",
+		CatalogPath:  "SKILLS.md",
+		TargetDir:    ".claude/resources",
+	})
+
+	targetPath := filepath.Join(projectDir, ".claude", "resources")
+	if err := os.MkdirAll(targetPath, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	v2State := fs.InstalledResourceStateV2{
+		SchemaVersion: 2,
+		Entries: []fs.InstalledResourceRecordV2{
+			{ResourceName: "skills/alpha.md", ProviderID: "default", ResolvedVersion: "current", ManagedFiles: []fs.ManagedFile{{Path: ".claude/resources/skills/alpha.md", SHA256: sha}}},
+		},
+	}
+	v2Data, _ := json.Marshal(v2State)
+	if err := os.WriteFile(filepath.Join(targetPath, "lore-state-v2.json"), v2Data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result := runCLI(t, projectDir, t.TempDir(), "update", "--dry-run")
+	if result.err != nil {
+		t.Fatalf("Run() error = %v\nstderr=%s", result.err, result.stderr)
+	}
+	assertContains(t, result.stdout, "No changes would be made.")
+}
+
+func TestRunUpdate_dryRunTextPrefixes(t *testing.T) {
+	projectDir := t.TempDir()
+	server := httptest.NewServer(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		if r.URL.Path == "/owner/repo/main/skills/alpha.md" {
+			_, _ = w.Write([]byte("# Alpha new\n"))
+			return
+		}
+		stdhttp.NotFound(w, r)
+	}))
+	defer server.Close()
+	t.Setenv("LORESKILLS_GITHUB_RAW_BASE_URL", server.URL)
+
+	writeProjectProfileForCommandTest(t, projectDir, fs.ProjectProfile{
+		Provider:     "github",
+		RepositoryID: "owner/repo",
+		Ref:          "main",
+		CatalogPath:  "SKILLS.md",
+		TargetDir:    ".claude/resources",
+	})
+
+	targetPath := filepath.Join(projectDir, ".claude", "resources")
+	if err := os.MkdirAll(targetPath, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	v2State := fs.InstalledResourceStateV2{
+		SchemaVersion: 2,
+		Entries: []fs.InstalledResourceRecordV2{
+			{ResourceName: "skills/alpha.md", ProviderID: "default", ResolvedVersion: "old", ManagedFiles: []fs.ManagedFile{{Path: ".claude/resources/skills/alpha.md", SHA256: "old-sha"}}},
+		},
+	}
+	v2Data, _ := json.Marshal(v2State)
+	if err := os.WriteFile(filepath.Join(targetPath, "lore-state-v2.json"), v2Data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result := runCLI(t, projectDir, t.TempDir(), "update", "--dry-run")
+	if result.err != nil {
+		t.Fatalf("Run() error = %v\nstderr=%s", result.err, result.stderr)
+	}
+	assertContains(t, result.stdout, "[~]")
+}
+
+// writeV2StateForUpdatePinTest sets up v2 state for pinning update tests.
+func writeV2StateForUpdatePinTest(t *testing.T, projectDir, targetDir string, state fs.InstalledResourceStateV2) {
+	t.Helper()
+	targetPath := filepath.Join(projectDir, filepath.FromSlash(targetDir))
+	if err := os.MkdirAll(targetPath, 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	data, _ := json.Marshal(state)
+	if err := os.WriteFile(filepath.Join(targetPath, "lore-state-v2.json"), data, 0o644); err != nil {
+		t.Fatalf("WriteFile(v2 state): %v", err)
+	}
+}
+
+// TestRunUpdate_pinnedResourceShowsTag verifies a pinned resource is skipped with tag.
+func TestRunUpdate_pinnedResourceShowsTag(t *testing.T) {
+	projectDir := t.TempDir()
+	rawCalled := false
+	rawServer := httptest.NewServer(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		rawCalled = true
+		stdhttp.NotFound(w, r)
+	}))
+	defer rawServer.Close()
+	t.Setenv("LORESKILLS_GITHUB_RAW_BASE_URL", rawServer.URL)
+
+	writeProjectProfileForCommandTest(t, projectDir, fs.ProjectProfile{
+		Provider:     "github",
+		RepositoryID: "owner/repo",
+		Ref:          "main",
+		CatalogPath:  "SKILLS.md",
+		TargetDir:    ".claude/resources",
+	})
+	writeProjectConfigV2ForTest(t, projectDir, fs.ProjectConfigV2{
+		SchemaVersion: 2,
+		Providers: []fs.ProviderEntry{
+			{ID: "default", Provider: "github", RepositoryID: "owner/repo", CatalogRef: "main", CatalogPath: "SKILLS.md", TargetDir: ".claude/resources"},
+		},
+		Resources: []fs.ResourceEntry{
+			{ResourceName: "skills/alpha.md", ProviderID: "default", PinnedVersion: "v1.0.0"},
+		},
+	})
+	writeInstalledStateForCommandTest(t, projectDir, ".claude/resources", fs.InstalledResourceState{
+		Entries: []fs.InstalledResourceRecord{
+			{CatalogID: "skills/alpha.md", ResourceType: "skill", Name: "alpha", FolderName: "skills", InstalledPath: ".claude/resources/skills/alpha.md", SourcePath: "skills/alpha.md", Status: "installed"},
+		},
+	})
+	writeV2StateForUpdatePinTest(t, projectDir, ".claude/resources", fs.InstalledResourceStateV2{
+		SchemaVersion: 2,
+		Entries: []fs.InstalledResourceRecordV2{
+			{ResourceName: "skills/alpha.md", ProviderID: "default", ResolvedVersion: "old-pinned-sha"},
+		},
+	})
+
+	result := runCLI(t, projectDir, t.TempDir(), "update")
+	if result.err != nil {
+		t.Fatalf("Run() error = %v\nstderr=%s", result.err, result.stderr)
+	}
+	assertContains(t, result.stdout, "[pinned at v1.0.0]")
+	if rawCalled {
+		t.Error("raw content server was called for pinned resource — should be skipped")
+	}
+
+	targetPath := filepath.Join(projectDir, ".claude", "resources")
+	v2Data, err := os.ReadFile(filepath.Join(targetPath, "lore-state-v2.json"))
+	if err != nil {
+		t.Fatalf("ReadFile(v2 state): %v", err)
+	}
+	var resultState fs.InstalledResourceStateV2
+	if err := json.Unmarshal(v2Data, &resultState); err != nil {
+		t.Fatalf("json.Unmarshal: %v", err)
+	}
+	if len(resultState.Entries) != 1 {
+		t.Fatalf("len(entries) = %d, want 1", len(resultState.Entries))
+	}
+	if got := resultState.Entries[0].ResolvedVersion; got != "old-pinned-sha" {
+		t.Fatalf("ResolvedVersion = %q, want %q (should be unchanged)", got, "old-pinned-sha")
+	}
+}
+
+// TestRunUpdate_pinnedNewerVersionNotice verifies "Newer version available" is shown when
+// upstream HEAD differs from installed resolved_version for a pinned resource.
+func TestRunUpdate_pinnedNewerVersionNotice(t *testing.T) {
+	projectDir := t.TempDir()
+
+	latestSHA := "new-head-sha-12345"
+	apiServer := httptest.NewServer(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		if strings.Contains(r.URL.Path, "/commits/") {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"sha":"` + latestSHA + `"}`))
+			return
+		}
+		stdhttp.NotFound(w, r)
+	}))
+	defer apiServer.Close()
+	t.Setenv("LORESKILLS_GITHUB_API_BASE_URL", apiServer.URL)
+
+	writeProjectProfileForCommandTest(t, projectDir, fs.ProjectProfile{
+		Provider:     "github",
+		RepositoryID: "owner/repo",
+		Ref:          "main",
+		CatalogPath:  "SKILLS.md",
+		TargetDir:    ".claude/resources",
+	})
+	writeProjectConfigV2ForTest(t, projectDir, fs.ProjectConfigV2{
+		SchemaVersion: 2,
+		Providers: []fs.ProviderEntry{
+			{ID: "default", Provider: "github", RepositoryID: "owner/repo", CatalogRef: "main", CatalogPath: "SKILLS.md", TargetDir: ".claude/resources"},
+		},
+		Resources: []fs.ResourceEntry{
+			{ResourceName: "skills/alpha.md", ProviderID: "default", PinnedVersion: "v1.0.0"},
+		},
+	})
+	writeInstalledStateForCommandTest(t, projectDir, ".claude/resources", fs.InstalledResourceState{
+		Entries: []fs.InstalledResourceRecord{
+			{CatalogID: "skills/alpha.md", ResourceType: "skill", Name: "alpha", FolderName: "skills", InstalledPath: ".claude/resources/skills/alpha.md", SourcePath: "skills/alpha.md", Status: "installed"},
+		},
+	})
+	writeV2StateForUpdatePinTest(t, projectDir, ".claude/resources", fs.InstalledResourceStateV2{
+		SchemaVersion: 2,
+		Entries: []fs.InstalledResourceRecordV2{
+			{ResourceName: "skills/alpha.md", ProviderID: "default", ResolvedVersion: "old-pinned-sha"},
+		},
+	})
+
+	result := runCLI(t, projectDir, t.TempDir(), "update")
+	if result.err != nil {
+		t.Fatalf("Run() error = %v\nstderr=%s", result.err, result.stderr)
+	}
+	assertContains(t, result.stdout, "[pinned at v1.0.0]")
+	assertContains(t, result.stdout, "Newer version available")
+	assertContains(t, result.stdout, "skills/alpha.md")
+}
+
+// TestRunUpdate_ownershipConflictSkipsResourceContinuesOthers verifies that when
+// a resource's path is already owned by a different resource in v2 state, the
+// update for the conflicting resource is skipped but continues for other resources.
+func TestRunUpdate_ownershipConflictSkipsResourceContinuesOthers(t *testing.T) {
+	projectDir := t.TempDir()
+
+	server := httptest.NewServer(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		switch r.URL.Path {
+		case "/owner/repo/main/skills/alpha.md":
+			_, _ = w.Write([]byte("# Alpha updated\n"))
+		case "/owner/repo/main/agents/beta.md":
+			_, _ = w.Write([]byte("# Beta updated\n"))
+		default:
+			stdhttp.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	t.Setenv("LORESKILLS_GITHUB_RAW_BASE_URL", server.URL)
+
+	writeProjectProfileForCommandTest(t, projectDir, fs.ProjectProfile{
+		Provider:     "github",
+		RepositoryID: "owner/repo",
+		Ref:          "main",
+		CatalogPath:  "SKILLS.md",
+		TargetDir:    ".claude/resources",
+	})
+
+	writeInstalledStateForCommandTest(t, projectDir, ".claude/resources", fs.InstalledResourceState{
+		Entries: []fs.InstalledResourceRecord{
+			{CatalogID: "skill/skills/alpha", ResourceType: "skill", Name: "alpha", FolderName: "skills",
+				InstalledPath: ".claude/resources/skills/alpha.md", SourcePath: "skills/alpha.md", Status: "installed"},
+			{CatalogID: "skill/agents/beta", ResourceType: "skill", Name: "beta", FolderName: "agents",
+				InstalledPath: ".claude/resources/agents/beta.md", SourcePath: "agents/beta.md", Status: "installed"},
+		},
+	})
+
+	// gamma (different resource) owns alpha's path → conflict for alpha; beta is uncontested.
+	writeV2StateForUpdatePinTest(t, projectDir, ".claude/resources", fs.InstalledResourceStateV2{
+		SchemaVersion: 2,
+		Entries: []fs.InstalledResourceRecordV2{
+			{
+				ResourceName: "skill/skills/gamma",
+				ProviderID:   "default",
+				ManagedFiles: []fs.ManagedFile{{Path: ".claude/resources/skills/alpha.md", SHA256: "abc"}},
+			},
+			{
+				ResourceName: "skill/agents/beta",
+				ProviderID:   "default",
+				ManagedFiles: []fs.ManagedFile{{Path: ".claude/resources/agents/beta.md", SHA256: "def"}},
+			},
+		},
+	})
+
+	betaDir := filepath.Join(projectDir, ".claude", "resources", "agents")
+	if err := os.MkdirAll(betaDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	betaPath := filepath.Join(betaDir, "beta.md")
+	if err := os.WriteFile(betaPath, []byte("# Beta old\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(beta old): %v", err)
+	}
+
+	result := runCLI(t, projectDir, t.TempDir(), "update")
+
+	if !strings.Contains(result.stderr, "conflict") && !strings.Contains(result.stderr, "Conflit") {
+		t.Fatalf("stderr %q does not contain conflict message for alpha", result.stderr)
+	}
+
+	betaData, err := os.ReadFile(betaPath)
+	if err != nil {
+		t.Fatalf("ReadFile(beta): %v", err)
+	}
+	if !strings.Contains(string(betaData), "Beta updated") {
+		t.Fatalf("beta.md was not updated; content=%q", string(betaData))
+	}
+
+	if result.err == nil {
+		t.Fatal("expected non-zero exit due to alpha conflict, got nil error")
+	}
+}

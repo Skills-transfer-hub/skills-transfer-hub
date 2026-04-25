@@ -253,6 +253,44 @@ func (c *Client) DownloadURL(ctx context.Context, rawURL string, headers map[str
 	return c.downloadURL(ctx, rawURL, headers)
 }
 
+// GetLatestCommitSHA fetches the HEAD commit SHA for the given provider's catalog ref.
+// It only supports the "github" provider type.
+func (c *Client) GetLatestCommitSHA(ctx context.Context, cfg fs.ProjectConfigV2, providerID string) (string, error) {
+	var provider *fs.ProviderEntry
+	for i, p := range cfg.Providers {
+		if p.ID == providerID {
+			provider = &cfg.Providers[i]
+			break
+		}
+	}
+	if provider == nil {
+		return "", fmt.Errorf("provider %q not found in project config", providerID)
+	}
+	if provider.Provider != "github" {
+		return "", fmt.Errorf("GetLatestCommitSHA: unsupported provider %q", provider.Provider)
+	}
+
+	baseURL := strings.TrimRight(getEnvOrDefault("LORESKILLS_GITHUB_API_BASE_URL", "https://api.github.com"), "/")
+	apiURL := fmt.Sprintf("%s/repos/%s/commits/%s",
+		baseURL,
+		strings.TrimSpace(provider.RepositoryID),
+		strings.TrimSpace(provider.CatalogRef),
+	)
+
+	data, err := c.downloadURL(ctx, apiURL, nil)
+	if err != nil {
+		return "", err
+	}
+
+	var result struct {
+		SHA string `json:"sha"`
+	}
+	if err := json.Unmarshal(data, &result); err != nil {
+		return "", fmt.Errorf("invalid JSON from commits API: %w", err)
+	}
+	return result.SHA, nil
+}
+
 func (c *Client) fetchCatalogBytes(ctx context.Context, profile fs.ProjectProfile) ([]byte, error) {
 	if err := validateProfile(profile); err != nil {
 		return nil, err
