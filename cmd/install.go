@@ -113,7 +113,9 @@ func (a *app) runInstall(args []string) error {
 			}
 		}
 		if transferred {
-			_ = fs.WriteInstalledStateV2(profile.TargetDir, state)
+			if writeErr := fs.WriteInstalledStateV2(profile.TargetDir, state); writeErr != nil {
+				a.writeStderr(fmt.Sprintf("warning: failed to persist ownership transfer: %v", writeErr))
+			}
 		}
 	}
 
@@ -126,7 +128,22 @@ func (a *app) runInstall(args []string) error {
 			ProviderID:   providerID,
 			ManagedFiles: []fs.ManagedFile{},
 		}
-		_ = fs.UpsertInstalledResourceV2(profile.TargetDir, v2rec)
+		if upsertErr := fs.UpsertInstalledResourceV2(profile.TargetDir, v2rec); upsertErr != nil {
+			return upsertErr
+		}
+		// Also register in v1 state so update/remove can discover the resource.
+		v1rec := fs.InstalledResourceRecord{
+			CatalogID:     entry.CatalogID,
+			ResourceType:  entry.ResourceType,
+			Name:          entry.Name,
+			FolderName:    entry.FolderName,
+			InstalledPath: fs.ResolveManagedFilePath(profile.TargetDir, entry),
+			SourcePath:    entry.SourcePath,
+			Status:        "installed",
+		}
+		if upsertErr := fs.UpsertInstalledResource(profile.TargetDir, v1rec); upsertErr != nil {
+			return upsertErr
+		}
 		return nil
 	}
 
@@ -142,7 +159,9 @@ func (a *app) runInstall(args []string) error {
 	if v2cfg, v2err := fs.ReadProjectConfigV2(); v2err == nil {
 		if sha, shaErr := a.client.GetLatestCommitSHA(context.Background(), v2cfg, providerID); shaErr == nil && sha != "" {
 			v2rec.ResolvedVersion = sha
-			_ = fs.UpsertInstalledResourceV2(profile.TargetDir, v2rec)
+			if upsertErr := fs.UpsertInstalledResourceV2(profile.TargetDir, v2rec); upsertErr != nil {
+				a.writeStderr(fmt.Sprintf("warning: failed to persist resolved version: %v", upsertErr))
+			}
 		}
 	}
 
@@ -175,4 +194,3 @@ func (a *app) downloadBundleContents(ctx context.Context, profile fs.ProjectProf
 
 	return bundleContents, nil
 }
-

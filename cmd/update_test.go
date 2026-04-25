@@ -575,10 +575,11 @@ func TestRunUpdate_dryRunTextPrefixes(t *testing.T) {
 	if err := os.MkdirAll(targetPath, 0o755); err != nil {
 		t.Fatal(err)
 	}
+	alphaCatalogID := fs.CatalogID("skill", "skills", "alpha")
 	v2State := fs.InstalledResourceStateV2{
 		SchemaVersion: 2,
 		Entries: []fs.InstalledResourceRecordV2{
-			{ResourceName: "skills/alpha.md", ProviderID: "default", ResolvedVersion: "old", ManagedFiles: []fs.ManagedFile{{Path: ".claude/resources/skills/alpha.md", SHA256: "old-sha"}}},
+			{ResourceName: alphaCatalogID, ProviderID: "default", ResolvedVersion: "old", ManagedFiles: []fs.ManagedFile{{Path: ".claude/resources/skills/alpha.md", SHA256: "old-sha"}}},
 		},
 	}
 	v2Data, _ := json.Marshal(v2State)
@@ -624,24 +625,25 @@ func TestRunUpdate_pinnedResourceShowsTag(t *testing.T) {
 		CatalogPath:  "SKILLS.md",
 		TargetDir:    ".claude/resources",
 	})
+	alphaCatalogIDPin := fs.CatalogID("skill", "skills", "alpha")
 	writeProjectConfigV2ForTest(t, projectDir, fs.ProjectConfigV2{
 		SchemaVersion: 2,
 		Providers: []fs.ProviderEntry{
 			{ID: "default", Provider: "github", RepositoryID: "owner/repo", CatalogRef: "main", CatalogPath: "SKILLS.md", TargetDir: ".claude/resources"},
 		},
 		Resources: []fs.ResourceEntry{
-			{ResourceName: "skills/alpha.md", ProviderID: "default", PinnedVersion: "v1.0.0"},
+			{ResourceName: alphaCatalogIDPin, ProviderID: "default", PinnedVersion: "v1.0.0"},
 		},
 	})
 	writeInstalledStateForCommandTest(t, projectDir, ".claude/resources", fs.InstalledResourceState{
 		Entries: []fs.InstalledResourceRecord{
-			{CatalogID: "skills/alpha.md", ResourceType: "skill", Name: "alpha", FolderName: "skills", InstalledPath: ".claude/resources/skills/alpha.md", SourcePath: "skills/alpha.md", Status: "installed"},
+			{CatalogID: alphaCatalogIDPin, ResourceType: "skill", Name: "alpha", FolderName: "skills", InstalledPath: ".claude/resources/skills/alpha.md", SourcePath: "skills/alpha.md", Status: "installed"},
 		},
 	})
 	writeV2StateForUpdatePinTest(t, projectDir, ".claude/resources", fs.InstalledResourceStateV2{
 		SchemaVersion: 2,
 		Entries: []fs.InstalledResourceRecordV2{
-			{ResourceName: "skills/alpha.md", ProviderID: "default", ResolvedVersion: "old-pinned-sha"},
+			{ResourceName: alphaCatalogIDPin, ProviderID: "default", ResolvedVersion: "old-pinned-sha"},
 		},
 	})
 
@@ -695,24 +697,25 @@ func TestRunUpdate_pinnedNewerVersionNotice(t *testing.T) {
 		CatalogPath:  "SKILLS.md",
 		TargetDir:    ".claude/resources",
 	})
+	alphaCatalogIDNotice := fs.CatalogID("skill", "skills", "alpha")
 	writeProjectConfigV2ForTest(t, projectDir, fs.ProjectConfigV2{
 		SchemaVersion: 2,
 		Providers: []fs.ProviderEntry{
 			{ID: "default", Provider: "github", RepositoryID: "owner/repo", CatalogRef: "main", CatalogPath: "SKILLS.md", TargetDir: ".claude/resources"},
 		},
 		Resources: []fs.ResourceEntry{
-			{ResourceName: "skills/alpha.md", ProviderID: "default", PinnedVersion: "v1.0.0"},
+			{ResourceName: alphaCatalogIDNotice, ProviderID: "default", PinnedVersion: "v1.0.0"},
 		},
 	})
 	writeInstalledStateForCommandTest(t, projectDir, ".claude/resources", fs.InstalledResourceState{
 		Entries: []fs.InstalledResourceRecord{
-			{CatalogID: "skills/alpha.md", ResourceType: "skill", Name: "alpha", FolderName: "skills", InstalledPath: ".claude/resources/skills/alpha.md", SourcePath: "skills/alpha.md", Status: "installed"},
+			{CatalogID: alphaCatalogIDNotice, ResourceType: "skill", Name: "alpha", FolderName: "skills", InstalledPath: ".claude/resources/skills/alpha.md", SourcePath: "skills/alpha.md", Status: "installed"},
 		},
 	})
 	writeV2StateForUpdatePinTest(t, projectDir, ".claude/resources", fs.InstalledResourceStateV2{
 		SchemaVersion: 2,
 		Entries: []fs.InstalledResourceRecordV2{
-			{ResourceName: "skills/alpha.md", ProviderID: "default", ResolvedVersion: "old-pinned-sha"},
+			{ResourceName: alphaCatalogIDNotice, ProviderID: "default", ResolvedVersion: "old-pinned-sha"},
 		},
 	})
 
@@ -722,7 +725,7 @@ func TestRunUpdate_pinnedNewerVersionNotice(t *testing.T) {
 	}
 	assertContains(t, result.stdout, "[pinned at v1.0.0]")
 	assertContains(t, result.stdout, "Newer version available")
-	assertContains(t, result.stdout, "skills/alpha.md")
+	assertContains(t, result.stdout, alphaCatalogIDNotice)
 }
 
 // TestRunUpdate_ownershipConflictSkipsResourceContinuesOthers verifies that when
@@ -754,9 +757,9 @@ func TestRunUpdate_ownershipConflictSkipsResourceContinuesOthers(t *testing.T) {
 
 	writeInstalledStateForCommandTest(t, projectDir, ".claude/resources", fs.InstalledResourceState{
 		Entries: []fs.InstalledResourceRecord{
-			{CatalogID: "skill/skills/alpha", ResourceType: "skill", Name: "alpha", FolderName: "skills",
+			{CatalogID: fs.CatalogID("skill", "skills", "alpha"), ResourceType: "skill", Name: "alpha", FolderName: "skills",
 				InstalledPath: ".claude/resources/skills/alpha.md", SourcePath: "skills/alpha.md", Status: "installed"},
-			{CatalogID: "skill/agents/beta", ResourceType: "skill", Name: "beta", FolderName: "agents",
+			{CatalogID: fs.CatalogID("skill", "agents", "beta"), ResourceType: "skill", Name: "beta", FolderName: "agents",
 				InstalledPath: ".claude/resources/agents/beta.md", SourcePath: "agents/beta.md", Status: "installed"},
 		},
 	})
@@ -766,12 +769,12 @@ func TestRunUpdate_ownershipConflictSkipsResourceContinuesOthers(t *testing.T) {
 		SchemaVersion: 2,
 		Entries: []fs.InstalledResourceRecordV2{
 			{
-				ResourceName: "skill/skills/gamma",
+				ResourceName: fs.CatalogID("skill", "skills", "gamma"),
 				ProviderID:   "default",
 				ManagedFiles: []fs.ManagedFile{{Path: ".claude/resources/skills/alpha.md", SHA256: "abc"}},
 			},
 			{
-				ResourceName: "skill/agents/beta",
+				ResourceName: fs.CatalogID("skill", "agents", "beta"),
 				ProviderID:   "default",
 				ManagedFiles: []fs.ManagedFile{{Path: ".claude/resources/agents/beta.md", SHA256: "def"}},
 			},

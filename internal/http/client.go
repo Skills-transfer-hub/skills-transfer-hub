@@ -266,15 +266,27 @@ func (c *Client) GetLatestCommitSHA(ctx context.Context, cfg fs.ProjectConfigV2,
 	if provider == nil {
 		return "", fmt.Errorf("provider %q not found in project config", providerID)
 	}
-	if provider.Provider != "github" {
+
+	providerName := strings.ToLower(strings.TrimSpace(provider.Provider))
+	if providerName != "github" {
 		return "", fmt.Errorf("GetLatestCommitSHA: unsupported provider %q", provider.Provider)
+	}
+
+	repositoryID := strings.TrimSpace(provider.RepositoryID)
+	if repositoryID == "" {
+		return "", errors.New("GetLatestCommitSHA: provider repository ID is required")
+	}
+
+	catalogRef := strings.TrimSpace(provider.CatalogRef)
+	if catalogRef == "" {
+		return "", errors.New("GetLatestCommitSHA: provider catalog ref is required")
 	}
 
 	baseURL := strings.TrimRight(getEnvOrDefault("LORESKILLS_GITHUB_API_BASE_URL", "https://api.github.com"), "/")
 	apiURL := fmt.Sprintf("%s/repos/%s/commits/%s",
 		baseURL,
-		strings.TrimSpace(provider.RepositoryID),
-		strings.TrimSpace(provider.CatalogRef),
+		repositoryID,
+		catalogRef,
 	)
 
 	data, err := c.downloadURL(ctx, apiURL, nil)

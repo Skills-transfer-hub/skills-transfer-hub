@@ -52,7 +52,7 @@ func (a *app) runUpdate(args []string) error {
 				ResourceType: "skill",
 				Name:         rec.ResourceName,
 				FolderName:   rec.ResourceName,
-				SourcePath:   rec.ResourceName,
+				SourcePath:   sourcePath(rec, profile.TargetDir),
 			}
 			content, fetchErr := a.client.DownloadCatalogEntry(context.Background(), *profile, entry)
 			if fetchErr != nil {
@@ -178,7 +178,7 @@ func (a *app) runUpdate(args []string) error {
 		}
 
 		// T021: Skip if installed path is excluded by .loreskillsignore (SC-003).
-if fs.MatchesIgnorePattern(record.SourcePath, ignorePats) {
+		if fs.MatchesIgnorePattern(record.SourcePath, ignorePats) {
 			a.writeStdout(fmt.Sprintf("Ressource '%s' exclue par .loreskillsignore.", record.Name))
 			continue
 		}
@@ -236,6 +236,21 @@ if fs.MatchesIgnorePattern(record.SourcePath, ignorePats) {
 	}
 
 	return nil
+}
+
+// sourcePath derives the catalog source path for a v2 record during dry-run.
+// When the record's ResourceName uses the catalog ID format (e.g., "skill::skills::alpha"),
+// the first managed file's path is resolved relative to targetDir to reconstruct
+// the original source path (e.g., "skills/alpha.md").
+// Falls back to ResourceName when no managed files are present.
+func sourcePath(rec fs.InstalledResourceRecordV2, targetDir string) string {
+	if len(rec.ManagedFiles) > 0 {
+		rel, err := filepath.Rel(targetDir, rec.ManagedFiles[0].Path)
+		if err == nil {
+			return filepath.ToSlash(rel)
+		}
+	}
+	return rec.ResourceName
 }
 
 func (a *app) runSelfUpdate() error {

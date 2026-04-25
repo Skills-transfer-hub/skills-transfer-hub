@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"loreskills/internal/fs"
 	"path/filepath"
+	"strings"
 )
 
 func (a *app) runStatus(args []string) error {
@@ -40,6 +41,9 @@ func (a *app) runStatus(args []string) error {
 	}
 
 	// Fetch latest commit SHA once per unique providerID (SC-001 efficiency).
+	// Provider-not-found and unsupported-provider errors are treated as "latest
+	// unknown" so that the status command still works for legacy or partially
+	// configured projects. Only genuine network/HTTP failures are fatal.
 	latestSHAs := make(map[string]string)
 	seen := make(map[string]bool)
 	for _, rec := range state.Entries {
@@ -49,7 +53,11 @@ func (a *app) runStatus(args []string) error {
 		seen[rec.ProviderID] = true
 		sha, fetchErr := a.client.GetLatestCommitSHA(context.Background(), config, rec.ProviderID)
 		if fetchErr != nil {
-			return fmt.Errorf("erreur réseau lors de la récupération du SHA pour le provider %q : %w", rec.ProviderID, fetchErr)
+			if isProviderConfigError(fetchErr) {
+				// Non-fatal: leave latest SHA empty for this provider.
+				continue
+			}
+			return fmt.Errorf("network error fetching SHA for provider %q: %w", rec.ProviderID, fetchErr)
 		}
 		latestSHAs[rec.ProviderID] = sha
 	}
@@ -91,5 +99,15 @@ func (a *app) runStatus(args []string) error {
 	return nil
 }
 
-
+// isProviderConfigError reports whether err came from a provider configuration
+// problem (missing provider, unsupported type, missing required fields) rather
+// than a genuine network or HTTP failure. Such errors are non-fatal for the
+// status command: the resource is reported with an unknown latest version.
+func isProviderConfigError(err error) bool {
+	msg := err.Error()
+	return strings.Contains(msg, "not found in project config") ||
+		strings.Contains(msg, "unsupported provider") ||
+		strings.Contains(msg, "repository ID is required") ||
+		strings.Contains(msg, "catalog ref is required")
+}
 

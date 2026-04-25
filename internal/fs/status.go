@@ -1,6 +1,9 @@
 package fs
 
-import "os"
+import (
+	"os"
+	"path/filepath"
+)
 
 // StatusResult holds the computed lifecycle status of an installed resource.
 type StatusResult struct {
@@ -19,11 +22,25 @@ const StatusUpToDate = ResourceStatusUpToDate
 
 // ComputeAllStatuses returns a StatusResult for every entry in state.
 // latestSHAs maps providerID → latest HEAD commit SHA (empty = unknown).
-func ComputeAllStatuses(state InstalledResourceStateV2, config ProjectConfigV2, latestSHAs map[string]string) []StatusResult {
+// projectRoot is used to resolve relative managed file paths before reading them.
+func ComputeAllStatuses(state InstalledResourceStateV2, config ProjectConfigV2, latestSHAs map[string]string, projectRoot string) []StatusResult {
 	results := make([]StatusResult, 0, len(state.Entries))
 	for _, rec := range state.Entries {
+		// Resolve relative managed file paths against the project root so that
+		// ComputeResourceStatus can read the files regardless of the caller's cwd.
+		resolved := rec
+		if projectRoot != "" {
+			files := make([]ManagedFile, len(rec.ManagedFiles))
+			for i, mf := range rec.ManagedFiles {
+				if !filepath.IsAbs(mf.Path) {
+					mf.Path = filepath.Join(projectRoot, mf.Path)
+				}
+				files[i] = mf
+			}
+			resolved.ManagedFiles = files
+		}
 		latestVersion := latestSHAs[rec.ProviderID]
-		status, modFiles := ComputeResourceStatus(rec, latestVersion)
+		status, modFiles := ComputeResourceStatus(resolved, latestVersion)
 		pinnedVer := PinnedVersion(config, rec.ResourceName)
 		results = append(results, StatusResult{
 			ResourceName:     rec.ResourceName,
@@ -40,7 +57,7 @@ func ComputeAllStatuses(state InstalledResourceStateV2, config ProjectConfigV2, 
 }
 
 // ComputeResourceStatus determines the lifecycle status of an installed resource.
-// latestVersion is the SHA256 of the latest upstream content (empty string = unknown).
+// latestVersion is the HEAD commit SHA from the provider API (empty string = unknown).
 // Returns the status and list of locally modified file paths (only for modified-locally).
 func ComputeResourceStatus(record InstalledResourceRecordV2, latestVersion string) (ResourceStatus, []string) {
 	if len(record.ManagedFiles) == 0 {
