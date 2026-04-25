@@ -15,12 +15,16 @@ func (a *app) runUpdate(args []string) error {
 	flags, _ := parseFlags(args, "--dry-run")
 	dryRun := flags["--dry-run"]
 
-	profile, err := fs.ReadProjectProfile()
+	profile, release, err := a.prepareStateAccess()
 	if err != nil {
 		return err
 	}
+	defer release()
 
-	cfg, _ := fs.ReadProjectConfigV2()
+	cfg, err := fs.ReadProjectConfigV2()
+	if err != nil {
+		return err
+	}
 
 	if dryRun {
 		v2State, err := fs.ReadInstalledStateV2(profile.TargetDir)
@@ -33,26 +37,36 @@ func (a *app) runUpdate(args []string) error {
 		}
 		workingDir, _ := filepath.Abs(".")
 		ignorePats, _ := fs.ReadLoreSkillsIgnore(workingDir)
+		catalogs, catalogErrs := buildProviderCatalogs(context.Background(), a, v2State.Entries, cfg, *profile)
+		for provID, err := range catalogErrs {
+			a.writeStderr(fmt.Sprintf("avertissement : impossible de récupérer le catalogue du fournisseur %q : %v", provID, err))
+		}
 		for _, rec := range v2State.Entries {
 			if pinnedVer := fs.PinnedVersion(cfg, rec.ResourceName); pinnedVer != "" {
 				a.writeStdout(fmt.Sprintf("  [pinned at %s] %s", pinnedVer, rec.ResourceName))
 				continue
 			}
-			entry := fs.CatalogEntry{
-				CatalogID:    rec.ResourceName,
-				ResourceType: "skill",
-				Name:         rec.ResourceName,
-				FolderName:   rec.ResourceName,
-				SourcePath:   rec.ResourceName,
+			catalog, ok := catalogs[rec.ProviderID]
+			if !ok {
+				a.writeStdout(fmt.Sprintf("--- %s ---", rec.ResourceName))
+				a.writeStdout("  impossible de récupérer le catalogue pour ce fournisseur")
+				continue
 			}
-			content, fetchErr := a.client.DownloadCatalogEntry(context.Background(), *profile, entry)
+			entry, ok := catalog[rec.ResourceName]
+			if !ok {
+				a.writeStdout(fmt.Sprintf("--- %s ---", rec.ResourceName))
+				a.writeStdout("  ressource absente du catalogue")
+				continue
+			}
+			provProf := providerProfile(rec.ProviderID, cfg, *profile)
+			content, fetchErr := a.client.DownloadCatalogEntry(context.Background(), provProf, entry)
 			if fetchErr != nil {
 				a.writeStderr(fmt.Sprintf("Échec de récupération pour '%s' : %v", rec.ResourceName, fetchErr))
 				continue
 			}
 			incomingRecord := fs.RefreshManagedFileHashes(fs.InstalledResourceRecordV2{
 				ResourceName: rec.ResourceName,
-				ManagedFiles: []fs.ManagedFile{{Path: fs.ResolveManagedFilePath(profile.TargetDir, entry)}},
+				ManagedFiles: []fs.ManagedFile{{Path: fs.ResolveManagedFilePath(provProf.TargetDir, entry)}},
 			}, content)
 			changes := fs.ComputeDryRunChanges(&rec, incomingRecord.ManagedFiles, ignorePats)
 			a.writeStdout(fmt.Sprintf("--- %s ---", rec.ResourceName))
@@ -144,7 +158,7 @@ func (a *app) runUpdate(args []string) error {
 
 	if v2Updated {
 		if err := fs.WriteInstalledStateV2(profile.TargetDir, v2State); err != nil {
-			a.writeStderr(fmt.Sprintf("Avertissement : impossible de mettre à jour l'état v2 : %v", err))
+			return fmt.Errorf("impossible de mettre à jour l'état v2 : %w", err)
 		}
 	}
 

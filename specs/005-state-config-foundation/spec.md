@@ -146,6 +146,7 @@ file appears with `path` and `sha256` fields.
 - What if the backup file (`.bak`) already exists from a previous failed migration? → Overwrite the backup; never fail migration due to a pre-existing backup.
 - What if `lore-state.json` is corrupt (invalid JSON)? → Report clearly, do not auto-migrate; require user to delete the state file and re-install.
 - What if a provider `id` contains special characters? → Validated at `init` time; only alphanumeric, hyphens, and underscores allowed.
+- What if `.lore-state.lock` is stale (left behind by a crashed process)? → The lock file is deleted automatically after every successful operation; a stale lock requires manual removal; the error message instructs the user to delete `.lore-state.lock` if no other `loreskills` process is running.
 
 ---
 
@@ -173,19 +174,28 @@ file appears with `path` and `sha256` fields.
 
 **State Schema (lore-state.json v2)**
 
-- **FR-010**: Each resource record in `lore-state.json` v2 MUST include: `resource_name`, `provider_id`, `resolved_version` (commit SHA), `previous_version` (commit SHA of the prior install, or empty for first install), `installed_at` (ISO 8601 timestamp), and `managed_files` (array).
-- **FR-011**: Each entry in `managed_files` MUST include: `path` (relative to project root) and `sha256` (hex-encoded hash of the file content at install time).
+- **FR-010**: Each resource record in `lore-state.json` v2 MUST include: `resource_name`, `provider_id`, `resolved_version` (commit SHA), `previous_version` (commit SHA of the prior install, or empty for first install), `installed_at` (ISO 8601 timestamp), and `managed_files` (array). Records are uniquely identified by the compound key `(resource_name, provider_id)`; the same resource name sourced from two different providers constitutes two distinct records.
+- **FR-011**: Each entry in `managed_files` MUST include: `path` (relative to project root) and `sha256` (hex-encoded hash of the file content at install time). SHA256 values are stored for consumption by spec 006 (resource lifecycle); integrity verification logic (comparing stored hashes to on-disk files) is out of scope for this spec.
 - **FR-012**: When a resource is updated, the tool MUST set `previous_version` to the current `resolved_version` before overwriting it.
 
 **Terminology**
 
 - **FR-013**: The term `ref` MUST only be used for `catalog_ref` (the provider branch/tag). Resource-level versioning MUST use `pinned_version` and `resolved_version`. All internal code and user-facing messages MUST use this terminology consistently.
 
+**Reliability**
+
+- **FR-014**: ALL writes to the v2 state file `lore-state-v2.json` (install, update, and migration output) MUST use an atomic write-then-rename strategy: write the new content to a temporary file (e.g., `.loreskills-tmp-*`) in the same directory, then rename it into place using `os.Rename()`. Direct in-place overwrites are prohibited to prevent partial-write corruption on process interruption. The legacy file `lore-state.json` is migration input only and MUST NOT be treated as the canonical v2 state path.
+- **FR-015**: Any operation that reads or writes `lore-state-v2.json` MUST first acquire an advisory file lock (`.lore-state.lock`, created with `O_CREATE|O_EXCL`) before proceeding. Migration flows that read legacy `lore-state.json` and then create or update `lore-state-v2.json` MUST also hold this same lock for the full operation. If the lock is already held by another process, the tool MUST fail fast with a clear error message identifying the lock file and exit with a non-zero code. No silent overwrites or wait/retry loops are permitted.
+
+**Observability**
+
+- **FR-016**: Migration events MUST emit one human-readable progress line to `stderr` per file migrated, using the format `[loreskills] migrating <filename> v<N> → v<M> … done` (or `… failed: <reason>` on error). No structured JSON output, external logging dependency, or metrics sink is required.
+
 ### Key Entities
 
 - **Provider**: A configured source of resources. Fields: `id`, `provider`, `repository_id`, `catalog_ref`, `catalog_path`, `target_dir`.
 - **ResourceEntry** (in project.json): Declares a desired resource. Fields: `resource_name`, `provider_id`, `pinned_version` (optional).
-- **InstalledResource** (in lore-state.json): Tracks the installed state of a resource. Fields: `resource_name`, `provider_id`, `resolved_version`, `previous_version`, `installed_at`, `managed_files`.
+- **InstalledResource** (in lore-state.json): Tracks the installed state of a resource. Fields: `resource_name`, `provider_id`, `resolved_version`, `previous_version`, `installed_at`, `managed_files`. The unique identity key within `lore-state.json` is the compound key `(resource_name, provider_id)`; the same resource name from two different providers is permitted and treated as distinct records.
 - **ManagedFile**: One file owned by an installed resource. Fields: `path`, `sha256`.
 
 ---
@@ -199,6 +209,8 @@ file appears with `path` and `sha256` fields.
 - **SC-003**: Every installed file is traceable to exactly one resource via `lore-state.json` — no installed files are unaccounted for after a successful install.
 - **SC-004**: Zero breaking changes to existing `loreskills init` and `loreskills install` workflows from the user's perspective.
 - **SC-005**: All commands that previously read `project.json` or `lore-state.json` continue to work correctly after schema migration.
+- **SC-006**: A `lore-state.json` write interrupted at any point (e.g., process kill) leaves the prior valid file intact and never produces a partial/corrupt state file.
+- **SC-007**: When two `loreskills` processes attempt concurrent state access, exactly one proceeds and the other exits immediately with a non-zero code and a message identifying `.lore-state.lock`.
 
 ---
 
@@ -210,3 +222,15 @@ file appears with `path` and `sha256` fields.
 - `catalog_ref` replaces the current `ref` field semantically; the JSON key is renamed from `ref` to `catalog_ref` in v2.
 - The `APIToken` field remains session-only (never persisted) — the credential model (how tokens are sourced) is out of scope for this spec and is addressed in spec 007.
 - `loreskills init` UX for adding multiple providers can be sequential interactive prompts; a `loreskills provider add` subcommand is deferred to a future spec.
+
+---
+
+## Clarifications
+
+### Session 2026-04-25
+
+- Q: What atomicity model should govern all `lore-state.json` writes (install, update, migration)? → A: Write-then-rename — write to `.lore-state.json.tmp`, then atomically rename to final path via `os.Rename()`; direct in-place overwrites are prohibited.
+- Q: When/how are stored SHA256 checksums used for verification, and is a `loreskills verify` command in scope? → A: Data-only — hashes are stored by this spec; integrity verification logic (hash comparison, drift detection) is spec 006's responsibility; no verify command or passive check is introduced here.
+- Q: What concurrency/file-locking model should govern simultaneous `loreskills` invocations on the same project? → A: Advisory file lock — acquire `.lore-state.lock` (O_CREATE|O_EXCL) before any state read/write; fail fast with a clear error if already held; no wait/retry loop.
+- Q: What observability is required for migration events? → A: Emit one human-readable `stderr` line per migration event (`[loreskills] migrating <file> v<N> → v<M> … done/failed`); no structured JSON or external logging dependency.
+- Q: What is the unique identity key for a resource record in `lore-state.json`? → A: Compound key `(resource_name, provider_id)` — same resource name from two different providers is permitted and stored as two distinct records.

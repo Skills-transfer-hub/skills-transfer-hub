@@ -111,3 +111,40 @@ This spec (005) MUST be fully complete and merged before work begins on:
 - **006** (resource lifecycle): uses `managed_files` for `remove` and `status`
 - **007** (CI/auth/observability): uses v2 state for `--fail-on-changes`
 - **008** (ecosystem tooling): uses `previous_version` for changelog display
+
+---
+
+## Implementation Status (as of plan date)
+
+| Requirement | Status | Notes |
+|-------------|--------|-------|
+| Schema types (`schema.go`) | ✅ Done | All v2 types defined |
+| `MigrateProjectConfig` | ⚠️ Partial | Missing: `io.Writer` param, stderr progress, atomic write |
+| `MigrateInstalledState` | ⚠️ Partial | Missing: `io.Writer` param, stderr progress, atomic write; also targets wrong file |
+| `WriteInstalledStateV2` | ⚠️ Partial | Missing: atomic write-then-rename, lock |
+| `WriteProjectConfigV2` | ⚠️ Partial | Missing: atomic write-then-rename |
+| Multi-provider `loreskills init` | ✅ Done | |
+| `PinnedVersion` lookup | ✅ Done | |
+| Ownership conflict detection | ✅ Done | |
+| `atomicWriteFile` helper | ❌ Missing | Create `internal/fs/atomic.go` |
+| `AcquireStateLock` | ❌ Missing | Create `internal/fs/lock.go` |
+| `resolved_version` population | ❌ Missing | `InstallCatalogEntryV2` needs `resolvedVersion` param |
+| Auto-migration on command entry | ❌ Missing | `runMigrations(stderr)` call in each `cmd/` handler |
+| File naming: `lore-state.json` | ❌ Missing | `WriteInstalledStateV2` writes to wrong file (`lore-state-v2.json`) |
+
+## New API Signatures to Implement
+
+```go
+// internal/fs/atomic.go
+func atomicWriteFile(path string, data []byte, perm os.FileMode) error
+
+// internal/fs/lock.go
+func AcquireStateLock(lockPath string) (io.Closer, error)
+
+// internal/fs/migrate.go — updated signatures
+func MigrateProjectConfig(path string, progress io.Writer) (ProjectConfigV2, error)
+func MigrateInstalledState(path string, progress io.Writer) (InstalledResourceStateV2, error)
+
+// internal/fs/fs.go — updated signature
+func InstallCatalogEntryV2(targetDir string, entry CatalogEntry, content []byte, resolvedVersion string) (InstalledResourceRecordV2, error)
+```

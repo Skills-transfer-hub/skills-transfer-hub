@@ -400,6 +400,36 @@ func CatalogID(resourceType, folderName, name string) string {
 	}, "::"))
 }
 
+// ParseCatalogID splits a catalog ID (type::folder::name) into its components.
+// Returns false if the ID does not have exactly three non-empty parts.
+func ParseCatalogID(id string) (resourceType, folderName, name string, ok bool) {
+	parts := strings.SplitN(id, "::", 3)
+	if len(parts) != 3 || strings.TrimSpace(parts[0]) == "" || strings.TrimSpace(parts[1]) == "" || strings.TrimSpace(parts[2]) == "" {
+		return "", "", "", false
+	}
+	return strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1]), strings.TrimSpace(parts[2]), true
+}
+
+// ProjectProfileFromProvider builds a ProjectProfile from a ProviderEntry.
+// If the entry's TargetDir is empty, fallbackTargetDir is used instead.
+func ProjectProfileFromProvider(p ProviderEntry, fallbackTargetDir string) ProjectProfile {
+	ref := p.CatalogRef
+	if ref == "" {
+		ref = defaultRef
+	}
+	targetDir := p.TargetDir
+	if targetDir == "" {
+		targetDir = fallbackTargetDir
+	}
+	return ProjectProfile{
+		Provider:     p.Provider,
+		RepositoryID: p.RepositoryID,
+		Ref:          ref,
+		CatalogPath:  p.CatalogPath,
+		TargetDir:    targetDir,
+	}
+}
+
 // ResolveCatalogEntry resolves a user-facing resource reference from the catalog.
 func ResolveCatalogEntry(entries []CatalogEntry, resourceRef string) (CatalogEntry, error) {
 	trimmed := strings.TrimSpace(resourceRef)
@@ -1194,28 +1224,116 @@ func ReadProjectConfigV2() (ProjectConfigV2, error) {
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		return ProjectConfigV2{SchemaVersion: 2, Providers: []ProviderEntry{}, Resources: []ResourceEntry{}}, nil
 	}
-	return MigrateProjectConfig(path)
+	return MigrateProjectConfig(path, io.Discard)
 }
 
 // ReadInstalledStateV2 loads the v2 installed state for targetDir.
-// Returns an empty v2 state if the file does not exist.
+// If lore-state-v2.json does not exist, it falls back to lore-state.json,
+// converting v1 format in memory without writing to disk.
+// Returns an empty v2 state if neither file exists.
 func ReadInstalledStateV2(targetDir string) (InstalledResourceStateV2, error) {
 	if err := validateTargetDir(targetDir); err != nil {
 		return InstalledResourceStateV2{}, err
 	}
 	statePath := filepath.Join(filepath.Clean(targetDir), stateFileNameV2)
-	if _, err := os.Stat(statePath); os.IsNotExist(err) {
+	if _, err := os.Stat(statePath); err == nil {
+		data, err := os.ReadFile(statePath)
+		if err != nil {
+			return InstalledResourceStateV2{}, fmt.Errorf("lecture de %s échouée : %w", statePath, err)
+		}
+		var state InstalledResourceStateV2
+		if err := json.Unmarshal(data, &state); err != nil {
+			return InstalledResourceStateV2{}, fmt.Errorf("désérialisation v2 échouée : %w", err)
+		}
+		return state, nil
+	}
+
+	legacyPath := filepath.Join(filepath.Clean(targetDir), stateFileName)
+	data, err := os.ReadFile(legacyPath)
+	if os.IsNotExist(err) {
 		return InstalledResourceStateV2{SchemaVersion: 2, Entries: []InstalledResourceRecordV2{}}, nil
 	}
-	data, err := os.ReadFile(statePath)
 	if err != nil {
-		return InstalledResourceStateV2{}, fmt.Errorf("lecture de %s échouée : %w", statePath, err)
+		return InstalledResourceStateV2{}, fmt.Errorf("lecture de %s échouée : %w", legacyPath, err)
 	}
-	var state InstalledResourceStateV2
-	if err := json.Unmarshal(data, &state); err != nil {
-		return InstalledResourceStateV2{}, fmt.Errorf("désérialisation v2 échouée : %w", err)
+	if strings.TrimSpace(string(data)) == "" {
+		return InstalledResourceStateV2{SchemaVersion: 2, Entries: []InstalledResourceRecordV2{}}, nil
 	}
-	return state, nil
+	return parseInstalledStateV2FromBytes(data, legacyPath)
+}
+
+// parseInstalledStateV2FromBytes parses a state file that may be v1 or v2 format.
+// For v1 format it converts entries in memory without writing to disk.
+func parseInstalledStateV2FromBytes(data []byte, path string) (InstalledResourceStateV2, error) {
+	var raw map[string]any
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return InstalledResourceStateV2{}, fmt.Errorf("fichier d'état malformé (%s) : %w", path, err)
+	}
+	if schemaVersion, _ := raw["schema_version"].(float64); int(schemaVersion) == 2 {
+		var state InstalledResourceStateV2
+		if err := json.Unmarshal(data, &state); err != nil {
+			return InstalledResourceStateV2{}, fmt.Errorf("fichier d'état v2 malformé (%s) : %w", path, err)
+		}
+		return state, nil
+	}
+	var v1State struct {
+		Entries []struct {
+			CatalogID string `json:"catalog_id"`
+		} `json:"entries"`
+	}
+	if err := json.Unmarshal(data, &v1State); err != nil {
+		return InstalledResourceStateV2{}, fmt.Errorf("fichier d'état v1 malformé (%s) : %w", path, err)
+	}
+	entries := make([]InstalledResourceRecordV2, 0, len(v1State.Entries))
+	for _, e := range v1State.Entries {
+		entries = append(entries, InstalledResourceRecordV2{
+			ResourceName: e.CatalogID,
+			ProviderID:   "default",
+			ManagedFiles: []ManagedFile{},
+		})
+	}
+	return InstalledResourceStateV2{SchemaVersion: 2, Entries: entries}, nil
+}
+
+// PromoteInstalledState creates lore-state-v2.json from lore-state.json if needed.
+// It is a no-op when lore-state-v2.json already exists or lore-state.json is absent.
+// On v1→v2 promotion, a progress message is written to w. A nil w defaults to io.Discard.
+func PromoteInstalledState(targetDir string, w io.Writer) error {
+	if w == nil {
+		w = io.Discard
+	}
+	v2Path := filepath.Join(filepath.Clean(targetDir), stateFileNameV2)
+	if _, err := os.Stat(v2Path); err == nil {
+		return nil
+	}
+	legacyPath := filepath.Join(filepath.Clean(targetDir), stateFileName)
+	data, err := os.ReadFile(legacyPath)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("lecture de %s échouée : %w", legacyPath, err)
+	}
+	var raw map[string]any
+	if jsonErr := json.Unmarshal(data, &raw); jsonErr != nil {
+		return fmt.Errorf("fichier d'état malformé (%s) : %w", legacyPath, jsonErr)
+	}
+	schemaVersion, _ := raw["schema_version"].(float64)
+	needsMigration := int(schemaVersion) != 2
+	state, err := ReadInstalledStateV2(targetDir)
+	if err != nil {
+		return err
+	}
+	if err := WriteInstalledStateV2(targetDir, state); err != nil {
+		if needsMigration {
+			fmt.Fprintf(w, "[loreskills] migrating lore-state.json v1 → v2 … failed: %v\n", err)
+		}
+		return err
+	}
+	if needsMigration {
+		fmt.Fprintf(w, "[loreskills] migrating lore-state.json v1 → v2 … done\n")
+	}
+	return nil
 }
 
 // WriteProjectConfigV2 persists a v2 project config to disk.
@@ -1238,7 +1356,7 @@ func WriteProjectConfigV2(cfg ProjectConfigV2) (string, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return "", fmt.Errorf("création du dossier de configuration projet échouée : %w", err)
 	}
-	if err := os.WriteFile(path, append(data, '\n'), 0o644); err != nil {
+	if err := atomicWriteFile(path, append(data, '\n'), 0o644); err != nil {
 		return "", fmt.Errorf("écriture de %s échouée : %w", path, err)
 	}
 	return path, nil
@@ -1258,7 +1376,7 @@ func WriteInstalledStateV2(targetDir string, state InstalledResourceStateV2) err
 		return fmt.Errorf("sérialisation v2 échouée : %w", err)
 	}
 	statePath := filepath.Join(filepath.Clean(targetDir), stateFileNameV2)
-	return os.WriteFile(statePath, append(data, '\n'), 0o644)
+	return atomicWriteFile(statePath, append(data, '\n'), 0o644)
 }
 
 // InstallCatalogEntryV2 writes the catalog entry to disk and records it in lore-state-v2.json.

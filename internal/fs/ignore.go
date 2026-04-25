@@ -46,6 +46,7 @@ func MatchesIgnorePattern(relPath string, patterns []string) bool {
 }
 
 // matchGlob matches a gitignore-style pattern against a normalized (forward-slash) path.
+// Supports * (single segment), ** (any number of segments), and basename-only matching.
 func matchGlob(pattern, target string) bool {
 	if !strings.Contains(pattern, "**") {
 		ok, _ := path.Match(pattern, target)
@@ -57,29 +58,25 @@ func matchGlob(pattern, target string) bool {
 		ok, _ = path.Match(pattern, base)
 		return ok
 	}
-	// Handle ** by splitting on ** and matching segments.
-	parts := strings.SplitN(pattern, "**", 2)
-	prefix := strings.TrimRight(parts[0], "/")
-	suffix := strings.TrimLeft(parts[1], "/")
+	// Find the first ** and split there; recurse for multiple ** occurrences.
+	idx := strings.Index(pattern, "**")
+	prefix := strings.TrimRight(pattern[:idx], "/")
+	rest := strings.TrimLeft(pattern[idx+2:], "/")
 
 	if prefix != "" {
 		if !strings.HasPrefix(target, prefix) {
 			return false
 		}
-		target = target[len(prefix):]
-		target = strings.TrimPrefix(target, "/")
+		target = strings.TrimPrefix(target[len(prefix):], "/")
 	}
-	if suffix == "" {
+	if rest == "" {
 		return true
 	}
-	if strings.HasSuffix(target, suffix) {
-		return true
-	}
+	// ** can match zero or more path segments; try each suffix of target.
 	segments := strings.Split(target, "/")
-	for i := range segments {
+	for i := 0; i <= len(segments); i++ {
 		sub := strings.Join(segments[i:], "/")
-		ok, _ := path.Match(suffix, sub)
-		if ok {
+		if matchGlob(rest, sub) {
 			return true
 		}
 	}

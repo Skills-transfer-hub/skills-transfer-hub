@@ -124,3 +124,89 @@ function approach lets each command be migrated and tested independently (SC-005
 **Alternatives considered**:
 - Return `ProjectConfigV2` from the existing `ReadProjectProfile()`: would require
   renaming the return type, breaking existing callers in one shot. Rejected for this spec.
+
+---
+
+## Decision 8: Advisory File Lock — `O_CREATE|O_EXCL` approach
+
+**Decision**: Implement advisory locking by creating `<stateDir>/.lore-state.lock` with
+`os.OpenFile(..., os.O_CREATE|os.O_EXCL, 0o644)`, then closing the file immediately after
+successful creation.
+- If the call succeeds, the lock is represented by the presence of the lock file and a
+  returned cleanup function removes it via `os.Remove`.
+- If `O_EXCL` fails (file already exists), return an error immediately (fail-fast, FR-015).
+- Lock file path: `<stateDir>/.lore-state.lock` (same directory as `lore-state.json`).
+
+**API**:
+```go
+func AcquireStateLock(targetDir string) (func(), error)
+
+**Alternatives considered**:
+- `flock(2)` via `syscall` package: non-portable to Windows without build tags. Rejected.
+- In-process `sync.Mutex`: does not protect against concurrent processes. Rejected.
+- Wait/retry loop: explicitly prohibited by FR-015. Rejected.
+
+---
+
+## Decision 9: `lore-state.json` vs `lore-state-v2.json` — Dual-File Approach
+
+**Decision**: Keep `lore-state.json` as the legacy v1 file and `lore-state-v2.json` as
+the canonical v2 file for this PR. `ReadInstalledStateV2` and `WriteInstalledStateV2`
+continue to use `stateFileNameV2` (`lore-state-v2.json`); no consolidation to a single
+state file is performed here.
+
+**Background**: The codebase currently maintains two state files with distinct roles:
+- `lore-state.json` — legacy v1 file, read by `ReadInstalledState` and used as migration input
+- `lore-state-v2.json` — v2 file, read/written by `ReadInstalledStateV2` / `WriteInstalledStateV2`
+
+This matches the implementation in the current PR. Rather than rewriting the legacy file
+in place, the migration path preserves backward compatibility for v1 reads while using a
+dedicated file for schema-versioned v2 state.
+
+**Migration path**: On first access, `PromoteInstalledState` detects that `lore-state-v2.json`
+is absent, reads `lore-state.json`, converts its content in memory, and writes the v2
+representation to `lore-state-v2.json` atomically. The legacy `lore-state.json` is left
+untouched. A progress line is emitted to stderr only when a v1 file is actually migrated
+(FR-016).
+
+**Alternatives considered**:
+- Consolidate on `lore-state.json` immediately (in-place migration with backup): simpler
+  long-term source-of-truth story but does not match this PR's implementation. Deferred.
+- Keep both files and merge on read: complex and error-prone because it introduces multiple
+  possible authorities for the same resource state. Rejected.
+
+---
+
+## Decision 10: Auto-Migration Entry Point
+
+**Decision**: Inject a shared `runMigrations(stderr io.Writer) error` helper that is
+called at the start of each `cmd/` command handler (before any state/config read).
+`runMigrations` calls `MigrateProjectConfig(path, stderr)` and `MigrateInstalledState(path, stderr)`
+in sequence; both are idempotent for already-v2 files (return immediately with zero I/O).
+
+**Rationale**: FR-003 requires migration before the requested command executes. Making
+it the first call in every handler guarantees no handler reads unmigrated files.
+Idempotency means the cost is one `os.ReadFile` + JSON parse for already-v2 files
+(negligible against FR migration time budget of 2 seconds for 50 resources).
+
+**Alternatives considered**:
+- Sentinel file (`.loreskills-migrated`): adds a file, is itself subject to corruption;
+  idempotent migrate functions make the sentinel unnecessary. Rejected.
+- Run only for install/update: `list` and `status` also read state; too narrow. Rejected.
+
+---
+
+## Decision 11: `resolved_version` / `previous_version` Population
+
+**Decision**: `InstallCatalogEntryV2` accepts a new `resolvedVersion string` parameter.
+Before upserting, `UpsertInstalledResourceV2` reads the existing record for the
+`(resource_name, provider_id)` key and copies its `resolved_version` to `previous_version`.
+
+**Rationale**: The commit SHA is returned by the HTTP client in `cmd/`; threading it as
+a parameter preserves the fs/http layer separation (constitution IV). Reading the prior
+version inside `UpsertInstalledResourceV2` before overwriting satisfies FR-012.
+
+**Alternatives considered**:
+- Have `cmd/` pre-read the state to capture previous version: duplicates logic already
+  needed inside upsert. Rejected.
+- Store previous version in the caller: leaks state management into `cmd/`. Rejected.
