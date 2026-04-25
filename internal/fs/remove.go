@@ -25,7 +25,7 @@ func DeleteManagedFiles(record InstalledResourceRecordV2) (deletedPaths []string
 	return
 }
 
-// RemoveResourceFromState removes the named resource record from lore-state-v2.json.
+// RemoveResourceFromState removes the named resource record from sth-state-v2.json.
 // Returns an error when the name is not found.
 func RemoveResourceFromState(targetDir string, resourceName string) error {
 	state, err := ReadInstalledStateV2(targetDir)

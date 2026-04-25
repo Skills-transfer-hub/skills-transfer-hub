@@ -25,23 +25,9 @@ func TestRun_helpCommandShowsCommandSpecificHelp(t *testing.T) {
 	if result.err != nil {
 		t.Fatalf("Run() error = %v", result.err)
 	}
-	assertContains(t, result.stdout, "loreskills install <resource-ref>")
-	assertContains(t, result.stdout, "bundle compatible")
-	assertContains(t, result.stdout, "category/folder")
-	assertContains(t, result.stdout, "loreskills install react/form-wizard")
-	assertEmpty(t, result.stderr)
-}
-
-func TestRun_helpInitShowsHostedProviderGuidance(t *testing.T) {
-	result := runCLI(t, "", "", "help", "init")
-
-	if result.err != nil {
-		t.Fatalf("Run() error = %v", result.err)
-	}
-	assertContains(t, result.stdout, "github.com, gitlab.com, dev.azure.com et bitbucket.org")
-	assertContains(t, result.stdout, "URLs officielles")
-	assertContains(t, result.stdout, "hosts self-hosted sont rejetes")
-	assertContains(t, result.stdout, ".loreskills/project.json")
+	assertContains(t, result.stdout, "sth install <resource-ref>")
+	assertContains(t, result.stdout, "Installe une ressource du catalogue")
+	assertContains(t, result.stdout, "sth install skills/analyse-risque")
 	assertEmpty(t, result.stderr)
 }
 

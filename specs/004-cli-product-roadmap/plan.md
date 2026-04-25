@@ -26,7 +26,7 @@ ecosystem features depend on a new state/config foundation that does not yet exi
 
 **Language/Version**: Go (latest stable, currently 1.24)  
 **Primary Dependencies**: Go standard library only (constitution constraint)  
-**Storage**: JSON files — `.loreskills/project.json` (project config) + `lore-state.json` (install state)  
+**Storage**: JSON files — `.sth/project.json` (project config) + `sth-state.json` (install state)  
 **Testing**: `go test ./...` — stdlib `testing` package only  
 **Target Platform**: Windows, macOS, Linux (cross-platform, CGO_ENABLED=0)  
 **Project Type**: CLI tool  
@@ -56,12 +56,12 @@ internal/
 └── http/        ← credential resolution, OIDC exchange
 
 cmd/
-├── status.go    ← loreskills status
-├── remove.go    ← loreskills remove
-├── doctor.go    ← loreskills doctor
-├── completion.go← loreskills completion
-├── catalog.go   ← loreskills catalog
-└── new.go       ← loreskills new
+├── status.go    ← sth status
+├── remove.go    ← sth remove
+├── doctor.go    ← sth doctor
+├── completion.go← sth completion
+├── catalog.go   ← sth catalog
+└── new.go       ← sth new
 ```
 
 ## Implementation Order

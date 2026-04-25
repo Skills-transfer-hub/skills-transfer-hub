@@ -15,7 +15,7 @@ import (
 	"strings"
 	"testing"
 
-	"loreskills/internal/fs"
+	"sth/internal/fs"
 	stdhttp "net/http"
 	"net/http/httptest"
 )
@@ -54,7 +54,7 @@ func TestRun_updateRefreshesEveryTrackedResource(t *testing.T) {
 		}
 	}))
 	defer server.Close()
-	t.Setenv("LORESKILLS_GITHUB_RAW_BASE_URL", server.URL)
+	t.Setenv("STH_GITHUB_RAW_BASE_URL", server.URL)
 
 	writeProjectProfileForCommandTest(t, projectDir, fs.ProjectProfile{
 		Provider:     "github",
@@ -102,7 +102,7 @@ func TestRun_updateReportsPartialFailures(t *testing.T) {
 		stdhttp.NotFound(w, r)
 	}))
 	defer server.Close()
-	t.Setenv("LORESKILLS_GITHUB_RAW_BASE_URL", server.URL)
+	t.Setenv("STH_GITHUB_RAW_BASE_URL", server.URL)
 
 	writeProjectProfileForCommandTest(t, projectDir, fs.ProjectProfile{
 		Provider:     "github",
@@ -144,8 +144,8 @@ func TestRun_updateRefreshesTrackedBundleAndRemovesObsoleteFiles(t *testing.T) {
 		}
 	}))
 	defer server.Close()
-	t.Setenv("LORESKILLS_GITHUB_RAW_BASE_URL", server.URL)
-	t.Setenv("LORESKILLS_GITHUB_API_BASE_URL", server.URL)
+	t.Setenv("STH_GITHUB_RAW_BASE_URL", server.URL)
+	t.Setenv("STH_GITHUB_API_BASE_URL", server.URL)
 
 	writeProjectProfileForCommandTest(t, projectDir, fs.ProjectProfile{
 		Provider:     "github",
@@ -212,7 +212,7 @@ func TestRun_updateRefreshesTrackedBundleAndRemovesObsoleteFiles(t *testing.T) {
 		t.Fatalf("keep.txt = %q, want keep", keepData)
 	}
 
-	statePath := filepath.Join(projectDir, ".claude", "resources", "lore-state.json")
+	statePath := filepath.Join(projectDir, ".claude", "resources", "sth-state.json")
 	stateData, err := os.ReadFile(statePath)
 	if err != nil {
 		t.Fatalf("ReadFile(%s): %v", statePath, err)
@@ -233,7 +233,7 @@ func TestRun_updateSelfAppliesStableRelease(t *testing.T) {
 	if err := os.WriteFile(executablePath, []byte("old-binary"), 0o755); err != nil {
 		t.Fatalf("WriteFile(%s): %v", executablePath, err)
 	}
-	t.Setenv("LORESKILLS_EXECUTABLE_PATH", executablePath)
+	t.Setenv("STH_EXECUTABLE_PATH", executablePath)
 
 	assetName := defaultReleaseAssetName()
 	archiveData := releaseArchiveForTest(t, assetName)
@@ -294,7 +294,7 @@ func TestRunUpdate_SetsPreviousVersion(t *testing.T) {
 		stdhttp.NotFound(w, r)
 	}))
 	defer server.Close()
-	t.Setenv("LORESKILLS_GITHUB_RAW_BASE_URL", server.URL)
+	t.Setenv("STH_GITHUB_RAW_BASE_URL", server.URL)
 
 	writeProjectProfileForCommandTest(t, projectDir, fs.ProjectProfile{
 		Provider:     "github",
@@ -327,8 +327,8 @@ func TestRunUpdate_SetsPreviousVersion(t *testing.T) {
 	if err != nil {
 		t.Fatalf("json.Marshal(v2State): %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(targetPath, "lore-state-v2.json"), v2Data, 0o644); err != nil {
-		t.Fatalf("WriteFile(lore-state-v2.json): %v", err)
+	if err := os.WriteFile(filepath.Join(targetPath, "sth-state-v2.json"), v2Data, 0o644); err != nil {
+		t.Fatalf("WriteFile(sth-state-v2.json): %v", err)
 	}
 
 	result := runCLI(t, projectDir, t.TempDir(), "update")
@@ -337,9 +337,9 @@ func TestRunUpdate_SetsPreviousVersion(t *testing.T) {
 	}
 
 	// Read v2 state and assert previous_version was set.
-	v2Data2, err := os.ReadFile(filepath.Join(targetPath, "lore-state-v2.json"))
+	v2Data2, err := os.ReadFile(filepath.Join(targetPath, "sth-state-v2.json"))
 	if err != nil {
-		t.Fatalf("ReadFile(lore-state-v2.json): %v", err)
+		t.Fatalf("ReadFile(sth-state-v2.json): %v", err)
 	}
 	var resultState fs.InstalledResourceStateV2
 	if err := json.Unmarshal(v2Data2, &resultState); err != nil {
@@ -355,9 +355,9 @@ func TestRunUpdate_SetsPreviousVersion(t *testing.T) {
 
 func executableFileName() string {
 	if runtime.GOOS == "windows" {
-		return "loreskills.exe"
+		return "sth.exe"
 	}
-	return "loreskills"
+	return "sth"
 }
 
 func releaseArchiveForTest(t *testing.T, assetName string) []byte {
@@ -412,7 +412,7 @@ func TestRunUpdate_dryRunTextGroupsPerResource(t *testing.T) {
 		}
 	}))
 	defer server.Close()
-	t.Setenv("LORESKILLS_GITHUB_RAW_BASE_URL", server.URL)
+	t.Setenv("STH_GITHUB_RAW_BASE_URL", server.URL)
 
 	writeProjectProfileForCommandTest(t, projectDir, fs.ProjectProfile{
 		Provider:     "github",
@@ -434,7 +434,7 @@ func TestRunUpdate_dryRunTextGroupsPerResource(t *testing.T) {
 		},
 	}
 	v2Data, _ := json.Marshal(v2State)
-	if err := os.WriteFile(filepath.Join(targetPath, "lore-state-v2.json"), v2Data, 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(targetPath, "sth-state-v2.json"), v2Data, 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -460,7 +460,7 @@ func TestRunUpdate_dryRunJSONIncludesResourceName(t *testing.T) {
 		}
 	}))
 	defer server.Close()
-	t.Setenv("LORESKILLS_GITHUB_RAW_BASE_URL", server.URL)
+	t.Setenv("STH_GITHUB_RAW_BASE_URL", server.URL)
 
 	writeProjectProfileForCommandTest(t, projectDir, fs.ProjectProfile{
 		Provider:     "github",
@@ -482,7 +482,7 @@ func TestRunUpdate_dryRunJSONIncludesResourceName(t *testing.T) {
 		},
 	}
 	v2Data, _ := json.Marshal(v2State)
-	if err := os.WriteFile(filepath.Join(targetPath, "lore-state-v2.json"), v2Data, 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(targetPath, "sth-state-v2.json"), v2Data, 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -507,7 +507,7 @@ func TestRunUpdate_dryRunJSONIncludesResourceName(t *testing.T) {
 func TestRunUpdate_dryRunNoChangesWhenAllCurrent(t *testing.T) {
 	projectDir := t.TempDir()
 	content := []byte("# Alpha\n")
-	header := "> ⚠️ ATTENTION : Skill géré par LoreSkills. Ne pas modifier manuellement.\n\n"
+	header := "> ⚠️ ATTENTION : Skill géré par STH. Ne pas modifier manuellement.\n\n"
 	fullContent := []byte(header + "# Alpha\n")
 	sha := fs.ComputeSHA256(fullContent)
 
@@ -519,7 +519,7 @@ func TestRunUpdate_dryRunNoChangesWhenAllCurrent(t *testing.T) {
 		stdhttp.NotFound(w, r)
 	}))
 	defer server.Close()
-	t.Setenv("LORESKILLS_GITHUB_RAW_BASE_URL", server.URL)
+	t.Setenv("STH_GITHUB_RAW_BASE_URL", server.URL)
 
 	writeProjectProfileForCommandTest(t, projectDir, fs.ProjectProfile{
 		Provider:     "github",
@@ -540,7 +540,7 @@ func TestRunUpdate_dryRunNoChangesWhenAllCurrent(t *testing.T) {
 		},
 	}
 	v2Data, _ := json.Marshal(v2State)
-	if err := os.WriteFile(filepath.Join(targetPath, "lore-state-v2.json"), v2Data, 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(targetPath, "sth-state-v2.json"), v2Data, 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -561,7 +561,7 @@ func TestRunUpdate_dryRunTextPrefixes(t *testing.T) {
 		stdhttp.NotFound(w, r)
 	}))
 	defer server.Close()
-	t.Setenv("LORESKILLS_GITHUB_RAW_BASE_URL", server.URL)
+	t.Setenv("STH_GITHUB_RAW_BASE_URL", server.URL)
 
 	writeProjectProfileForCommandTest(t, projectDir, fs.ProjectProfile{
 		Provider:     "github",
@@ -583,7 +583,7 @@ func TestRunUpdate_dryRunTextPrefixes(t *testing.T) {
 		},
 	}
 	v2Data, _ := json.Marshal(v2State)
-	if err := os.WriteFile(filepath.Join(targetPath, "lore-state-v2.json"), v2Data, 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(targetPath, "sth-state-v2.json"), v2Data, 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -602,7 +602,7 @@ func writeV2StateForUpdatePinTest(t *testing.T, projectDir, targetDir string, st
 		t.Fatalf("MkdirAll: %v", err)
 	}
 	data, _ := json.Marshal(state)
-	if err := os.WriteFile(filepath.Join(targetPath, "lore-state-v2.json"), data, 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(targetPath, "sth-state-v2.json"), data, 0o644); err != nil {
 		t.Fatalf("WriteFile(v2 state): %v", err)
 	}
 }
@@ -616,7 +616,7 @@ func TestRunUpdate_pinnedResourceShowsTag(t *testing.T) {
 		stdhttp.NotFound(w, r)
 	}))
 	defer rawServer.Close()
-	t.Setenv("LORESKILLS_GITHUB_RAW_BASE_URL", rawServer.URL)
+	t.Setenv("STH_GITHUB_RAW_BASE_URL", rawServer.URL)
 
 	writeProjectProfileForCommandTest(t, projectDir, fs.ProjectProfile{
 		Provider:     "github",
@@ -657,7 +657,7 @@ func TestRunUpdate_pinnedResourceShowsTag(t *testing.T) {
 	}
 
 	targetPath := filepath.Join(projectDir, ".claude", "resources")
-	v2Data, err := os.ReadFile(filepath.Join(targetPath, "lore-state-v2.json"))
+	v2Data, err := os.ReadFile(filepath.Join(targetPath, "sth-state-v2.json"))
 	if err != nil {
 		t.Fatalf("ReadFile(v2 state): %v", err)
 	}
@@ -688,7 +688,7 @@ func TestRunUpdate_pinnedNewerVersionNotice(t *testing.T) {
 		stdhttp.NotFound(w, r)
 	}))
 	defer apiServer.Close()
-	t.Setenv("LORESKILLS_GITHUB_API_BASE_URL", apiServer.URL)
+	t.Setenv("STH_GITHUB_API_BASE_URL", apiServer.URL)
 
 	writeProjectProfileForCommandTest(t, projectDir, fs.ProjectProfile{
 		Provider:     "github",
@@ -745,7 +745,7 @@ func TestRunUpdate_ownershipConflictSkipsResourceContinuesOthers(t *testing.T) {
 		}
 	}))
 	defer server.Close()
-	t.Setenv("LORESKILLS_GITHUB_RAW_BASE_URL", server.URL)
+	t.Setenv("STH_GITHUB_RAW_BASE_URL", server.URL)
 
 	writeProjectProfileForCommandTest(t, projectDir, fs.ProjectProfile{
 		Provider:     "github",

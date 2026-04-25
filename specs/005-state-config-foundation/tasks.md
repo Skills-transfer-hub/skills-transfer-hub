@@ -40,14 +40,14 @@ description: "Task list for feature 005 — State & Config Foundation"
 
 ## Phase 3: User Story 1 — Migrate Existing Project Without Losing Data (Priority: P1) 🎯 MVP
 
-**Goal**: Auto-detect v1 `project.json` / `lore-state.json` on any command run, rewrite to v2 in-place with a `.bak` safety copy, leave originals untouched on failure.
+**Goal**: Auto-detect v1 `project.json` / `sth-state.json` on any command run, rewrite to v2 in-place with a `.bak` safety copy, leave originals untouched on failure.
 
-**Independent Test**: Create a v1 `project.json` + `lore-state.json`, call `ReadProjectConfigV2()` + `ReadInstalledStateV2()`, verify files are rewritten to v2 and original data is preserved.
+**Independent Test**: Create a v1 `project.json` + `sth-state.json`, call `ReadProjectConfigV2()` + `ReadInstalledStateV2()`, verify files are rewritten to v2 and original data is preserved.
 
 ### Tests for User Story 1 (write first — ensure FAIL before implementation)
 
 - [x] T008 [P] Create `internal/fs/migrate_test.go` — write test `TestMigrateProjectConfig_V1ToV2`: given a v1 `project.json` (flat fields: `provider`, `repository_id`, `ref`, `catalog_path`, `target_dir`), call `MigrateProjectConfig(path)`, assert `schema_version == 2`, `providers[0].id == "default"`, `providers[0].catalog_ref == original ref value`, `resources == []`, original field `ref` absent from output
-- [x] T009 [P] In `internal/fs/migrate_test.go` — write test `TestMigrateInstalledState_V1ToV2`: given a v1 `lore-state.json` with entries having `catalog_id`, `resource_type`, `name`, `folder_name`, `installed_path`, `source_path`, `status`, call `MigrateInstalledState(path)`, assert `schema_version == 2`, each entry maps `catalog_id` → `resource_name`, `provider_id == "default"`, `managed_files == []`, legacy fields absent
+- [x] T009 [P] In `internal/fs/migrate_test.go` — write test `TestMigrateInstalledState_V1ToV2`: given a v1 `sth-state.json` with entries having `catalog_id`, `resource_type`, `name`, `folder_name`, `installed_path`, `source_path`, `status`, call `MigrateInstalledState(path)`, assert `schema_version == 2`, each entry maps `catalog_id` → `resource_name`, `provider_id == "default"`, `managed_files == []`, legacy fields absent
 - [x] T010 [P] In `internal/fs/migrate_test.go` — write test `TestMigrateProjectConfig_CreatesBackup`: verify `project.json.bak` is created with original content before the file is rewritten; use `os.ReadFile` on `.bak` and compare to original bytes
 - [x] T011 [P] In `internal/fs/migrate_test.go` — write test `TestMigrateProjectConfig_WriteFailure_LeavesOriginalUntouched`: simulate a write failure (write to a read-only path or use a path in a non-existent directory) and assert original file content is unchanged after the error
 - [x] T012 [P] In `internal/fs/migrate_test.go` — write test `TestMigrateProjectConfig_AlreadyV2_ReturnsAsIs`: given a `project.json` with `schema_version == 2`, call `MigrateProjectConfig(path)`, assert it returns the parsed v2 struct without rewriting the file (file mod time unchanged)
@@ -57,8 +57,8 @@ description: "Task list for feature 005 — State & Config Foundation"
 
 - [x] T014 In `internal/fs/migrate.go` — implement `MigrateProjectConfig(path string) (ProjectConfigV2, error)`: read file bytes; unmarshal into a `map[string]any` to detect `schema_version`; if absent or `!= 2`, call `backupFile(path)`, map v1 fields to `ProjectConfigV2` (`ref` → `catalog_ref`, flat fields → single `ProviderEntry{id: "default"}`), marshal with `json.MarshalIndent`, write back; if write fails return error (original was backed up but not overwritten); if already v2, unmarshal directly into `ProjectConfigV2` and return
 - [x] T015 In `internal/fs/migrate.go` — implement `MigrateInstalledState(path string) (InstalledResourceStateV2, error)`: same pattern as T014; detect `schema_version`; for v1 entries map `catalog_id` → `resource_name`, set `provider_id = "default"`, set `resolved_version`, `previous_version`, `installed_at` to `""`, set `managed_files = []ManagedFile{}`; drop legacy fields; write back v2; return error on write failure without modifying original
-- [x] T016 In `internal/fs/fs.go` — implement `ReadProjectConfigV2() (ProjectConfigV2, error)`: locate `.loreskills/project.json` using existing `projectConfigDir()` logic; if not found return empty `ProjectConfigV2{}` with no error; read bytes; call `MigrateProjectConfig(path)` which handles both v1 and v2; return result
-- [x] T017 In `internal/fs/fs.go` — implement `ReadInstalledStateV2(targetDir string) (InstalledResourceStateV2, error)`: validate `targetDir`; locate `lore-state.json`; if not found return empty `InstalledResourceStateV2{SchemaVersion: 2, Entries: []InstalledResourceRecordV2{}}` with no error; call `MigrateInstalledState(path)` and return result; return wrapped error on corrupt JSON (do not auto-migrate corrupt files per spec edge case)
+- [x] T016 In `internal/fs/fs.go` — implement `ReadProjectConfigV2() (ProjectConfigV2, error)`: locate `.sth/project.json` using existing `projectConfigDir()` logic; if not found return empty `ProjectConfigV2{}` with no error; read bytes; call `MigrateProjectConfig(path)` which handles both v1 and v2; return result
+- [x] T017 In `internal/fs/fs.go` — implement `ReadInstalledStateV2(targetDir string) (InstalledResourceStateV2, error)`: validate `targetDir`; locate `sth-state.json`; if not found return empty `InstalledResourceStateV2{SchemaVersion: 2, Entries: []InstalledResourceRecordV2{}}` with no error; call `MigrateInstalledState(path)` and return result; return wrapped error on corrupt JSON (do not auto-migrate corrupt files per spec edge case)
 - [x] T018 In `internal/fs/fs.go` — implement `WriteProjectConfigV2(cfg ProjectConfigV2) (string, error)`: ensure `cfg.SchemaVersion = 2`; marshal with `json.MarshalIndent`; use existing `projectConfigDir()` to get path; call `os.MkdirAll` on dir; write with `os.WriteFile(..., 0o644)`; return absolute path and nil on success
 - [x] T019 In `internal/fs/fs.go` — implement `WriteInstalledStateV2(targetDir string, state InstalledResourceStateV2) error`: validate `targetDir`; ensure `state.SchemaVersion = 2`; marshal with `json.MarshalIndent`; write to `filepath.Join(targetDir, stateFileName)`; return wrapped error on failure
 
@@ -68,7 +68,7 @@ description: "Task list for feature 005 — State & Config Foundation"
 
 ## Phase 4: User Story 2 — Configure Multiple Providers in a New Project (Priority: P1)
 
-**Goal**: `loreskills init` appends a new `ProviderEntry` to `providers` array in a v2 `project.json`; rejects duplicate IDs.
+**Goal**: `sth init` appends a new `ProviderEntry` to `providers` array in a v2 `project.json`; rejects duplicate IDs.
 
 **Independent Test**: Run init twice (different provider IDs), verify `project.json` has two entries in `providers`; run init with duplicate ID, verify error with message.
 
@@ -114,9 +114,9 @@ description: "Task list for feature 005 — State & Config Foundation"
 
 ## Phase 6: User Story 4 — View Complete Managed-File Inventory (Priority: P1)
 
-**Goal**: Every `loreskills install` and `loreskills update` writes a `managed_files` array with per-file `path` and `sha256` to `lore-state.json`. `previous_version` is set before overwriting `resolved_version` on update.
+**Goal**: Every `sth install` and `sth update` writes a `managed_files` array with per-file `path` and `sha256` to `sth-state.json`. `previous_version` is set before overwriting `resolved_version` on update.
 
-**Independent Test**: Install a resource, open `lore-state.json`, verify `managed_files` has one entry with matching `sha256` (read the installed file, hash it, compare).
+**Independent Test**: Install a resource, open `sth-state.json`, verify `managed_files` has one entry with matching `sha256` (read the installed file, hash it, compare).
 
 ### Tests for User Story 4 (write first — ensure FAIL before implementation)
 
@@ -142,9 +142,9 @@ description: "Task list for feature 005 — State & Config Foundation"
 
 **Purpose**: Validate correctness across all stories; fix any issues surfaced by tools.
 
-- [x] T044 Run `go vet ./...` from repo root and fix any reported issues (vet covers all packages: `loreskills`, `loreskills/cmd`, `loreskills/internal/fs`, `loreskills/internal/http`)
+- [x] T044 Run `go vet ./...` from repo root and fix any reported issues (vet covers all packages: `sth`, `sth/cmd`, `sth/internal/fs`, `sth/internal/http`)
 - [x] T045 Run `go test ./...` from repo root and confirm all tests pass — including existing tests in `cmd/` that must not be broken by v2 changes (SC-004, SC-005)
-- [x] T046 [P] Verify backward compatibility: existing commands `loreskills list` and `loreskills install` still function correctly when `project.json` is v1 — confirm migration is triggered automatically on read and commands complete successfully
+- [x] T046 [P] Verify backward compatibility: existing commands `sth list` and `sth install` still function correctly when `project.json` is v1 — confirm migration is triggered automatically on read and commands complete successfully
 - [x] T047 [P] Update `README.md` if it references the `ref` field directly — replace any mention of `ref` with `catalog_ref` to match FR-013 terminology; check for references to the old single-provider flat config format and update examples to show v2 `providers` array
 
 ---

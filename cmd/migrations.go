@@ -1,7 +1,8 @@
 package cmd
 
 import (
-	"loreskills/internal/fs"
+	"bufio"
+	"sth/internal/fs"
 	"os"
 )
 
@@ -35,4 +36,29 @@ func (a *app) prepareStateAccess() (*fs.ProjectProfile, func(), error) {
 	}
 
 	return profile, release, nil
+}
+
+// offerLegacyProjectDirMigration checks for .loreskills and offers to migrate to .sth.
+// It is called at the start of every command that may need project config.
+// Returns nil (no action) when migration is not needed or user declines.
+func (a *app) offerLegacyProjectDirMigration() error {
+	if !a.isInteractiveSession() {
+		return nil
+	}
+	hasLegacy, err := fs.HasLegacyProjectDir()
+	if err != nil || !hasLegacy {
+		return nil
+	}
+	reader := bufio.NewReader(a.stdin)
+	a.writeStdout("Dossier .loreskills detecte. STH utilise maintenant .sth/project.json.")
+	migrate, promptErr := promptYesNo(reader, a.stdout, "Migrer la configuration vers .sth ?", true)
+	if promptErr != nil || !migrate {
+		return nil
+	}
+	legacyProfile, _ := fs.ReadProjectProfileIfPresentFrom(".loreskills")
+	targetDir := ""
+	if legacyProfile != nil {
+		targetDir = legacyProfile.TargetDir
+	}
+	return fs.MigrateLegacyProjectDir(targetDir, a.stderr)
 }

@@ -6,13 +6,13 @@
 ## Summary
 
 Build the full resource lifecycle on top of the v2 state schema delivered by spec 005.
-Five capabilities are added: (1) `loreskills status` inspects every installed resource and
+Five capabilities are added: (1) `sth status` inspects every installed resource and
 reports `up-to-date`, `outdated`, `modified-locally`, or `unknown-baseline`; (2)
-`loreskills remove <name>` cleanly uninstalls a resource with SHA-based modification
+`sth remove <name>` cleanly uninstalls a resource with SHA-based modification
 detection and confirmation; (3) `--dry-run` on `install`/`update` previews all file
 changes without touching disk or state; (4) version pinning skips pinned resources
 during `update` and reports a notice when a newer version is available; (5)
-`.loreskillsignore` excludes unwanted bundle files using gitignore-style patterns.
+`.sthignore` excludes unwanted bundle files using gitignore-style patterns.
 A file ownership conflict guard is added to `install` to prevent silent overwrites
 across resources.
 
@@ -23,13 +23,13 @@ All logic is pure Go stdlib, CGO_ENABLED=0, no external modules.
 **Language/Version**: Go 1.22  
 **Primary Dependencies**: stdlib only — `os`, `path/filepath`, `crypto/sha256`,
 `encoding/json`, `bufio`, `strings`, `net/http` (already in `internal/http/`)  
-**Storage**: `.loreskills/lore-state-v2.json` (v2 state, spec 005) +
-`.loreskills/project.json` (v2 config with `pinned_version` already in schema)  
+**Storage**: `.sth/sth-state-v2.json` (v2 state, spec 005) +
+`.sth/project.json` (v2 config with `pinned_version` already in schema)  
 **Testing**: `go test ./...` using standard `testing` package only (no testify or
 external assertion libs per constitution)  
 **Target Platform**: Windows, macOS, Linux — `CGO_ENABLED=0`, pure Go  
 **Project Type**: CLI tool  
-**Performance Goals**: `loreskills status` < 3 s for 20 resources across 2 providers
+**Performance Goals**: `sth status` < 3 s for 20 resources across 2 providers
 (one HTTP round-trip per provider, not per resource)  
 **Constraints**: Zero external dependencies; stdlib only; no CGO; no hardcoded paths
 or URLs; `go vet ./...` must pass clean  
@@ -42,7 +42,7 @@ or URLs; `go vet ./...` must pass clean
 | Principle | Status | Notes |
 |-----------|--------|-------|
 | I. Zéro Dépendance Externe | ✅ PASS | No new modules; gitignore matching via custom stdlib implementation using `path.Match` + `**` segment splitting |
-| II. Agnostique — Aucune Valeur Codée en Dur | ✅ PASS | All paths and provider refs read from `project.json` / `lore-state-v2.json` at runtime |
+| II. Agnostique — Aucune Valeur Codée en Dur | ✅ PASS | All paths and provider refs read from `project.json` / `sth-state-v2.json` at runtime |
 | III. Cross-Platform — CGO Désactivé | ✅ PASS | Pure Go; `filepath.ToSlash` normalises separators for ignore-pattern matching on Windows |
 | IV. Découpage Modulaire Strict | ✅ PASS | New commands in `cmd/`; status computation, ignore parsing, and ownership index in `internal/fs/`; HTTP version-check method in `internal/http/`; no layer inversion |
 

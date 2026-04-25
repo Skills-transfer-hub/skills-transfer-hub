@@ -6,7 +6,7 @@ Developer guide for implementing spec 006. Read this before touching any code.
 
 ## Prerequisites
 
-- Spec 005 fully implemented: `lore-state-v2.json`, `InstalledResourceRecordV2`,
+- Spec 005 fully implemented: `sth-state-v2.json`, `InstalledResourceRecordV2`,
   `ManagedFile` with SHA256, `ProjectConfigV2` with `pinned_version` in `ResourceEntry`.
 - `go test ./...` passes on the current `006-cli-product-roadmap` branch.
 - `go vet ./...` passes with zero warnings.
@@ -49,9 +49,9 @@ import (
     "strings"
 )
 
-const ignoreFileName = ".loreskillsignore"
+const ignoreFileName = ".sthignore"
 
-// ParseIgnoreFile reads .loreskillsignore from projectRoot.
+// ParseIgnoreFile reads .sthignore from projectRoot.
 // Returns nil patterns (not an error) if the file does not exist.
 func ParseIgnoreFile(projectRoot string) ([]string, error) {
     p := filepath.Join(projectRoot, ignoreFileName)
@@ -130,7 +130,7 @@ func matchGlob(pattern, name string) bool {
 > - `**/*.test.md` matches `sub/dir/guide.test.md`
 > - `#comment` lines are skipped
 > - blank lines are skipped
-> - non-existent `.loreskillsignore` returns nil, nil
+> - non-existent `.sthignore` returns nil, nil
 
 ---
 
@@ -213,7 +213,7 @@ func ComputeFileSHA256(filePath string) (string, error) {
 ```go
 func (a *app) runStatus(jsonOut bool) error {
     // 1. Read project config (ProjectConfigV2)
-    // 2. Read lore-state-v2.json
+    // 2. Read sth-state-v2.json
     // 3. For each unique providerID in state, call client.GetLatestCommitSHA
     //    (one call per provider, cache in map[string]string)
     // 4. Call fs.ComputeAllStatuses(...)
@@ -229,7 +229,7 @@ func (a *app) runStatus(jsonOut bool) error {
 
 ```go
 func (a *app) runRemove(resourceName string, yesAll bool) error {
-    // 1. Read lore-state-v2.json
+    // 1. Read sth-state-v2.json
     // 2. Find entry; if not found: return error (exit 1)
     // 3. For each managed file: ComputeFileSHA256 vs stored sha256 → collect modified
     // 4. If modified and !yesAll:
@@ -264,7 +264,7 @@ Add `--dry-run` flag. Before updating each resource:
 1. Look up `ResourceEntry.PinnedVersion` for this resource in `project.json`.
    - If pinned: print `[pinned at <ver>]` + optional newer-version notice; `continue`.
    - If pinned version unresolvable: return error.
-2. Apply `.loreskillsignore` patterns to each file before writing.
+2. Apply `.sthignore` patterns to each file before writing.
 3. If `dryRun`: collect `DryRunChange` per file; skip writes and state mutation.
 
 Fix `resolved_version` storage: after downloading, get the commit SHA (from
@@ -283,7 +283,7 @@ case "status":
 
 case "remove":
     if len(posArgs) != 1 {
-        err = fmt.Errorf("usage: loreskills remove <resource-name>")
+        err = fmt.Errorf("usage: sth remove <resource-name>")
         break
     }
     err = a.runRemove(posArgs[0], globalFlags.yes)

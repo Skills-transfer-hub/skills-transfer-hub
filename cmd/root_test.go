@@ -3,13 +3,13 @@ package cmd
 import (
 	"bytes"
 	"encoding/json"
-	lorehttp "loreskills/internal/http"
+	sthhttp "sth/internal/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
-	"loreskills/internal/fs"
+	"sth/internal/fs"
 )
 
 type cliResult struct {
@@ -23,7 +23,7 @@ type cliOptions struct {
 	homeDir      string
 	input        string
 	args         []string
-	client       *lorehttp.Client
+	client       *sthhttp.Client
 	interactive  func() bool
 	userCacheDir string
 }
@@ -83,7 +83,7 @@ func runCLIWithOptions(t *testing.T, options cliOptions) cliResult {
 	t.Setenv("HOMEDRIVE", filepath.VolumeName(options.homeDir))
 	t.Setenv("HOMEPATH", strings.TrimPrefix(options.homeDir, filepath.VolumeName(options.homeDir)))
 	if options.userCacheDir != "" {
-		t.Setenv("LORESKILLS_USER_CACHE_DIR", options.userCacheDir)
+		t.Setenv("STH_USER_CACHE_DIR", options.userCacheDir)
 	}
 
 	oldWD, err := os.Getwd()
@@ -111,7 +111,7 @@ func runCLIWithOptions(t *testing.T, options cliOptions) cliResult {
 func writeProjectProfileForCommandTest(t *testing.T, projectDir string, profile fs.ProjectProfile) {
 	t.Helper()
 
-	configDir := filepath.Join(projectDir, ".loreskills")
+	configDir := filepath.Join(projectDir, ".sth")
 	if err := os.MkdirAll(configDir, 0o755); err != nil {
 		t.Fatalf("MkdirAll(%s): %v", configDir, err)
 	}
@@ -127,7 +127,7 @@ func writeProjectProfileForCommandTest(t *testing.T, projectDir string, profile 
 func writeProjectConfigV2ForTest(t *testing.T, projectDir string, cfg fs.ProjectConfigV2) {
 	t.Helper()
 
-	configDir := filepath.Join(projectDir, ".loreskills")
+	configDir := filepath.Join(projectDir, ".sth")
 	if err := os.MkdirAll(configDir, 0o755); err != nil {
 		t.Fatalf("MkdirAll(%s): %v", configDir, err)
 	}
@@ -151,8 +151,8 @@ func writeInstalledStateForCommandTest(t *testing.T, projectDir, targetDir strin
 	if err != nil {
 		t.Fatalf("json.Marshal(): %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(targetPath, "lore-state.json"), data, 0o644); err != nil {
-		t.Fatalf("WriteFile(lore-state.json): %v", err)
+	if err := os.WriteFile(filepath.Join(targetPath, "sth-state.json"), data, 0o644); err != nil {
+		t.Fatalf("WriteFile(sth-state.json): %v", err)
 	}
 }
 
@@ -174,8 +174,8 @@ func TestRun_noArgumentsNonInteractiveShowsNextStepGuidance(t *testing.T) {
 		t.Fatalf("Run() error = %v", result.err)
 	}
 	assertContains(t, result.stdout, "Etat projet : unconfigured")
-	assertContains(t, result.stdout, "Action recommandée : loreskills init")
-	assertNotContains(t, result.stdout, "LoreSkills dev")
+	assertContains(t, result.stdout, "Action recommandée : sth init")
+	assertNotContains(t, result.stdout, "STH dev")
 	assertEmpty(t, result.stderr)
 }
 
@@ -188,7 +188,7 @@ func TestRun_noArgumentsInteractiveShowsGuidedMenuAndAllowsQuit(t *testing.T) {
 	if result.err != nil {
 		t.Fatalf("Run() error = %v\nstdout=%s\nstderr=%s", result.err, result.stdout, result.stderr)
 	}
-	assertContains(t, result.stdout, "Menu guidé LoreSkills")
+	assertContains(t, result.stdout, "Menu guidé STH")
 	assertContains(t, result.stdout, "1. init (recommandé)")
 	assertContains(t, result.stdout, "3. quit")
 	assertEmpty(t, result.stderr)

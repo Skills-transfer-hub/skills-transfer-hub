@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 )
 
-const lockFileName = ".lore-state.lock"
+const lockFileName = ".sth-state.lock"
 
 // AcquireStateLock creates an advisory lock file in targetDir.
 // It calls os.MkdirAll to ensure targetDir exists before creating the lock.
@@ -20,7 +20,7 @@ func AcquireStateLock(targetDir string) (func(), error) {
 	f, err := os.OpenFile(lockPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
 	if err != nil {
 		if os.IsExist(err) {
-			return nil, fmt.Errorf("fichier de verrouillage déjà présent (%s) — supprimez-le si aucun processus loreskills n'est en cours", lockPath)
+			return nil, fmt.Errorf("fichier de verrouillage déjà présent (%s) — supprimez-le si aucun processus sth n'est en cours", lockPath)
 		}
 		return nil, fmt.Errorf("acquisition du verrou échouée : %w", err)
 	}

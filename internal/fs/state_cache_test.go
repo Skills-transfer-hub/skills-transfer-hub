@@ -75,10 +75,10 @@ func TestSyncManagedBundle_rewritesManifestAndRemovesObsoleteFiles(t *testing.T)
 func TestUpdateCheckState_roundTripsAndExpiresAfter24Hours(t *testing.T) {
 	paths := newTestPaths(t)
 	cacheDir := filepath.Join(paths.homeDir, "machine-cache")
-	t.Setenv("LORESKILLS_USER_CACHE_DIR", cacheDir)
+	t.Setenv("STH_USER_CACHE_DIR", cacheDir)
 
 	now := time.Date(2026, time.April, 23, 10, 0, 0, 0, time.UTC)
-	state := NewAvailableUpdateCheckState(now, "v1.0.0", "v1.2.0", "https://example.invalid/asset", "https://example.invalid/checksum", "loreskills-windows-amd64.zip")
+	state := NewAvailableUpdateCheckState(now, "v1.0.0", "v1.2.0", "https://example.invalid/asset", "https://example.invalid/checksum", "sth-windows-amd64.zip")
 
 	cachePath, err := WriteUpdateCheckState(state)
 	if err != nil {

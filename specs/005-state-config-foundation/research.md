@@ -33,7 +33,7 @@ are named by the user.
 
 **Rationale**: "default" is semantically clear, not a URL or path (constitution II compliant),
 and matches the common convention in multi-provider tools. Users who want to rename it can
-run `loreskills init` again.
+run `sth init` again.
 
 **Alternatives considered**:
 - Derive from `repository_id` (e.g., `octo-org-skills-catalog`): clever but unpredictable;
@@ -60,12 +60,12 @@ create a mismatch when the `status` command re-reads the file.
 
 ## Decision 4: `resources` array population during migration
 
-**Decision**: Migrate `lore-state.json` entries to v2 records and populate the `resources`
+**Decision**: Migrate `sth-state.json` entries to v2 records and populate the `resources`
 array in `project.json` v2 from those entries, assigning all to `provider_id: "default"`.
 `resolved_version`, `previous_version`, and `installed_at` are set to empty/zero — they will
 be populated on the next install or update.
 
-**Rationale**: The current codebase tracks installed resources only in `lore-state.json`.
+**Rationale**: The current codebase tracks installed resources only in `sth-state.json`.
 There is no install-time commit SHA, so it cannot be reconstructed. Leaving these fields
 empty is honest and safe; spec 006 status command must tolerate empty `resolved_version`
 (showing "version inconnue").
@@ -92,21 +92,21 @@ fallback already implemented in the codebase.
 
 ---
 
-## Decision 6: `loreskills init` multi-provider UX
+## Decision 6: `sth init` multi-provider UX
 
-**Decision**: When `project.json` v2 already exists and the user runs `loreskills init`,
+**Decision**: When `project.json` v2 already exists and the user runs `sth init`,
 show the existing providers list and ask "Add a new provider?". If yes, prompt for a new
 provider ID + config and append it to the providers array. Duplicate IDs are rejected
 with an error message (US2 AC3).
 
-**Rationale**: The spec says "loreskills init MUST support configuring multiple providers
+**Rationale**: The spec says "sth init MUST support configuring multiple providers
 by allowing the user to add provider entries sequentially" (FR-009). Re-using the init
 command is the simplest UX that avoids a new `provider add` subcommand (deferred per
 spec assumption §Assumptions).
 
 **Alternatives considered**:
 - Offer a "replace all" option: dangerous — would wipe working provider config. Rejected.
-- `loreskills provider add`: cleaner long-term but out of scope for this spec. Deferred.
+- `sth provider add`: cleaner long-term but out of scope for this spec. Deferred.
 
 ---
 
@@ -129,13 +129,13 @@ function approach lets each command be migrated and tested independently (SC-005
 
 ## Decision 8: Advisory File Lock — `O_CREATE|O_EXCL` approach
 
-**Decision**: Implement advisory locking by creating `<stateDir>/.lore-state.lock` with
+**Decision**: Implement advisory locking by creating `<stateDir>/.sth-state.lock` with
 `os.OpenFile(..., os.O_CREATE|os.O_EXCL, 0o644)`, then closing the file immediately after
 successful creation.
 - If the call succeeds, the lock is represented by the presence of the lock file and a
   returned cleanup function removes it via `os.Remove`.
 - If `O_EXCL` fails (file already exists), return an error immediately (fail-fast, FR-015).
-- Lock file path: `<stateDir>/.lore-state.lock` (same directory as `lore-state.json`).
+- Lock file path: `<stateDir>/.sth-state.lock` (same directory as `sth-state.json`).
 
 **API**:
 ```go
@@ -148,29 +148,29 @@ func AcquireStateLock(targetDir string) (func(), error)
 
 ---
 
-## Decision 9: `lore-state.json` vs `lore-state-v2.json` — Dual-File Approach
+## Decision 9: `sth-state.json` vs `sth-state-v2.json` — Dual-File Approach
 
-**Decision**: Keep `lore-state.json` as the legacy v1 file and `lore-state-v2.json` as
+**Decision**: Keep `sth-state.json` as the legacy v1 file and `sth-state-v2.json` as
 the canonical v2 file for this PR. `ReadInstalledStateV2` and `WriteInstalledStateV2`
-continue to use `stateFileNameV2` (`lore-state-v2.json`); no consolidation to a single
+continue to use `stateFileNameV2` (`sth-state-v2.json`); no consolidation to a single
 state file is performed here.
 
 **Background**: The codebase currently maintains two state files with distinct roles:
-- `lore-state.json` — legacy v1 file, read by `ReadInstalledState` and used as migration input
-- `lore-state-v2.json` — v2 file, read/written by `ReadInstalledStateV2` / `WriteInstalledStateV2`
+- `sth-state.json` — legacy v1 file, read by `ReadInstalledState` and used as migration input
+- `sth-state-v2.json` — v2 file, read/written by `ReadInstalledStateV2` / `WriteInstalledStateV2`
 
 This matches the implementation in the current PR. Rather than rewriting the legacy file
 in place, the migration path preserves backward compatibility for v1 reads while using a
 dedicated file for schema-versioned v2 state.
 
-**Migration path**: On first access, `PromoteInstalledState` detects that `lore-state-v2.json`
-is absent, reads `lore-state.json`, converts its content in memory, and writes the v2
-representation to `lore-state-v2.json` atomically. The legacy `lore-state.json` is left
+**Migration path**: On first access, `PromoteInstalledState` detects that `sth-state-v2.json`
+is absent, reads `sth-state.json`, converts its content in memory, and writes the v2
+representation to `sth-state-v2.json` atomically. The legacy `sth-state.json` is left
 untouched. A progress line is emitted to stderr only when a v1 file is actually migrated
 (FR-016).
 
 **Alternatives considered**:
-- Consolidate on `lore-state.json` immediately (in-place migration with backup): simpler
+- Consolidate on `sth-state.json` immediately (in-place migration with backup): simpler
   long-term source-of-truth story but does not match this PR's implementation. Deferred.
 - Keep both files and merge on read: complex and error-prone because it introduces multiple
   possible authorities for the same resource state. Rejected.
@@ -190,7 +190,7 @@ Idempotency means the cost is one `os.ReadFile` + JSON parse for already-v2 file
 (negligible against FR migration time budget of 2 seconds for 50 resources).
 
 **Alternatives considered**:
-- Sentinel file (`.loreskills-migrated`): adds a file, is itself subject to corruption;
+- Sentinel file (`.sth-migrated`): adds a file, is itself subject to corruption;
   idempotent migrate functions make the sentinel unnecessary. Rejected.
 - Run only for install/update: `list` and `status` also read state; too narrow. Rejected.
 

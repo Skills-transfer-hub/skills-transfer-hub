@@ -45,7 +45,7 @@ One file written to disk during a resource installation.
 
 ---
 
-### InstalledResourceRecordV2 (in lore-state.json)
+### InstalledResourceRecordV2 (in sth-state.json)
 
 Tracks the installed state of one resource, replacing `InstalledResourceRecord`.
 
@@ -62,7 +62,7 @@ Tracks the installed state of one resource, replacing `InstalledResourceRecord`.
 
 ### ProjectConfigV2
 
-Top-level v2 structure for `.loreskills/project.json`.
+Top-level v2 structure for `.sth/project.json`.
 
 | Field | Type | Required | Notes |
 |-------|------|----------|-------|
@@ -74,7 +74,7 @@ Top-level v2 structure for `.loreskills/project.json`.
 
 ### InstalledResourceStateV2
 
-Top-level v2 structure for `<target_dir>/lore-state.json`.
+Top-level v2 structure for `<target_dir>/sth-state.json`.
 
 | Field | Type | Required | Notes |
 |-------|------|----------|-------|
@@ -88,7 +88,7 @@ Top-level v2 structure for `<target_dir>/lore-state.json`.
 | File | Field | V1 value | V2 value | Detection |
 |------|-------|----------|----------|-----------|
 | `project.json` | `schema_version` | absent (or 1) | 2 | Absent or != 2 → migrate |
-| `lore-state.json` | `schema_version` | absent (or 1) | 2 | Absent or != 2 → migrate |
+| `sth-state.json` | `schema_version` | absent (or 1) | 2 | Absent or != 2 → migrate |
 
 ---
 
@@ -127,11 +127,11 @@ Top-level v2 structure for `<target_dir>/lore-state.json`.
 1. `ref` → `catalog_ref` (renamed, same value)
 2. All flat provider fields → single `ProviderEntry` with `id: "default"`
 3. `migrated_from_legacy` field is dropped (no longer needed)
-4. `resources` array starts empty (existing installations live in lore-state.json)
+4. `resources` array starts empty (existing installations live in sth-state.json)
 
 ---
 
-## Migration: lore-state.json v1 → v2
+## Migration: sth-state.json v1 → v2
 
 **Input (v1)**:
 ```json
@@ -223,11 +223,11 @@ Advisory concurrency lock — not persisted to any application schema.
 func AcquireStateLock(targetDir string) (func(), error)
 ```
 
-The lock is represented by the presence of `<targetDir>/.lore-state.lock`. The file is
+The lock is represented by the presence of `<targetDir>/.sth-state.lock`. The file is
 created with `O_CREATE|O_EXCL` (atomic test-and-set); the PID of the acquiring process is
 written into the file for diagnostics. The returned `release` function removes the lock
 file. Callers use `defer release()` to guarantee best-effort cleanup.
 
-**Lock file path**: `filepath.Join(targetDir, ".lore-state.lock")`  
-**Error format when already locked**: `"fichier de verrouillage déjà présent (%s) — supprimez-le si aucun processus loreskills n'est en cours"`
+**Lock file path**: `filepath.Join(targetDir, ".sth-state.lock")`  
+**Error format when already locked**: `"fichier de verrouillage déjà présent (%s) — supprimez-le si aucun processus sth n'est en cours"`
 

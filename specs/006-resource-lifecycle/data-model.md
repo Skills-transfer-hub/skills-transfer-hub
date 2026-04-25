@@ -5,7 +5,7 @@
 Spec 006 introduces three new value types and extends the install/update pipelines with
 additional control parameters. All types are pure Go structs in `internal/fs/schema.go`
 or `internal/fs/status.go`. No new storage files are introduced — the existing
-`lore-state-v2.json` and `.loreskills/project.json` (v2) are extended in place.
+`sth-state-v2.json` and `.sth/project.json` (v2) are extended in place.
 
 ---
 
@@ -132,8 +132,8 @@ type ResourceEntry struct {
 ```
 
 When `PinnedVersion != ""`:
-- `loreskills update` skips the resource and prints `[pinned at <version>]`.
-- `loreskills status` shows a notice if a newer version is available.
+- `sth update` skips the resource and prints `[pinned at <version>]`.
+- `sth status` shows a notice if a newer version is available.
 - If the provider cannot resolve `PinnedVersion`, the command exits non-zero.
 
 ---
@@ -143,7 +143,7 @@ When `PinnedVersion != ""`:
 ### ignore.go
 
 ```go
-// ParseIgnoreFile reads .loreskillsignore from the project root and returns active patterns.
+// ParseIgnoreFile reads .sthignore from the project root and returns active patterns.
 // Lines starting with '#' and blank lines are ignored.
 func ParseIgnoreFile(projectRoot string) ([]string, error)
 
@@ -155,7 +155,7 @@ func MatchIgnore(patterns []string, bundleRelativePath string) bool
 ### status.go
 
 ```go
-// ComputeAllStatuses returns one StatusResult per entry in lore-state-v2.json.
+// ComputeAllStatuses returns one StatusResult per entry in sth-state-v2.json.
 // latestSHAs maps providerID to the current HEAD commit SHA fetched from the provider.
 func ComputeAllStatuses(
     state     InstalledResourceStateV2,
@@ -193,7 +193,7 @@ Resource lifecycle states:
                     ┌─────────────┐
                     │   outdated  │
                     └──────┬──────┘
-                           │ loreskills update
+                           │ sth update
                            ▼
                     ┌─────────────┐
                     │  up-to-date │
@@ -202,11 +202,11 @@ Resource lifecycle states:
                     ┌──────────────────┐
     disk edit  ───► │ modified-locally │
                     └──────────────────┘
-    (only loreskills install --force re-establishes integrity)
+    (only sth install --force re-establishes integrity)
 
                     ┌──────────────────┐
     legacy install  │ unknown-baseline │
     (no SHA256) ──► │                  │
                     └──────────────────┘
-    (loreskills install --force re-establishes baseline)
+    (sth install --force re-establishes baseline)
 ```

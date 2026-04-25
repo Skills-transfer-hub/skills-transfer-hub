@@ -13,7 +13,7 @@ import (
 )
 
 const (
-	updateCacheDirName          = "loreskills"
+	updateCacheDirName          = "sth"
 	updateCacheFileName         = "update-check.json"
 	defaultUpdateCacheTTLHours  = 24
 	updateCheckStatusNoUpdate   = "no-update"
@@ -105,9 +105,9 @@ func StableUpdateOfferFromState(state UpdateCheckState) StableUpdateOffer {
 		offer.Status = "fresh-update-available"
 		offer.DownloadReady = strings.TrimSpace(state.DownloadURL) != "" && strings.TrimSpace(state.ChecksumURL) != "" && strings.TrimSpace(state.AssetName) != ""
 		if offer.LatestStableVersion == "" {
-			offer.Message = "Mise à jour stable disponible. Utilisez `loreskills update self`."
+			offer.Message = "Mise à jour stable disponible. Utilisez `sth update self`."
 		} else {
-			offer.Message = fmt.Sprintf("Mise à jour stable disponible : %s (utilisez `loreskills update self`).", offer.LatestStableVersion)
+			offer.Message = fmt.Sprintf("Mise à jour stable disponible : %s (utilisez `sth update self`).", offer.LatestStableVersion)
 		}
 	case updateCheckStatusError:
 		offer.Status = "error"
@@ -124,7 +124,7 @@ func StableUpdateOfferFromState(state UpdateCheckState) StableUpdateOffer {
 }
 
 func UpdateCheckStatePath() (string, error) {
-	baseDir := strings.TrimSpace(os.Getenv("LORESKILLS_USER_CACHE_DIR"))
+	baseDir := strings.TrimSpace(os.Getenv("STH_USER_CACHE_DIR"))
 	if baseDir == "" {
 		userCacheDir, err := os.UserCacheDir()
 		if err != nil {
@@ -218,7 +218,7 @@ func validateUpdateCheckState(state UpdateCheckState) error {
 	return nil
 }
 
-// SyncManagedBundle writes all files for a managed bundle, removes obsolete tracked files, and updates lore-state.json.
+// SyncManagedBundle writes all files for a managed bundle, removes obsolete tracked files, and updates sth-state.json.
 func SyncManagedBundle(targetDir string, entry CatalogEntry, files map[string][]byte) (InstalledResourceRecord, error) {
 	if err := validateTargetDir(targetDir); err != nil {
 		return InstalledResourceRecord{}, err

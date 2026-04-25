@@ -24,7 +24,7 @@
 - [x] T001 Add `parseFlags(args []string, knownFlags ...string) (flags map[string]bool, positional []string)` helper in `cmd/root.go` — strips `--dry-run`, `--yes`, `--force`, `--json` bool flags from the arg slice and returns the remainder as positional args; used by install, update, remove, and status
 - [x] T002 Register `status` and `remove` entries in `commandCatalog` and add their `case` arms (routing to `runStatus`/`runRemove`) in the `run` switch in `cmd/root.go`; include `--help` short-circuit for both
 
-**Checkpoint**: `loreskills status` and `loreskills remove` are reachable (will error with "not implemented" until Phase 3/4); `parseFlags` is available to all commands
+**Checkpoint**: `sth status` and `sth remove` are reachable (will error with "not implemented" until Phase 3/4); `parseFlags` is available to all commands
 
 ---
 
@@ -35,18 +35,18 @@
 **⚠️ CRITICAL**: No user story work can begin until this phase is complete.
 
 - [x] T003 Add `ResourceStatus` string type with constants (`up-to-date`, `outdated`, `modified-locally`, `unknown-baseline`), `DryRunChange` struct (`Action string`, `Path string`, `OldSHA256 string`, `NewSHA256 string`), and `OwnershipConflict` struct (`FilePath string`, `ExistingOwner string`, `NewOwner string`) to `internal/fs/schema.go`
-- [x] T004 [P] Implement `ReadLoreSkillsIgnore(projectDir string) ([]string, error)` (reads `.loreskillsignore` from `projectDir`, returns nil slice when absent) and `MatchesIgnorePattern(relPath string, patterns []string) bool` (gitignore-style matching: `*` any chars within segment, `**` across segments, `?` single char, lines starting with `#` are comments, blank lines are skipped) in new file `internal/fs/ignore.go`
+- [x] T004 [P] Implement `ReadSTHIgnore(projectDir string) ([]string, error)` (reads `.sthignore` from `projectDir`, returns nil slice when absent) and `MatchesIgnorePattern(relPath string, patterns []string) bool` (gitignore-style matching: `*` any chars within segment, `**` across segments, `?` single char, lines starting with `#` are comments, blank lines are skipped) in new file `internal/fs/ignore.go`
 - [x] T005 [P] Implement `CheckOwnershipConflict(state *InstalledResourceStateV2, newOwner, filePath string) *OwnershipConflict` (returns non-nil when `filePath` is found in another record's `ManagedFiles`) and `TransferOwnership(state *InstalledResourceStateV2, newOwner, filePath string)` (removes `filePath` from the current owner's `ManagedFiles` in-place) in new file `internal/fs/ownership.go`
 
 **Checkpoint**: Foundation ready — all story phases can begin; T004 and T005 can run in parallel
 
 ---
 
-## Phase 3: User Story 1 — `loreskills status` (Priority: P1) 🎯 MVP
+## Phase 3: User Story 1 — `sth status` (Priority: P1) 🎯 MVP
 
 **Goal**: Show every installed resource as `up-to-date`, `outdated`, `modified-locally`, or `unknown-baseline` with per-resource detail.
 
-**Independent Test**: Install a resource, manually edit one managed file, run `loreskills status`, verify the resource appears as `modified-locally` with the edited file listed.
+**Independent Test**: Install a resource, manually edit one managed file, run `sth status`, verify the resource appears as `modified-locally` with the edited file listed.
 
 - [x] T006 [P] [US1] Implement `ComputeResourceStatus(record InstalledResourceRecordV2, latestVersion string) (ResourceStatus, []string)` in new file `internal/fs/status.go`:
   - Returns `unknown-baseline` when `record.ManagedFiles` is empty (no SHA256 baseline)
@@ -58,18 +58,18 @@
   - Read v2 state once with `fs.ReadInstalledStateV2`; print "No resources installed." and return nil when empty
   - Read `ProjectConfigV2` with `fs.ReadProjectConfigV2` to find `pinned_version` per resource
   - For each record: call `a.client.DownloadCatalogEntry` to get current upstream content, compute `latestVersion = fs.ComputeSHA256(content)`, call `fs.ComputeResourceStatus`
-  - Text output: one line per resource — name, status; for `modified-locally` list each modified file indented; for `unknown-baseline` append "  → re-install with `loreskills install --force <name>` to establish integrity tracking"
+  - Text output: one line per resource — name, status; for `modified-locally` list each modified file indented; for `unknown-baseline` append "  → re-install with `sth install --force <name>` to establish integrity tracking"
   - `--json` output: JSON array where each object has `resource_name`, `provider_id`, `status`, `resolved_version`, `latest_version`, `modified_files []string` (null when none)
 
-**Checkpoint**: `loreskills status` is fully functional and independently testable
+**Checkpoint**: `sth status` is fully functional and independently testable
 
 ---
 
-## Phase 4: User Story 2 — `loreskills remove` (Priority: P1)
+## Phase 4: User Story 2 — `sth remove` (Priority: P1)
 
 **Goal**: Delete all managed files for a resource and remove its state entry cleanly, with modified-file confirmation.
 
-**Independent Test**: Install a resource, record the files it created, run `loreskills remove <name>`, verify all those files are gone and the state entry is removed.
+**Independent Test**: Install a resource, record the files it created, run `sth remove <name>`, verify all those files are gone and the state entry is removed.
 
 - [x] T008 [P] [US2] Implement `DeleteManagedFiles(record InstalledResourceRecordV2) (deletedPaths []string, failedPaths []string)` and `RemoveResourceFromState(targetDir string, resourceName string) error` in new file `internal/fs/remove.go`:
   - `DeleteManagedFiles`: iterates `record.ManagedFiles`; for each path calls `os.Remove`; missing files (not-exist error) emit a warning via returned `failedPaths` with prefix `"(missing)"` but continue; locked/permission failures add path to `failedPaths` as errors
@@ -82,7 +82,7 @@
   - On full success call `fs.RemoveResourceFromState` and confirm removal on stdout
 - [x] T010 [US2] Add `"remove"` case in `cmd/root.go` switch (added as stub in T002): complete routing to call `a.runRemove(args[1:])` with proper usage guard
 
-**Checkpoint**: `loreskills remove` is fully functional and independently testable
+**Checkpoint**: `sth remove` is fully functional and independently testable
 
 ---
 
@@ -90,7 +90,7 @@
 
 **Goal**: Preview every file change that `install` or `update` would make without writing anything.
 
-**Independent Test**: Run `loreskills install <name> --dry-run` for a new resource, verify no files are written to disk and a full list of "would create" files is printed.
+**Independent Test**: Run `sth install <name> --dry-run` for a new resource, verify no files are written to disk and a full list of "would create" files is printed.
 
 - [x] T011 [US3] Implement `ComputeDryRunChanges(existing *InstalledResourceRecordV2, incomingFiles []ManagedFile, ignorePats []string) []DryRunChange` and `FormatDryRunText(changes []DryRunChange) string` and `FormatDryRunJSON(changes []DryRunChange) ([]byte, error)` in new file `internal/fs/dryrun.go`:
   - For each file in `incomingFiles`: skip if `MatchesIgnorePattern` matches; if not in `existing.ManagedFiles` → `DryRunChange{Action:"add", Path:...}`; if SHA differs → `DryRunChange{Action:"modify", OldSHA256:..., NewSHA256:...}`
@@ -112,7 +112,7 @@
 
 **Goal**: Resources with `pinned_version` set are skipped by `update`, shown as pinned by `status`, and cause a clear error if the pinned version no longer resolves.
 
-**Independent Test**: Pin a resource, run `loreskills update`, verify the resource's `resolved_version` in `lore-state-v2.json` is unchanged and output shows "(pinned)".
+**Independent Test**: Pin a resource, run `sth update`, verify the resource's `resolved_version` in `sth-state-v2.json` is unchanged and output shows "(pinned)".
 
 - [x] T014 [P] [US4] Implement `PinnedVersion(cfg ProjectConfigV2, resourceName string) string` (returns `pinned_version` from the matching `ResourceEntry` or `""` when absent or unpinned) in new file `internal/fs/pin.go`
 - [x] T015 [US4] Enforce pinning in `runUpdate` in `cmd/update.go`:
@@ -125,18 +125,18 @@
 
 ---
 
-## Phase 7: User Story 5 — `.loreskillsignore` (Priority: P2)
+## Phase 7: User Story 5 — `.sthignore` (Priority: P2)
 
-**Goal**: Files matching gitignore-style patterns in `.loreskillsignore` are never written to disk and never recorded in `managed_files`.
+**Goal**: Files matching gitignore-style patterns in `.sthignore` are never written to disk and never recorded in `managed_files`.
 
-**Independent Test**: Add `*.test.md` to `.loreskillsignore`, install a bundle containing `.test.md` files, verify those files are not present in the target directory.
+**Independent Test**: Add `*.test.md` to `.sthignore`, install a bundle containing `.test.md` files, verify those files are not present in the target directory.
 
-- [x] T017 [P] [US5] Wire `ReadLoreSkillsIgnore` into `runInstall` and `runUpdate` (ignore patterns passed to `ComputeDryRunChanges`) in `internal/fs/ignore.go` (new file created)
-- [x] T018 [US5] Wire `ReadLoreSkillsIgnore` into `runInstall` and `runUpdate` in `cmd/install.go` and `cmd/update.go`:
-  - Call `fs.ReadLoreSkillsIgnore(workingDir)` once at command start; pass patterns to `ComputeDryRunChanges` and dry-run calls
-- [x] T019 [P] [US5] Wire `ReadLoreSkillsIgnore` into `ComputeDryRunChanges` call sites in `cmd/install.go` and `cmd/update.go` (already uses `ignorePats` parameter from T011): pass the loaded patterns so dry-run output matches live install output exactly (SC-003)
+- [x] T017 [P] [US5] Wire `ReadSTHIgnore` into `runInstall` and `runUpdate` (ignore patterns passed to `ComputeDryRunChanges`) in `internal/fs/ignore.go` (new file created)
+- [x] T018 [US5] Wire `ReadSTHIgnore` into `runInstall` and `runUpdate` in `cmd/install.go` and `cmd/update.go`:
+  - Call `fs.ReadSTHIgnore(workingDir)` once at command start; pass patterns to `ComputeDryRunChanges` and dry-run calls
+- [x] T019 [P] [US5] Wire `ReadSTHIgnore` into `ComputeDryRunChanges` call sites in `cmd/install.go` and `cmd/update.go` (already uses `ignorePats` parameter from T011): pass the loaded patterns so dry-run output matches live install output exactly (SC-003)
 
-**Checkpoint**: `.loreskillsignore` is respected by install, update, and dry-run
+**Checkpoint**: `.sthignore` is respected by install, update, and dry-run
 
 ---
 
@@ -183,7 +183,7 @@
 | US2 – remove | Phase 2 | US1 (uses `ComputeResourceStatus` from T006) |
 | US3 – dry-run | Phase 2 | none |
 | US4 – pinning | Phase 2 | US1 (adds pinned notice to `runStatus`) |
-| US5 – .loreskillsignore | Phase 2, T011 | US3 (ignore patterns fed to `ComputeDryRunChanges`) |
+| US5 – .sthignore | Phase 2, T011 | US3 (ignore patterns fed to `ComputeDryRunChanges`) |
 | US6 – ownership | Phase 2 | T017 (`InstallOptions` struct from US5) |
 
 ### Within Each User Story
@@ -233,9 +233,9 @@ Task B: "Add --dry-run to runUpdate in cmd/update.go"     (T013)
 
 1. Complete Phase 1: Setup
 2. Complete Phase 2: Foundational (CRITICAL — blocks all stories)
-3. Complete Phase 3: US1 `loreskills status`
-4. **STOP and VALIDATE**: `loreskills status` independently
-5. Complete Phase 4: US2 `loreskills remove`
+3. Complete Phase 3: US1 `sth status`
+4. **STOP and VALIDATE**: `sth status` independently
+5. Complete Phase 4: US2 `sth remove`
 6. Complete Phase 5: US3 `--dry-run`
 7. Complete Phase 6: US4 version pinning
 8. **STOP and VALIDATE**: All P1 stories working end-to-end
@@ -247,7 +247,7 @@ Task B: "Add --dry-run to runUpdate in cmd/update.go"     (T013)
 3. US2 (remove) → independently testable (reuses `ComputeResourceStatus`)
 4. US3 (dry-run) → independently testable
 5. US4 (pinning) → integrates into existing `update` and `status`
-6. US5 (.loreskillsignore) → integrates into install/update/dryrun
+6. US5 (.sthignore) → integrates into install/update/dryrun
 7. US6 (ownership) → integrates into install/update
 8. Polish → help text + performance audit
 
@@ -257,7 +257,7 @@ With multiple developers, after Phase 2 completes:
 
 - **Developer A**: US1 (status) → US4 (pinning adds to status/update)
 - **Developer B**: US2 (remove) — independent after US1 ComputeResourceStatus exists
-- **Developer C**: US3 (dry-run) → US5 (.loreskillsignore integrates into dryrun)
+- **Developer C**: US3 (dry-run) → US5 (.sthignore integrates into dryrun)
 - **Developer D**: US6 (ownership) — integrate after US5 adds `InstallOptions` struct
 
 ---

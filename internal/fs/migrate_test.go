@@ -96,9 +96,9 @@ func TestMigrateInstalledState_V1ToV2(t *testing.T) {
 		},
 	}
 	data, _ := json.MarshalIndent(v1, "", "  ")
-	p := filepath.Join(tmpDir, "lore-state.json")
+	p := filepath.Join(tmpDir, "sth-state.json")
 	if err := os.WriteFile(p, append(data, '\n'), 0o644); err != nil {
-		t.Fatalf("failed to write v1 lore-state.json: %v", err)
+		t.Fatalf("failed to write v1 sth-state.json: %v", err)
 	}
 
 	state, err := MigrateInstalledState(p, io.Discard)

@@ -8,7 +8,7 @@ func TestRun_versionShowsMinimalSignature(t *testing.T) {
 	if result.err != nil {
 		t.Fatalf("Run() error = %v", result.err)
 	}
-	assertContains(t, result.stdout, "LoreSkills dev")
+	assertContains(t, result.stdout, "STH dev")
 	assertContains(t, result.stdout, versionByline)
 	assertNotContains(t, result.stdout, "commit:")
 	assertNotContains(t, result.stdout, "build_date:")

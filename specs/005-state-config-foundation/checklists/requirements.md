@@ -33,4 +33,4 @@
 
 - All items pass. Ready for `/speckit.plan`.
 - Credential model (where tokens come from) is explicitly deferred to spec 007.
-- `loreskills provider add/remove/list` subcommand deferred to a future spec; init handles v1 multi-provider UX.
+- `sth provider add/remove/list` subcommand deferred to a future spec; init handles v1 multi-provider UX.

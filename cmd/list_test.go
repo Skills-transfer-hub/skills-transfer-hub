@@ -3,7 +3,7 @@ package cmd
 import (
 	"testing"
 
-	"loreskills/internal/fs"
+	"sth/internal/fs"
 	stdhttp "net/http"
 	"net/http/httptest"
 )
@@ -21,7 +21,7 @@ func TestRun_listShowsRemoteCatalogEntries(t *testing.T) {
 		)))
 	}))
 	defer server.Close()
-	t.Setenv("LORESKILLS_GITHUB_RAW_BASE_URL", server.URL)
+	t.Setenv("STH_GITHUB_RAW_BASE_URL", server.URL)
 
 	writeProjectProfileForCommandTest(t, projectDir, fs.ProjectProfile{
 		Provider:     "github",
@@ -59,8 +59,8 @@ func TestRun_listFallsBackToStructureScanWhenCatalogMissing(t *testing.T) {
 		}
 	}))
 	defer server.Close()
-	t.Setenv("LORESKILLS_GITHUB_RAW_BASE_URL", server.URL)
-	t.Setenv("LORESKILLS_GITHUB_API_BASE_URL", server.URL)
+	t.Setenv("STH_GITHUB_RAW_BASE_URL", server.URL)
+	t.Setenv("STH_GITHUB_API_BASE_URL", server.URL)
 
 	writeProjectProfileForCommandTest(t, projectDir, fs.ProjectProfile{
 		Provider:     "github",

@@ -34,4 +34,4 @@
 - All items pass. Ready for `/speckit.plan`.
 - Depends on spec 005 (previous_version for changelog diff) and spec 006 (managed_files for catalog awareness).
 - Keep a Changelog format is the primary target; other formats display raw.
-- `loreskills catalog init` is for skill authors, not consumers; running it in a consumer project is gracefully handled.
+- `sth catalog init` is for skill authors, not consumers; running it in a consumer project is gracefully handled.

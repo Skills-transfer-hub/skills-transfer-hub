@@ -79,8 +79,8 @@ func TestWriteDefaultConfig_createsDefaultJSON(t *testing.T) {
 	if err != nil {
 		t.Fatalf("WriteDefaultConfig() error = %v", err)
 	}
-	if configPath != filepath.Join(paths.homeDir, ".loreskillsrc") {
-		t.Fatalf("configPath = %s, want %s", configPath, filepath.Join(paths.homeDir, ".loreskillsrc"))
+	if configPath != filepath.Join(paths.homeDir, ".sthrc") {
+		t.Fatalf("configPath = %s, want %s", configPath, filepath.Join(paths.homeDir, ".sthrc"))
 	}
 
 	data, err := os.ReadFile(configPath)
@@ -102,7 +102,7 @@ func TestWriteDefaultConfig_createsDefaultJSON(t *testing.T) {
 
 func TestWriteDefaultConfig_refusesToOverwriteExistingConfig(t *testing.T) {
 	paths := newTestPaths(t)
-	configPath := filepath.Join(paths.homeDir, ".loreskillsrc")
+	configPath := filepath.Join(paths.homeDir, ".sthrc")
 	original := []byte("{\"repo_raw_url\":\"https://example.invalid\",\"target_dir\":\".claude/skills\"}\n")
 	if err := os.WriteFile(configPath, original, 0o600); err != nil {
 		t.Fatalf("WriteFile(%s): %v", configPath, err)
@@ -136,7 +136,7 @@ func TestWriteProjectProfile_roundTrips(t *testing.T) {
 	if err != nil {
 		t.Fatalf("WriteProjectProfile() error = %v", err)
 	}
-	expectedPath := filepath.Join(paths.projectDir, ".loreskills", "project.json")
+	expectedPath := filepath.Join(paths.projectDir, ".sth", "project.json")
 	profileInfo, err := os.Stat(profilePath)
 	if err != nil {
 		t.Fatalf("Stat(%s): %v", profilePath, err)
@@ -233,7 +233,7 @@ func TestReadInstalledState_readsLegacyMap(t *testing.T) {
 	if err := os.MkdirAll(targetPath, 0o755); err != nil {
 		t.Fatalf("MkdirAll(%s): %v", targetPath, err)
 	}
-	statePath := filepath.Join(targetPath, "lore-state.json")
+	statePath := filepath.Join(targetPath, "sth-state.json")
 	legacyState, err := json.Marshal(map[string]string{"alpha": "installed"})
 	if err != nil {
 		t.Fatalf("json.Marshal(): %v", err)
@@ -360,6 +360,48 @@ func TestInstallCatalogEntryV2_SHA256MatchesActualFileContent(t *testing.T) {
 	}
 	if got := state.Entries[0].ManagedFiles[0].SHA256; got != computedSHA {
 		t.Fatalf("stored SHA256 %q != computed SHA256 %q", got, computedSHA)
+	}
+}
+
+// SKILL.md with YAML frontmatter must remain Claude-compatible after install:
+// the `---` opening fence stays on line 1 and the STH header is injected
+// after the closing fence rather than before the opening one.
+func TestInstallCatalogEntryV2_PreservesFrontmatterOnLineOne(t *testing.T) {
+	paths := newTestPaths(t)
+	entry := CatalogEntry{
+		CatalogID:    CatalogID("skill", "react", "form-wizard"),
+		ResourceType: "skill",
+		Name:         "form-wizard",
+		FolderName:   "react",
+		SourcePath:   "react/form-wizard/SKILL.md",
+	}
+	content := []byte("---\nname: form-wizard\ndescription: builds React forms\n---\n# Body\n")
+
+	_, err := InstallCatalogEntryV2(paths.targetDir, entry, content, "default")
+	if err != nil {
+		t.Fatalf("InstallCatalogEntryV2() error = %v", err)
+	}
+
+	installedPath := filepath.Join(paths.projectDir, ".claude", "resources", "react", "SKILL.md")
+	fileBytes, err := os.ReadFile(installedPath)
+	if err != nil {
+		t.Fatalf("ReadFile(%s): %v", installedPath, err)
+	}
+
+	if !strings.HasPrefix(string(fileBytes), "---\n") {
+		t.Fatalf("first line of installed SKILL.md must be `---`; got:\n%s", fileBytes)
+	}
+	if !strings.Contains(string(fileBytes), "---\nname: form-wizard\ndescription: builds React forms\n---\n") {
+		t.Fatalf("frontmatter block was altered on disk; got:\n%s", fileBytes)
+	}
+	if !strings.Contains(string(fileBytes), skillHeader) {
+		t.Fatalf("STH managed-header is missing from installed SKILL.md; got:\n%s", fileBytes)
+	}
+	// Header must sit between closing fence and body, not at top.
+	idxOpen := strings.Index(string(fileBytes), "---\nname:")
+	idxHeader := strings.Index(string(fileBytes), skillHeader)
+	if idxHeader < idxOpen {
+		t.Fatalf("STH header injected before frontmatter; got:\n%s", fileBytes)
 	}
 }
 

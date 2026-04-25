@@ -4,7 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"io"
-	"loreskills/internal/fs"
+	"sth/internal/fs"
 	"strconv"
 	"strings"
 )
@@ -75,7 +75,7 @@ func (a *app) loadGuidedStartupState() guidedStartupState {
 
 func renderGuidedMenuLines(state guidedStartupState) []string {
 	lines := []string{
-		"Menu guidé LoreSkills",
+		"Menu guidé STH",
 		fmt.Sprintf("Etat projet : %s", state.ProjectState),
 		fmt.Sprintf("Action recommandée : %s", state.PrimaryAction),
 	}
@@ -98,6 +98,8 @@ func renderGuidedMenuLines(state guidedStartupState) []string {
 }
 
 func (a *app) runGuidedMenu() error {
+	a.playLaunchBanner(a.computeBuddyStateFast())
+
 	reader := bufio.NewReader(a.stdin)
 	for {
 		state := a.loadGuidedStartupState()
@@ -228,7 +230,7 @@ func renderProviderGuideLines(provider string) []string {
 func startupGuidanceLines(state guidedStartupState) []string {
 	lines := []string{
 		fmt.Sprintf("Etat projet : %s", state.ProjectState),
-		fmt.Sprintf("Action recommandée : loreskills %s", state.PrimaryAction),
+		fmt.Sprintf("Action recommandée : sth %s", state.PrimaryAction),
 	}
 	if state.ProviderHint != "" {
 		lines = append(lines, fmt.Sprintf("Provider configuré : %s", state.ProviderHint))

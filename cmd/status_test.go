@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"loreskills/internal/fs"
+	"sth/internal/fs"
 
 	stdhttp "net/http"
 	"net/http/httptest"
@@ -24,8 +24,8 @@ func writeV2StateForStatusTest(t *testing.T, projectDir, targetDir string, state
 	if err != nil {
 		t.Fatalf("json.MarshalIndent(v2 state): %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(targetPath, "lore-state-v2.json"), data, 0o644); err != nil {
-		t.Fatalf("WriteFile(lore-state-v2.json): %v", err)
+	if err := os.WriteFile(filepath.Join(targetPath, "sth-state-v2.json"), data, 0o644); err != nil {
+		t.Fatalf("WriteFile(sth-state-v2.json): %v", err)
 	}
 }
 
@@ -72,7 +72,7 @@ func TestRunStatus_textOutput(t *testing.T) {
 		stdhttp.NotFound(w, r)
 	}))
 	defer server.Close()
-	t.Setenv("LORESKILLS_GITHUB_API_BASE_URL", server.URL)
+	t.Setenv("STH_GITHUB_API_BASE_URL", server.URL)
 
 	writeProjectConfigV2ForTest(t, projectDir, fs.ProjectConfigV2{
 		SchemaVersion: 2,
@@ -128,7 +128,7 @@ func TestRunStatus_JSONOutput(t *testing.T) {
 		stdhttp.NotFound(w, r)
 	}))
 	defer server.Close()
-	t.Setenv("LORESKILLS_GITHUB_API_BASE_URL", server.URL)
+	t.Setenv("STH_GITHUB_API_BASE_URL", server.URL)
 
 	writeProjectConfigV2ForTest(t, projectDir, fs.ProjectConfigV2{
 		SchemaVersion: 2,
@@ -196,7 +196,7 @@ func TestRunStatus_pinnedAnnotation(t *testing.T) {
 		stdhttp.NotFound(w, r)
 	}))
 	defer server.Close()
-	t.Setenv("LORESKILLS_GITHUB_API_BASE_URL", server.URL)
+	t.Setenv("STH_GITHUB_API_BASE_URL", server.URL)
 
 	writeProjectConfigV2ForTest(t, projectDir, fs.ProjectConfigV2{
 		SchemaVersion: 2,
@@ -256,7 +256,7 @@ func TestRunStatus_pinnedNewerVersionNotice(t *testing.T) {
 		stdhttp.NotFound(w, r)
 	}))
 	defer server.Close()
-	t.Setenv("LORESKILLS_GITHUB_API_BASE_URL", server.URL)
+	t.Setenv("STH_GITHUB_API_BASE_URL", server.URL)
 
 	writeProjectConfigV2ForTest(t, projectDir, fs.ProjectConfigV2{
 		SchemaVersion: 2,
@@ -315,7 +315,7 @@ func TestRunStatus_pinnedJSONHasPinnedFields(t *testing.T) {
 		stdhttp.NotFound(w, r)
 	}))
 	defer server.Close()
-	t.Setenv("LORESKILLS_GITHUB_API_BASE_URL", server.URL)
+	t.Setenv("STH_GITHUB_API_BASE_URL", server.URL)
 
 	writeProjectConfigV2ForTest(t, projectDir, fs.ProjectConfigV2{
 		SchemaVersion: 2,
@@ -375,7 +375,7 @@ func TestRunStatus_networkErrorExitCode2(t *testing.T) {
 	}
 	diskSHA := fs.ComputeSHA256(content)
 
-	t.Setenv("LORESKILLS_GITHUB_API_BASE_URL", "http://127.0.0.1:19999")
+	t.Setenv("STH_GITHUB_API_BASE_URL", "http://127.0.0.1:19999")
 
 	writeProjectConfigV2ForTest(t, projectDir, fs.ProjectConfigV2{
 		SchemaVersion: 2,

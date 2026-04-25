@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	"loreskills/internal/fs"
-	lorehttp "loreskills/internal/http"
+	"sth/internal/fs"
+	sthhttp "sth/internal/http"
 )
 
 func assertStartupState(t *testing.T, got, want string) {
@@ -78,7 +78,7 @@ func TestLoadGuidedStartupState_configuredReadyProject(t *testing.T) {
 
 func TestLoadGuidedStartupState_invalidProjectProfile(t *testing.T) {
 	projectDir := t.TempDir()
-	configDir := filepath.Join(projectDir, ".loreskills")
+	configDir := filepath.Join(projectDir, ".sth")
 	if err := os.MkdirAll(configDir, 0o755); err != nil {
 		t.Fatalf("MkdirAll(%s): %v", configDir, err)
 	}
@@ -116,7 +116,7 @@ func TestRenderGuidedMenu_unconfiguredProject(t *testing.T) {
 		Detail:           "Configuration projet absente.",
 	})
 	menu := renderMessage(lines...)
-	assertStartupState(t, menu, "Menu guidé LoreSkills")
+	assertStartupState(t, menu, "Menu guidé STH")
 	assertStartupState(t, menu, "Etat projet : unconfigured")
 	assertStartupState(t, menu, "1. init (recommandé)")
 	assertStartupState(t, menu, "3. quit")
@@ -211,7 +211,7 @@ func TestRunGuidedMenu_configuredReadyShowsProviderGuidance(t *testing.T) {
 		t.Fatalf("runGuidedMenu() error = %v\nstdout=%s\nstderr=%s", err, stdout.String(), stderr.String())
 	}
 	assertStartupState(t, stdout.String(), "https://github.com/settings/personal-access-tokens/new")
-	if count := strings.Count(stdout.String(), "Menu guidé LoreSkills"); count < 2 {
+	if count := strings.Count(stdout.String(), "Menu guidé STH"); count < 2 {
 		t.Fatalf("guided menu should have been rendered twice, got %d occurrences in %q", count, stdout.String())
 	}
 	assertEmpty(t, stderr.String())
@@ -262,7 +262,7 @@ func TestRunGuidedMenu_reusesFreshUpdateCacheWithin24Hours(t *testing.T) {
 		workDir:      projectDir,
 		homeDir:      t.TempDir(),
 		input:        "9\n",
-		client:       lorehttp.NewClient(server.Client()),
+		client:       sthhttp.NewClient(server.Client()),
 		interactive:  func() bool { return true },
 		userCacheDir: cacheDir,
 	}

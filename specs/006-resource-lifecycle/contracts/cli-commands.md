@@ -5,12 +5,12 @@ These contracts govern what the implementor must deliver and what tests must ver
 
 ---
 
-## New Command: `loreskills status`
+## New Command: `sth status`
 
 ### Synopsis
 
 ```
-loreskills status [--json]
+sth status [--json]
 ```
 
 ### Flags
@@ -94,12 +94,12 @@ case "status":
 
 ---
 
-## New Command: `loreskills remove`
+## New Command: `sth remove`
 
 ### Synopsis
 
 ```
-loreskills remove <resource-name> [--yes]
+sth remove <resource-name> [--yes]
 ```
 
 ### Flags
@@ -120,7 +120,7 @@ loreskills remove <resource-name> [--yes]
 ### Interaction Flow
 
 ```
-loreskills remove my-skill
+sth remove my-skill
   → detect modified files
   → if none: proceed directly
   → if any: print warning + list of modified files
@@ -154,12 +154,12 @@ case "remove":
 
 ---
 
-## Modified Command: `loreskills install`
+## Modified Command: `sth install`
 
 ### Synopsis (extended)
 
 ```
-loreskills install <resource-ref> [--dry-run] [--force]
+sth install <resource-ref> [--dry-run] [--force]
 ```
 
 ### New Flags
@@ -205,12 +205,12 @@ Exit code: 1
 
 ---
 
-## Modified Command: `loreskills update`
+## Modified Command: `sth update`
 
 ### Synopsis (extended)
 
 ```
-loreskills update [self] [--dry-run]
+sth update [self] [--dry-run]
 ```
 
 ### New Flags

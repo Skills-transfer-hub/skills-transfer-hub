@@ -25,7 +25,7 @@
 ## Feature Readiness
 
 - [x] All functional requirements have clear acceptance criteria
-- [x] User scenarios cover primary flows (status, remove, dry-run, pinning, .loreskillsignore, ownership)
+- [x] User scenarios cover primary flows (status, remove, dry-run, pinning, .sthignore, ownership)
 - [x] Feature meets measurable outcomes defined in Success Criteria
 - [x] No implementation details leak into specification
 
@@ -33,5 +33,5 @@
 
 - All items pass. Ready for `/speckit.plan`.
 - Depends on spec 005 (state schema v2, managed_files, SHA256 baseline).
-- `loreskills remove` is single-resource only; bulk removal deferred.
+- `sth remove` is single-resource only; bulk removal deferred.
 - `--yes` global flag mentioned; its scope (all interactive commands) should be confirmed at plan time.

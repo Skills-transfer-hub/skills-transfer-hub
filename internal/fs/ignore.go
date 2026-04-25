@@ -8,10 +8,10 @@ import (
 	"strings"
 )
 
-// ReadLoreSkillsIgnore reads .loreskillsignore from projectDir.
+// ReadSTHIgnore reads .sthignore from projectDir.
 // Returns nil slice (no error) when the file is absent.
-func ReadLoreSkillsIgnore(projectDir string) ([]string, error) {
-	p := filepath.Join(projectDir, ".loreskillsignore")
+func ReadSTHIgnore(projectDir string) ([]string, error) {
+	p := filepath.Join(projectDir, ".sthignore")
 	f, err := os.Open(p)
 	if os.IsNotExist(err) {
 		return nil, nil
@@ -33,7 +33,7 @@ func ReadLoreSkillsIgnore(projectDir string) ([]string, error) {
 	return patterns, sc.Err()
 }
 
-// MatchesIgnorePattern reports whether relPath matches any gitignore-style pattern.
+// MatchesIgnorePatternreports whether relPath matches any gitignore-style pattern.
 // Supports *, ?, ** (double-star matches across path segments).
 func MatchesIgnorePattern(relPath string, patterns []string) bool {
 	normalized := filepath.ToSlash(relPath)
@@ -87,11 +87,11 @@ func matchGlob(pattern, target string) bool {
 	return false
 }
 
-// ParseIgnoreFile reads .loreskillsignore from projectRoot and returns active patterns.
+// ParseIgnoreFile reads .sthignore from projectRoot and returns active patterns.
 // Lines starting with '#' and blank lines are ignored.
 // Returns nil patterns (not an error) if the file does not exist.
 func ParseIgnoreFile(projectRoot string) ([]string, error) {
-	return ReadLoreSkillsIgnore(projectRoot)
+	return ReadSTHIgnore(projectRoot)
 }
 
 // MatchIgnore reports whether bundleRelativePath matches any of the given gitignore patterns.

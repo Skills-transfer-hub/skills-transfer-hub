@@ -5,7 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"loreskills/internal/fs"
+	"sth/internal/fs"
 	"strings"
 )
 
@@ -31,7 +31,7 @@ func (a *app) runInit() error {
 			return promptErr
 		}
 		if !addNew {
-			a.writeStdout("Configuration projet conservée.", "Prochaine étape : utilisez `loreskills list`.")
+			a.writeStdout("Configuration projet conservée.", "Prochaine étape : utilisez `sth list`.")
 			return nil
 		}
 	}
@@ -45,7 +45,7 @@ func (a *app) runInit() error {
 	if len(existingCfg.Providers) == 0 && legacyConfig != nil {
 		legacyProfile, legacyErr := fs.LegacyProfileFromConfig(*legacyConfig)
 		if legacyErr == nil {
-			shouldImport, promptErr := promptYesNo(reader, a.stdout, "Importer la configuration legacy ~/.loreskillsrc ?", true)
+			shouldImport, promptErr := promptYesNo(reader, a.stdout, "Importer la configuration legacy ~/.sthrc ?", true)
 			if promptErr != nil {
 				return promptErr
 			}
@@ -56,7 +56,7 @@ func (a *app) runInit() error {
 	}
 
 	a.writeStdout(
-		"Assistant de configuration LoreSkills",
+		"Assistant de configuration STH",
 		"Ce wizard vous guide pas a pas pour connecter le projet courant a un catalogue distant.",
 	)
 	a.writeStdout("Etape 0/5 - Identifiant du provider")
@@ -193,7 +193,7 @@ func (a *app) runInit() error {
 		fmt.Sprintf("Catalogue: %s @ %s", profile.CatalogPath, refValue),
 		fmt.Sprintf("Dossier cible: %s", profile.TargetDir),
 		"Accès au dépôt validé.",
-		"Prochaine étape : utilisez `loreskills list`.",
+		"Prochaine étape : utilisez `sth list`.",
 	}
 	if profile.APIToken != "" {
 		successLines = append(successLines,
@@ -237,7 +237,7 @@ func providerPrivateAccessGuidance(provider string) []string {
 			"Depot prive - Authentification requise",
 			"",
 			"Generez un token d'acces depuis l'interface de votre provider et definissez :",
-			"  export LORESKILLS_TOKEN=<votre-token>",
+			"  export STH_TOKEN=<votre-token>",
 		}
 	}
 
@@ -257,7 +257,7 @@ func providerPrivateAccessGuidance(provider string) []string {
 			"",
 			"Variable d'environnement a definir pour les prochaines utilisations :",
 			"  export GITHUB_TOKEN=<votre-token>",
-			"  ou LORESKILLS_TOKEN=<votre-token>   (compatible toutes plateformes)",
+			"  ou STH_TOKEN=<votre-token>   (compatible toutes plateformes)",
 		}
 	case "gitlab":
 		return []string{
@@ -273,7 +273,7 @@ func providerPrivateAccessGuidance(provider string) []string {
 			"",
 			"Variable d'environnement a definir pour les prochaines utilisations :",
 			"  export GITLAB_TOKEN=<votre-token>",
-			"  ou LORESKILLS_TOKEN=<votre-token>   (compatible toutes plateformes)",
+			"  ou STH_TOKEN=<votre-token>   (compatible toutes plateformes)",
 		}
 	case "azure-devops":
 		return []string{
@@ -290,7 +290,7 @@ func providerPrivateAccessGuidance(provider string) []string {
 			"",
 			"Variable d'environnement a definir pour les prochaines utilisations :",
 			"  export AZURE_DEVOPS_EXT_PAT=<votre-token>",
-			"  ou LORESKILLS_TOKEN=<votre-token>   (compatible toutes plateformes)",
+			"  ou STH_TOKEN=<votre-token>   (compatible toutes plateformes)",
 		}
 	case "bitbucket":
 		return []string{
@@ -304,14 +304,14 @@ func providerPrivateAccessGuidance(provider string) []string {
 			"",
 			"Variables d'environnement a definir pour les prochaines utilisations :",
 			"  export BITBUCKET_TOKEN=<votre-token>",
-			"  ou LORESKILLS_TOKEN=<votre-token>   (compatible toutes plateformes)",
+			"  ou STH_TOKEN=<votre-token>   (compatible toutes plateformes)",
 		}
 	default:
 		return []string{
 			"Depot prive - Authentification requise",
 			"",
 			"Generez un token d'acces depuis l'interface de votre provider et definissez :",
-			"  export LORESKILLS_TOKEN=<votre-token>",
+			"  export STH_TOKEN=<votre-token>",
 		}
 	}
 }
@@ -320,7 +320,7 @@ func providerPrivateAccessGuidance(provider string) []string {
 func providerTokenEnvVar(provider string) string {
 	guide, ok := findProviderGuide(provider)
 	if !ok || len(guide.EnvVars) == 0 {
-		return "LORESKILLS_TOKEN"
+		return "STH_TOKEN"
 	}
 
 	return guide.EnvVars[0]

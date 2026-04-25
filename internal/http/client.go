@@ -1,4 +1,4 @@
-// Package http centralizes LoreSkills network operations.
+// Package http centralizes STH network operations.
 package http
 
 import (
@@ -8,7 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"loreskills/internal/fs"
+	"sth/internal/fs"
 	stdhttp "net/http"
 	neturl "net/url"
 	"os"
@@ -23,7 +23,7 @@ type Client struct {
 	httpClient *stdhttp.Client
 }
 
-// AccessSource describes how LoreSkills authenticated the current request.
+// AccessSource describes how STH authenticated the current request.
 type AccessSource struct {
 	Kind     string
 	Hint     string
@@ -73,7 +73,7 @@ type githubReleaseAsset struct {
 	BrowserDownloadURL string `json:"browser_download_url"`
 }
 
-// NewClient builds a network client for LoreSkills operations.
+// NewClient builds a network client for STH operations.
 func NewClient(httpClient *stdhttp.Client) *Client {
 	if httpClient == nil {
 		httpClient = &stdhttp.Client{Timeout: 10 * time.Second}
@@ -292,7 +292,7 @@ func (c *Client) GetLatestCommitSHA(ctx context.Context, cfg fs.ProjectConfigV2,
 		return "", &ProviderConfigError{Msg: "GetLatestCommitSHA: provider catalog ref is required"}
 	}
 
-	baseURL := strings.TrimRight(getEnvOrDefault("LORESKILLS_GITHUB_API_BASE_URL", "https://api.github.com"), "/")
+	baseURL := strings.TrimRight(getEnvOrDefault("STH_GITHUB_API_BASE_URL", "https://api.github.com"), "/")
 	apiURL := fmt.Sprintf("%s/repos/%s/commits/%s",
 		baseURL,
 		repositoryID,
@@ -384,20 +384,20 @@ func providerResourceURL(profile fs.ProjectProfile, resourcePath string) (string
 
 	switch strings.ToLower(strings.TrimSpace(profile.Provider)) {
 	case "github":
-		baseURL := strings.TrimRight(getEnvOrDefault("LORESKILLS_GITHUB_RAW_BASE_URL", "https://raw.githubusercontent.com"), "/")
+		baseURL := strings.TrimRight(getEnvOrDefault("STH_GITHUB_RAW_BASE_URL", "https://raw.githubusercontent.com"), "/")
 		return fmt.Sprintf("%s/%s/%s/%s", baseURL, strings.TrimSpace(profile.RepositoryID), strings.TrimSpace(profile.Ref), strings.TrimPrefix(trimmedPath, "/")), nil
 	case "gitlab":
-		baseURL := strings.TrimRight(getEnvOrDefault("LORESKILLS_GITLAB_API_BASE_URL", "https://gitlab.com/api/v4"), "/")
+		baseURL := strings.TrimRight(getEnvOrDefault("STH_GITLAB_API_BASE_URL", "https://gitlab.com/api/v4"), "/")
 		return fmt.Sprintf("%s/projects/%s/repository/files/%s/raw?ref=%s", baseURL, neturl.PathEscape(strings.TrimSpace(profile.RepositoryID)), neturl.PathEscape(strings.TrimPrefix(trimmedPath, "/")), neturl.QueryEscape(strings.TrimSpace(profile.Ref))), nil
 	case "azure-devops":
 		parts := strings.Split(strings.TrimSpace(profile.RepositoryID), "/")
 		if len(parts) != 3 {
 			return "", fmt.Errorf("repository_id Azure DevOps invalide : %q (attendu : organisation/projet/repo)", profile.RepositoryID)
 		}
-		baseURL := strings.TrimRight(getEnvOrDefault("LORESKILLS_AZURE_DEVOPS_BASE_URL", "https://dev.azure.com"), "/")
+		baseURL := strings.TrimRight(getEnvOrDefault("STH_AZURE_DEVOPS_BASE_URL", "https://dev.azure.com"), "/")
 		return fmt.Sprintf("%s/%s/%s/_apis/git/repositories/%s/items?path=/%s&versionDescriptor.version=%s&includeContent=true&resolveLfs=true&api-version=7.1", baseURL, neturl.PathEscape(parts[0]), neturl.PathEscape(parts[1]), neturl.PathEscape(parts[2]), neturl.QueryEscape(strings.TrimPrefix(trimmedPath, "/")), neturl.QueryEscape(strings.TrimSpace(profile.Ref))), nil
 	case "bitbucket":
-		baseURL := strings.TrimRight(getEnvOrDefault("LORESKILLS_BITBUCKET_API_BASE_URL", "https://api.bitbucket.org/2.0"), "/")
+		baseURL := strings.TrimRight(getEnvOrDefault("STH_BITBUCKET_API_BASE_URL", "https://api.bitbucket.org/2.0"), "/")
 		return fmt.Sprintf("%s/repositories/%s/src/%s/%s", baseURL, strings.TrimSpace(profile.RepositoryID), neturl.PathEscape(strings.TrimSpace(profile.Ref)), strings.TrimPrefix(trimmedPath, "/")), nil
 	default:
 		return "", fmt.Errorf("provider non pris en charge : %s", profile.Provider)
@@ -449,8 +449,8 @@ func providerAPITokenHeaders(token, provider string) credentialHeaders {
 
 func resolveEnvironmentHeaders(profile fs.ProjectProfile) (credentialHeaders, bool) {
 	provider := strings.ToLower(strings.TrimSpace(profile.Provider))
-	if token := strings.TrimSpace(os.Getenv("LORESKILLS_TOKEN")); token != "" {
-		return bearerHeaders(token, "LORESKILLS_TOKEN"), true
+	if token := strings.TrimSpace(os.Getenv("STH_TOKEN")); token != "" {
+		return bearerHeaders(token, "STH_TOKEN"), true
 	}
 
 	switch provider {

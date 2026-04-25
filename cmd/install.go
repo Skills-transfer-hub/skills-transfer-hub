@@ -3,7 +3,7 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"loreskills/internal/fs"
+	"sth/internal/fs"
 	"path/filepath"
 )
 
@@ -14,7 +14,7 @@ func (a *app) runInstall(args []string) error {
 	force := flags["--force"]
 
 	if len(positional) != 1 {
-		return fmt.Errorf("usage: loreskills install <resource-ref> [--dry-run] [--force]")
+		return fmt.Errorf("usage: sth install <resource-ref> [--dry-run] [--force]")
 	}
 	resourceRef := positional[0]
 
@@ -52,7 +52,7 @@ func (a *app) runInstall(args []string) error {
 			fmt.Sprintf("Ressource '%s' installée dans %s.", entry.Name, record.InstalledPath),
 			fmt.Sprintf("Type: %s", entry.ResourceType),
 			fmt.Sprintf("Dossier: %s", entry.FolderName),
-			"Prochaine étape : utilisez `loreskills update` pour rafraîchir les ressources suivies.",
+			"Prochaine étape : utilisez `sth update` pour rafraîchir les ressources suivies.",
 		)
 		return nil
 	}
@@ -63,7 +63,7 @@ func (a *app) runInstall(args []string) error {
 	}
 
 	workingDir, _ := filepath.Abs(".")
-	ignorePats, _ := fs.ReadLoreSkillsIgnore(workingDir)
+	ignorePats, _ := fs.ReadSTHIgnore(workingDir)
 
 	// Build incoming managed files for dry-run or conflict check.
 	incomingRecord := fs.RefreshManagedFileHashes(fs.InstalledResourceRecordV2{
@@ -119,10 +119,10 @@ func (a *app) runInstall(args []string) error {
 		}
 	}
 
-	// T020: Skip file write when excluded by .loreskillsignore (SC-003).
+	// T020: Skip file write when excluded by .sthignore (SC-003).
 	relPath := filepath.ToSlash(entry.SourcePath)
 	if len(ignorePats) > 0 && fs.MatchIgnore(ignorePats, relPath) {
-		a.writeStderr("warning: no files installed — all excluded by .loreskillsignore")
+		a.writeStderr("warning: no files installed — all excluded by .sthignore")
 		v2rec := fs.InstalledResourceRecordV2{
 			ResourceName: entry.CatalogID,
 			ProviderID:   providerID,
@@ -169,7 +169,7 @@ func (a *app) runInstall(args []string) error {
 		fmt.Sprintf("Ressource '%s' installée dans %s.", entry.Name, record.InstalledPath),
 		fmt.Sprintf("Type: %s", entry.ResourceType),
 		fmt.Sprintf("Dossier: %s", entry.FolderName),
-		"Prochaine étape : utilisez `loreskills update` pour rafraîchir les ressources suivies.",
+		"Prochaine étape : utilisez `sth update` pour rafraîchir les ressources suivies.",
 	)
 	return nil
 }
