@@ -94,22 +94,75 @@ func (a *app) runInstall(args []string) error {
 		return nil
 	}
 
-	// Ownership conflict check.
+	// Ownership conflict check (T023: --force transfers ownership).
+	state, _ := fs.ReadInstalledStateV2(profile.TargetDir)
 	if !force {
-		state, _ := fs.ReadInstalledStateV2(profile.TargetDir)
 		for _, mf := range incomingRecord.ManagedFiles {
 			if conflict := fs.CheckOwnershipConflict(&state, entry.CatalogID, mf.Path); conflict != nil {
 				return conflict
 			}
 		}
+	} else {
+		transferred := false
+		for _, mf := range incomingRecord.ManagedFiles {
+			if conflict := fs.CheckOwnershipConflict(&state, entry.CatalogID, mf.Path); conflict != nil {
+				a.writeStdout(fmt.Sprintf("warning: ownership of %s transferred from %s to %s",
+					mf.Path, conflict.ExistingOwner, entry.CatalogID))
+				fs.TransferOwnership(&state, entry.CatalogID, mf.Path)
+				transferred = true
+			}
+		}
+		if transferred {
+			if writeErr := fs.WriteInstalledStateV2(profile.TargetDir, state); writeErr != nil {
+				a.writeStderr(fmt.Sprintf("warning: failed to persist ownership transfer: %v", writeErr))
+			}
+		}
+	}
+
+	// T020: Skip file write when excluded by .loreskillsignore (SC-003).
+	relPath := filepath.ToSlash(entry.SourcePath)
+	if len(ignorePats) > 0 && fs.MatchIgnore(ignorePats, relPath) {
+		a.writeStderr("warning: no files installed — all excluded by .loreskillsignore")
+		v2rec := fs.InstalledResourceRecordV2{
+			ResourceName: entry.CatalogID,
+			ProviderID:   providerID,
+			ManagedFiles: []fs.ManagedFile{},
+		}
+		if upsertErr := fs.UpsertInstalledResourceV2(profile.TargetDir, v2rec); upsertErr != nil {
+			return upsertErr
+		}
+		// Also register in v1 state so update/remove can discover the resource.
+		v1rec := fs.InstalledResourceRecord{
+			CatalogID:     entry.CatalogID,
+			ResourceType:  entry.ResourceType,
+			Name:          entry.Name,
+			FolderName:    entry.FolderName,
+			InstalledPath: fs.ResolveManagedFilePath(profile.TargetDir, entry),
+			SourcePath:    entry.SourcePath,
+			Status:        "installed",
+		}
+		if upsertErr := fs.UpsertInstalledResource(profile.TargetDir, v1rec); upsertErr != nil {
+			return upsertErr
+		}
+		return nil
 	}
 
 	record, err := fs.InstallCatalogEntry(profile.TargetDir, entry, content)
 	if err != nil {
 		return err
 	}
-	if _, err := fs.InstallCatalogEntryV2(profile.TargetDir, entry, content, providerID); err != nil {
+	v2rec, err := fs.InstallCatalogEntryV2(profile.TargetDir, entry, content, providerID)
+	if err != nil {
 		return err
+	}
+	// T025: update resolved_version to commit SHA when available.
+	if v2cfg, v2err := fs.ReadProjectConfigV2(); v2err == nil {
+		if sha, shaErr := a.client.GetLatestCommitSHA(context.Background(), v2cfg, providerID); shaErr == nil && sha != "" {
+			v2rec.ResolvedVersion = sha
+			if upsertErr := fs.UpsertInstalledResourceV2(profile.TargetDir, v2rec); upsertErr != nil {
+				a.writeStderr(fmt.Sprintf("warning: failed to persist resolved version: %v", upsertErr))
+			}
+		}
 	}
 
 	a.writeStdout(
@@ -141,4 +194,3 @@ func (a *app) downloadBundleContents(ctx context.Context, profile fs.ProjectProf
 
 	return bundleContents, nil
 }
-

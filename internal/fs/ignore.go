@@ -48,6 +48,10 @@ func MatchesIgnorePattern(relPath string, patterns []string) bool {
 // matchGlob matches a gitignore-style pattern against a normalized (forward-slash) path.
 // Supports * (single segment), ** (any number of segments), and basename-only matching.
 func matchGlob(pattern, target string) bool {
+	// Handle trailing-slash directory patterns: "skills/" matches any path inside "skills/".
+	if strings.HasSuffix(pattern, "/") {
+		return strings.Contains("/"+target, "/"+pattern)
+	}
 	if !strings.Contains(pattern, "**") {
 		ok, _ := path.Match(pattern, target)
 		if ok {
@@ -81,4 +85,17 @@ func matchGlob(pattern, target string) bool {
 		}
 	}
 	return false
+}
+
+// ParseIgnoreFile reads .loreskillsignore from projectRoot and returns active patterns.
+// Lines starting with '#' and blank lines are ignored.
+// Returns nil patterns (not an error) if the file does not exist.
+func ParseIgnoreFile(projectRoot string) ([]string, error) {
+	return ReadLoreSkillsIgnore(projectRoot)
+}
+
+// MatchIgnore reports whether bundleRelativePath matches any of the given gitignore patterns.
+// Patterns support *, **, and ? glob syntax. bundleRelativePath must use forward slashes.
+func MatchIgnore(patterns []string, bundleRelativePath string) bool {
+	return MatchesIgnorePattern(bundleRelativePath, patterns)
 }

@@ -12,8 +12,9 @@ import (
 )
 
 func (a *app) runUpdate(args []string) error {
-	flags, _ := parseFlags(args, "--dry-run")
+	flags, _ := parseFlags(args, "--dry-run", "--json")
 	dryRun := flags["--dry-run"]
+	jsonOut := flags["--json"]
 
 	profile, release, err := a.prepareStateAccess()
 	if err != nil {
@@ -37,40 +38,59 @@ func (a *app) runUpdate(args []string) error {
 		}
 		workingDir, _ := filepath.Abs(".")
 		ignorePats, _ := fs.ReadLoreSkillsIgnore(workingDir)
-		catalogs, catalogErrs := buildProviderCatalogs(context.Background(), a, v2State.Entries, cfg, *profile)
-		for provID, err := range catalogErrs {
-			a.writeStderr(fmt.Sprintf("avertissement : impossible de récupérer le catalogue du fournisseur %q : %v", provID, err))
-		}
+		var allChanges []fs.DryRunChange
+		anyChanges := false
 		for _, rec := range v2State.Entries {
 			if pinnedVer := fs.PinnedVersion(cfg, rec.ResourceName); pinnedVer != "" {
-				a.writeStdout(fmt.Sprintf("  [pinned at %s] %s", pinnedVer, rec.ResourceName))
+				if !jsonOut {
+					a.writeStdout(fmt.Sprintf("  [pinned at %s] %s", pinnedVer, rec.ResourceName))
+				}
 				continue
 			}
-			catalog, ok := catalogs[rec.ProviderID]
-			if !ok {
-				a.writeStdout(fmt.Sprintf("--- %s ---", rec.ResourceName))
-				a.writeStdout("  impossible de récupérer le catalogue pour ce fournisseur")
-				continue
+			entry := fs.CatalogEntry{
+				CatalogID:    rec.ResourceName,
+				ResourceType: "skill",
+				Name:         rec.ResourceName,
+				FolderName:   rec.ResourceName,
+				SourcePath:   sourcePath(rec, profile.TargetDir),
 			}
-			entry, ok := catalog[rec.ResourceName]
-			if !ok {
-				a.writeStdout(fmt.Sprintf("--- %s ---", rec.ResourceName))
-				a.writeStdout("  ressource absente du catalogue")
-				continue
-			}
-			provProf := providerProfile(rec.ProviderID, cfg, *profile)
-			content, fetchErr := a.client.DownloadCatalogEntry(context.Background(), provProf, entry)
+			content, fetchErr := a.client.DownloadCatalogEntry(context.Background(), *profile, entry)
 			if fetchErr != nil {
 				a.writeStderr(fmt.Sprintf("Échec de récupération pour '%s' : %v", rec.ResourceName, fetchErr))
 				continue
 			}
-			incomingRecord := fs.RefreshManagedFileHashes(fs.InstalledResourceRecordV2{
-				ResourceName: rec.ResourceName,
-				ManagedFiles: []fs.ManagedFile{{Path: fs.ResolveManagedFilePath(provProf.TargetDir, entry)}},
-			}, content)
-			changes := fs.ComputeDryRunChanges(&rec, incomingRecord.ManagedFiles, ignorePats)
-			a.writeStdout(fmt.Sprintf("--- %s ---", rec.ResourceName))
-			a.writeStdout(fs.FormatDryRunText(changes))
+			// Deep-copy ManagedFiles before RefreshManagedFileHashes mutates the slice.
+			savedFiles := make([]fs.ManagedFile, len(rec.ManagedFiles))
+			copy(savedFiles, rec.ManagedFiles)
+			savedRec := rec
+			savedRec.ManagedFiles = savedFiles
+			incomingRecord := fs.RefreshManagedFileHashes(rec, content)
+			changes := fs.ComputeDryRunChanges(&savedRec, incomingRecord.ManagedFiles, ignorePats)
+			if jsonOut {
+				for i := range changes {
+					changes[i].ResourceName = rec.ResourceName
+				}
+				allChanges = append(allChanges, changes...)
+				if len(changes) > 0 {
+					anyChanges = true
+				}
+			} else {
+				a.writeStdout(fmt.Sprintf("--- %s ---", rec.ResourceName))
+				a.writeStdout(fs.FormatDryRunText(changes))
+				if len(changes) > 0 {
+					anyChanges = true
+				}
+			}
+		}
+		if jsonOut {
+			if !anyChanges && allChanges == nil {
+				allChanges = []fs.DryRunChange{}
+			}
+			data, marshalErr := fs.FormatDryRunJSON(allChanges)
+			if marshalErr != nil {
+				return marshalErr
+			}
+			a.writeStdout(string(data))
 		}
 		return nil
 	}
@@ -89,9 +109,38 @@ func (a *app) runUpdate(args []string) error {
 	v2State, v2StateErr := fs.ReadInstalledStateV2(profile.TargetDir)
 	v2Updated := false
 
+	workingDir, _ := filepath.Abs(".")
+	ignorePats, _ := fs.ReadLoreSkillsIgnore(workingDir)
+
+	// T018/T025: pre-fetch latest commit SHA once per unique providerID.
+	latestSHAs := make(map[string]string)
+	if v2StateErr == nil {
+		seen := make(map[string]bool)
+		for _, v2rec := range v2State.Entries {
+			if seen[v2rec.ProviderID] {
+				continue
+			}
+			seen[v2rec.ProviderID] = true
+			if sha, shaErr := a.client.GetLatestCommitSHA(context.Background(), cfg, v2rec.ProviderID); shaErr == nil {
+				latestSHAs[v2rec.ProviderID] = sha
+			}
+		}
+	}
+
 	for _, record := range records {
 		if pinnedVer := fs.PinnedVersion(cfg, record.CatalogID); pinnedVer != "" {
 			a.writeStdout(fmt.Sprintf("  [pinned at %s] %s", pinnedVer, record.CatalogID))
+			// T018: Notify if a newer upstream version exists for the pinned resource.
+			if v2StateErr == nil {
+				for _, v2rec := range v2State.Entries {
+					if v2rec.ResourceName == record.CatalogID {
+						if latestSHA := latestSHAs[v2rec.ProviderID]; latestSHA != "" && latestSHA != v2rec.ResolvedVersion {
+							a.writeStdout(fmt.Sprintf("Newer version available for %s (pinned at %s)", record.CatalogID, pinnedVer))
+						}
+						break
+					}
+				}
+			}
 			continue
 		}
 
@@ -128,6 +177,21 @@ func (a *app) runUpdate(args []string) error {
 			continue
 		}
 
+		// T021: Skip if installed path is excluded by .loreskillsignore (SC-003).
+		if fs.MatchesIgnorePattern(record.SourcePath, ignorePats) {
+			a.writeStdout(fmt.Sprintf("Ressource '%s' exclue par .loreskillsignore.", record.Name))
+			continue
+		}
+
+		// T024: Skip resource if its installed path is owned by another resource.
+		if v2StateErr == nil {
+			if conflict := fs.CheckOwnershipConflict(&v2State, record.CatalogID, record.InstalledPath); conflict != nil {
+				a.writeStderr(fmt.Sprintf("Conflit de propriété pour '%s' : %v", record.Name, conflict))
+				failures++
+				continue
+			}
+		}
+
 		if err := fs.SaveInstalledResource(record, content); err != nil {
 			a.writeStderr(fmt.Sprintf("Échec de mise à jour pour '%s' : %v", record.Name, err))
 			failures++
@@ -145,7 +209,12 @@ func (a *app) runUpdate(args []string) error {
 				if v2rec.ResourceName == record.CatalogID {
 					v2State.Entries[i] = fs.RefreshManagedFileHashes(v2rec, content)
 					v2State.Entries[i].PreviousVersion = v2rec.ResolvedVersion
-					v2State.Entries[i].ResolvedVersion = fs.ComputeSHA256(content)
+					// T025: prefer commit SHA; fall back to content SHA256.
+					if sha := latestSHAs[v2rec.ProviderID]; sha != "" {
+						v2State.Entries[i].ResolvedVersion = sha
+					} else {
+						v2State.Entries[i].ResolvedVersion = fs.ComputeSHA256(content)
+					}
 					v2State.Entries[i].InstalledAt = time.Now().UTC().Format(time.RFC3339)
 					v2Updated = true
 					break
@@ -167,6 +236,24 @@ func (a *app) runUpdate(args []string) error {
 	}
 
 	return nil
+}
+
+// sourcePath derives the catalog source path for a v2 record during dry-run.
+// When the record's ResourceName uses the catalog ID format (e.g., "skill::skills::alpha"),
+// the first managed file's path is resolved relative to targetDir to reconstruct
+// the original source path (e.g., "skills/alpha.md").
+// Falls back to ResourceName when no managed files are present or path resolution
+// fails; in both cases the DownloadCatalogEntry call will use the raw ResourceName,
+// which is acceptable for legacy records that already store a valid source path.
+func sourcePath(rec fs.InstalledResourceRecordV2, targetDir string) string {
+	if len(rec.ManagedFiles) > 0 {
+		rel, err := filepath.Rel(targetDir, rec.ManagedFiles[0].Path)
+		if err == nil {
+			return filepath.ToSlash(rel)
+		}
+	}
+	// Fallback: ResourceName may itself be a valid source path (legacy records).
+	return rec.ResourceName
 }
 
 func (a *app) runSelfUpdate() error {
