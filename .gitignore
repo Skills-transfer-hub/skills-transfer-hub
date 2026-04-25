@@ -15,3 +15,4 @@ Thumbs.db
 .vscode/
 sth
 sth.exe
+.claude/settings.local.json
