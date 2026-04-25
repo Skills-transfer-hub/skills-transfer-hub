@@ -415,7 +415,7 @@ func ParseCatalogID(id string) (resourceType, folderName, name string, ok bool) 
 func ProjectProfileFromProvider(p ProviderEntry, fallbackTargetDir string) ProjectProfile {
 	ref := p.CatalogRef
 	if ref == "" {
-		ref = "main"
+		ref = defaultRef
 	}
 	targetDir := p.TargetDir
 	if targetDir == "" {
@@ -1297,8 +1297,11 @@ func parseInstalledStateV2FromBytes(data []byte, path string) (InstalledResource
 
 // PromoteInstalledState creates lore-state-v2.json from lore-state.json if needed.
 // It is a no-op when lore-state-v2.json already exists or lore-state.json is absent.
-// On v1→v2 promotion, a progress message is written to w.
+// On v1→v2 promotion, a progress message is written to w. A nil w defaults to io.Discard.
 func PromoteInstalledState(targetDir string, w io.Writer) error {
+	if w == nil {
+		w = io.Discard
+	}
 	v2Path := filepath.Join(filepath.Clean(targetDir), stateFileNameV2)
 	if _, err := os.Stat(v2Path); err == nil {
 		return nil
@@ -1316,14 +1319,21 @@ func PromoteInstalledState(targetDir string, w io.Writer) error {
 		return fmt.Errorf("fichier d'état malformé (%s) : %w", legacyPath, jsonErr)
 	}
 	schemaVersion, _ := raw["schema_version"].(float64)
+	needsMigration := int(schemaVersion) != 2
 	state, err := ReadInstalledStateV2(targetDir)
 	if err != nil {
 		return err
 	}
-	if int(schemaVersion) != 2 {
+	if err := WriteInstalledStateV2(targetDir, state); err != nil {
+		if needsMigration {
+			fmt.Fprintf(w, "[loreskills] migrating lore-state.json v1 → v2 … failed: %v\n", err)
+		}
+		return err
+	}
+	if needsMigration {
 		fmt.Fprintf(w, "[loreskills] migrating lore-state.json v1 → v2 … done\n")
 	}
-	return WriteInstalledStateV2(targetDir, state)
+	return nil
 }
 
 // WriteProjectConfigV2 persists a v2 project config to disk.

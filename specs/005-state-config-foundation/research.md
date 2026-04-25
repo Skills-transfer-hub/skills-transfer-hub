@@ -148,25 +148,32 @@ func AcquireStateLock(targetDir string) (func(), error)
 
 ---
 
-## Decision 9: `lore-state.json` vs `lore-state-v2.json` — File Consolidation
+## Decision 9: `lore-state.json` vs `lore-state-v2.json` — Dual-File Approach
 
-**Decision**: Retire `lore-state-v2.json` and consolidate on `lore-state.json` as the
-single state file. `ReadInstalledStateV2` and `WriteInstalledStateV2` are updated to use
-`stateFileName` (`lore-state.json`); the `stateFileNameV2` constant is removed.
+**Decision**: Keep `lore-state.json` as the legacy v1 file and `lore-state-v2.json` as
+the canonical v2 file for this PR. `ReadInstalledStateV2` and `WriteInstalledStateV2`
+continue to use `stateFileNameV2` (`lore-state-v2.json`); no consolidation to a single
+state file is performed here.
 
-**Background**: The codebase currently maintains two parallel state files:
-- `lore-state.json` — legacy v1 file, read by `ReadInstalledState`
-- `lore-state-v2.json` — separate v2 file, read/written by `ReadInstalledStateV2` / `WriteInstalledStateV2`
+**Background**: The codebase currently maintains two state files with distinct roles:
+- `lore-state.json` — legacy v1 file, read by `ReadInstalledState` and used as migration input
+- `lore-state-v2.json` — v2 file, read/written by `ReadInstalledStateV2` / `WriteInstalledStateV2`
 
-The spec (FR-002, FR-010) mandates that `lore-state.json` contains a `schema_version` field
-and is migrated in-place. Parallel files split the source of truth (violates SC-003).
+This matches the implementation in the current PR. Rather than rewriting the legacy file
+in place, the migration path preserves backward compatibility for v1 reads while using a
+dedicated file for schema-versioned v2 state.
 
-**Migration path**: On first access, `MigrateInstalledState` detects v1 (no `schema_version`),
-backs up to `lore-state.json.bak`, rewrites atomically to v2 in-place. Any existing
-`lore-state-v2.json` on disk is left as-is but is no longer read or written.
+**Migration path**: On first access, `PromoteInstalledState` detects that `lore-state-v2.json`
+is absent, reads `lore-state.json`, converts its content in memory, and writes the v2
+representation to `lore-state-v2.json` atomically. The legacy `lore-state.json` is left
+untouched. A progress line is emitted to stderr only when a v1 file is actually migrated
+(FR-016).
 
 **Alternatives considered**:
-- Keep both files and merge on read: complex, error-prone, violates single source of truth. Rejected.
+- Consolidate on `lore-state.json` immediately (in-place migration with backup): simpler
+  long-term source-of-truth story but does not match this PR's implementation. Deferred.
+- Keep both files and merge on read: complex and error-prone because it introduces multiple
+  possible authorities for the same resource state. Rejected.
 
 ---
 

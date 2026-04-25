@@ -43,7 +43,10 @@ func (a *app) runStatus(args []string) error {
 	}
 
 	// Build per-provider catalog maps (one ListCatalog request per unique provider).
-	catalogs := buildProviderCatalogs(context.Background(), a, state.Entries, cfg, *profile)
+	catalogs, catalogErrs := buildProviderCatalogs(context.Background(), a, state.Entries, cfg, *profile)
+	for provID, err := range catalogErrs {
+		a.writeStderr(fmt.Sprintf("avertissement : impossible de récupérer le catalogue du fournisseur %q : %v", provID, err))
+	}
 
 	var results []statusJSON
 	for _, rec := range state.Entries {
@@ -106,22 +109,29 @@ func (a *app) runStatus(args []string) error {
 }
 
 // buildProviderCatalogs fetches the catalog once per unique provider in entries.
-// Returns providerID → (catalogID → CatalogEntry). Failed fetches produce an empty map.
-func buildProviderCatalogs(ctx context.Context, a *app, entries []fs.InstalledResourceRecordV2, cfg fs.ProjectConfigV2, fallback fs.ProjectProfile) map[string]map[string]fs.CatalogEntry {
+// Returns providerID → (catalogID → CatalogEntry) and providerID → fetch error.
+// Failed fetches are recorded in the error map and produce an empty catalog entry.
+func buildProviderCatalogs(ctx context.Context, a *app, entries []fs.InstalledResourceRecordV2, cfg fs.ProjectConfigV2, fallback fs.ProjectProfile) (map[string]map[string]fs.CatalogEntry, map[string]error) {
 	result := map[string]map[string]fs.CatalogEntry{}
+	errs := map[string]error{}
 	for _, rec := range entries {
 		if _, seen := result[rec.ProviderID]; seen {
 			continue
 		}
 		provProf := providerProfile(rec.ProviderID, cfg, fallback)
-		catalogEntries, _ := a.client.ListCatalog(ctx, provProf)
+		catalogEntries, err := a.client.ListCatalog(ctx, provProf)
+		if err != nil {
+			errs[rec.ProviderID] = err
+			result[rec.ProviderID] = map[string]fs.CatalogEntry{}
+			continue
+		}
 		m := make(map[string]fs.CatalogEntry, len(catalogEntries))
 		for _, e := range catalogEntries {
 			m[e.CatalogID] = e
 		}
 		result[rec.ProviderID] = m
 	}
-	return result
+	return result, errs
 }
 
 // providerProfile returns the ProjectProfile for the given providerID from cfg,

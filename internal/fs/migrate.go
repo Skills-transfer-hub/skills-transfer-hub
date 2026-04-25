@@ -36,8 +36,11 @@ func ValidateProviderID(id string) error {
 
 // MigrateProjectConfig reads the project config at path and migrates it from v1 to v2 if needed.
 // If the file already has schema_version 2 it is returned as-is without rewriting.
-// On v1→v2 migration, a progress message is written to w.
+// On v1→v2 migration, a progress message is written to w. A nil w defaults to io.Discard.
 func MigrateProjectConfig(path string, w io.Writer) (ProjectConfigV2, error) {
+	if w == nil {
+		w = io.Discard
+	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return ProjectConfigV2{}, fmt.Errorf("lecture de %s échouée : %w", path, err)
@@ -95,8 +98,11 @@ func MigrateProjectConfig(path string, w io.Writer) (ProjectConfigV2, error) {
 
 // MigrateInstalledState reads the installed state at path and migrates it from v1 to v2 if needed.
 // If the file already has schema_version 2 it is returned as-is without rewriting.
-// On v1→v2 migration, a progress message is written to w.
+// On v1→v2 migration, a progress message is written to w. A nil w defaults to io.Discard.
 func MigrateInstalledState(path string, w io.Writer) (InstalledResourceStateV2, error) {
+	if w == nil {
+		w = io.Discard
+	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return InstalledResourceStateV2{}, fmt.Errorf("lecture de %s échouée : %w", path, err)

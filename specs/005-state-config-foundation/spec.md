@@ -184,8 +184,8 @@ file appears with `path` and `sha256` fields.
 
 **Reliability**
 
-- **FR-014**: ALL writes to `lore-state.json` (install, update, and migration) MUST use an atomic write-then-rename strategy: write the new content to a temporary file (e.g., `.lore-state.json.tmp`) in the same directory, then rename it into place using `os.Rename()`. Direct in-place overwrites are prohibited to prevent partial-write corruption on process interruption.
-- **FR-015**: Any operation that reads or writes `lore-state.json` MUST first acquire an advisory file lock (`.lore-state.lock`, created with `O_CREATE|O_EXCL`) before proceeding. If the lock is already held by another process, the tool MUST fail fast with a clear error message identifying the lock file and exit with a non-zero code. No silent overwrites or wait/retry loops are permitted.
+- **FR-014**: ALL writes to the v2 state file `lore-state-v2.json` (install, update, and migration output) MUST use an atomic write-then-rename strategy: write the new content to a temporary file (e.g., `.loreskills-tmp-*`) in the same directory, then rename it into place using `os.Rename()`. Direct in-place overwrites are prohibited to prevent partial-write corruption on process interruption. The legacy file `lore-state.json` is migration input only and MUST NOT be treated as the canonical v2 state path.
+- **FR-015**: Any operation that reads or writes `lore-state-v2.json` MUST first acquire an advisory file lock (`.lore-state.lock`, created with `O_CREATE|O_EXCL`) before proceeding. Migration flows that read legacy `lore-state.json` and then create or update `lore-state-v2.json` MUST also hold this same lock for the full operation. If the lock is already held by another process, the tool MUST fail fast with a clear error message identifying the lock file and exit with a non-zero code. No silent overwrites or wait/retry loops are permitted.
 
 **Observability**
 

@@ -212,24 +212,22 @@ Top-level v2 structure for `<target_dir>/lore-state.json`.
 
 ---
 
-## New Internal Type: `StateLock` (to be created)
+## Advisory Lock: `AcquireStateLock` (implemented)
 
 Advisory concurrency lock — not persisted to any application schema.
 
 ```go
-// stateLock (unexported) holds the lock file descriptor and path.
-// Implements io.Closer; Close() releases the lock.
-type stateLock struct {
-    file *os.File
-    path string
-}
+// AcquireStateLock creates an advisory lock file in targetDir.
+// Returns a release function that removes the lock file.
+// Returns an error immediately if the lock cannot be acquired.
+func AcquireStateLock(targetDir string) (func(), error)
 ```
 
-| Field | Description |
-|-------|-------------|
-| `file` | Open `*os.File` created with `O_CREATE\|O_EXCL`; kept open until `Close()` |
-| `path` | Absolute path to the lock file (e.g. `.claude/skills/.lore-state.lock`) |
+The lock is represented by the presence of `<targetDir>/.lore-state.lock`. The file is
+created with `O_CREATE|O_EXCL` (atomic test-and-set); the PID of the acquiring process is
+written into the file for diagnostics. The returned `release` function removes the lock
+file. Callers use `defer release()` to guarantee best-effort cleanup.
 
-**Lock file path**: `filepath.Join(stateDir, ".lore-state.lock")`  
+**Lock file path**: `filepath.Join(targetDir, ".lore-state.lock")`  
 **Error format when already locked**: `"fichier de verrouillage déjà présent (%s) — supprimez-le si aucun processus loreskills n'est en cours"`
 

@@ -1,10 +1,10 @@
-# Contract: `lore-state.json` v2 Schema
+# Contract: `lore-state-v2.json` v2 Schema
 
-**File path**: `<target_dir>/lore-state.json`  
+**File path**: `<target_dir>/lore-state-v2.json`  
 **Schema version**: 2  
 **Owner**: `internal/fs/` — written atomically by `WriteInstalledStateV2` (via `atomicWriteFile`),
 read by `ReadInstalledStateV2`  
-**Concurrency guard**: All reads and writes MUST be bracketed by `AcquireStateLock` / `io.Closer.Close()`
+**Concurrency guard**: All reads and writes MUST be bracketed by `AcquireStateLock` / `release()`
 
 ---
 
@@ -80,26 +80,25 @@ read by `ReadInstalledStateV2`
 
 ```
 1. Marshal new state to JSON bytes
-2. Write to <stateDir>/lore-state.json.tmp
-3. os.Rename(<stateDir>/lore-state.json.tmp, <stateDir>/lore-state.json)
+2. Write to <stateDir>/.loreskills-tmp-* (same directory as lore-state-v2.json)
+3. os.Rename(<stateDir>/.loreskills-tmp-*, <stateDir>/lore-state-v2.json)
 ```
 
-A process killed at any step leaves the prior valid `lore-state.json` intact.
+A process killed at any step leaves the prior valid `lore-state-v2.json` intact.
 
 ### Advisory Lock Protocol (FR-015)
 
-```
-lockPath := filepath.Join(stateDir, ".lore-state.lock")
-lock, err := AcquireStateLock(lockPath)
+```go
+release, err := fs.AcquireStateLock(targetDir)
 if err != nil {
     return err  // fail-fast; do not wait
 }
-defer lock.Close()
+defer release()
 // ... read / write state ...
 ```
 
-`lock.Close()` removes the lock file. Stale lock files (from crashed processes) require
-manual deletion; error message instructs the user.
+`release()` removes the lock file. Stale lock files (from crashed processes) require
+manual deletion; the error message instructs the user.
 
 ---
 

@@ -37,7 +37,10 @@ func (a *app) runUpdate(args []string) error {
 		}
 		workingDir, _ := filepath.Abs(".")
 		ignorePats, _ := fs.ReadLoreSkillsIgnore(workingDir)
-		catalogs := buildProviderCatalogs(context.Background(), a, v2State.Entries, cfg, *profile)
+		catalogs, catalogErrs := buildProviderCatalogs(context.Background(), a, v2State.Entries, cfg, *profile)
+		for provID, err := range catalogErrs {
+			a.writeStderr(fmt.Sprintf("avertissement : impossible de récupérer le catalogue du fournisseur %q : %v", provID, err))
+		}
 		for _, rec := range v2State.Entries {
 			if pinnedVer := fs.PinnedVersion(cfg, rec.ResourceName); pinnedVer != "" {
 				a.writeStdout(fmt.Sprintf("  [pinned at %s] %s", pinnedVer, rec.ResourceName))
