@@ -2,7 +2,7 @@ package cmd
 
 import (
 	"fmt"
-	lorehttp "loreskills/internal/http"
+	sthhttp "sth/internal/http"
 	"runtime"
 	"strings"
 )
@@ -21,7 +21,7 @@ const versionByline = "dev with 🤖 by Hugo MR and Jeremy, Lead Tech."
 
 func formatVersionSignature() string {
 	return strings.Join([]string{
-		fmt.Sprintf("LoreSkills %s", valueOrDefault(version, "dev")),
+		fmt.Sprintf("STH %s", valueOrDefault(version, "dev")),
 		versionByline,
 	}, "\n")
 }
@@ -31,7 +31,7 @@ func (a *app) runVersion() error {
 	return nil
 }
 
-func currentReleaseMetadata() lorehttp.ReleaseMetadata {
+func currentReleaseMetadata() sthhttp.ReleaseMetadata {
 	assetName := strings.TrimSpace(releaseAssetName)
 	if assetName == "" {
 		assetName = defaultReleaseAssetName()
@@ -42,7 +42,7 @@ func currentReleaseMetadata() lorehttp.ReleaseMetadata {
 		checksumName = "SHA256SUMS"
 	}
 
-	return lorehttp.ReleaseMetadata{
+	return sthhttp.ReleaseMetadata{
 		CurrentVersion: valueOrDefault(version, "dev"),
 		ReleasesAPIURL: strings.TrimSpace(releaseAPIURL),
 		AssetName:      assetName,
@@ -57,7 +57,7 @@ func defaultReleaseAssetName() string {
 		archiveExtension = ".zip"
 	}
 
-	return fmt.Sprintf("loreskills-%s-%s%s", binaryOS, runtime.GOARCH, archiveExtension)
+	return fmt.Sprintf("sth-%s-%s%s", binaryOS, runtime.GOARCH, archiveExtension)
 }
 
 func valueOrDefault(value, fallback string) string {

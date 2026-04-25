@@ -3,7 +3,7 @@ package cmd
 import (
 	"bufio"
 	"fmt"
-	"loreskills/internal/fs"
+	"sth/internal/fs"
 	"strings"
 )
 
@@ -12,7 +12,7 @@ func (a *app) runRemove(args []string) error {
 	skipConfirm := flags["--yes"]
 
 	if len(positional) != 1 {
-		return fmt.Errorf("usage: loreskills remove <resource-name> [--yes]")
+		return fmt.Errorf("usage: sth remove <resource-name> [--yes]")
 	}
 	resourceName := positional[0]
 

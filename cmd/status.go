@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"loreskills/internal/fs"
-	lorehttp "loreskills/internal/http"
+	"sth/internal/fs"
+	sthhttp "sth/internal/http"
 	"path/filepath"
 )
 
@@ -93,7 +93,7 @@ func (a *app) runStatus(args []string) error {
 			}
 		}
 		if res.Status == fs.ResourceStatusUnknownBaseline {
-			a.writeStdout(fmt.Sprintf("  → re-install with `loreskills install --force %s` to establish integrity tracking", res.ResourceName))
+			a.writeStdout(fmt.Sprintf("  → re-install with `sth install --force %s` to establish integrity tracking", res.ResourceName))
 		}
 	}
 
@@ -106,7 +106,7 @@ func (a *app) runStatus(args []string) error {
 // non-fatal for the status command: the resource is reported with an unknown
 // latest version.
 func isProviderConfigError(err error) bool {
-	var pce *lorehttp.ProviderConfigError
+	var pce *sthhttp.ProviderConfigError
 	return errors.As(err, &pce)
 }
 

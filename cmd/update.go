@@ -3,8 +3,8 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"loreskills/internal/fs"
-	lorehttp "loreskills/internal/http"
+	"sth/internal/fs"
+	sthhttp "sth/internal/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -37,7 +37,7 @@ func (a *app) runUpdate(args []string) error {
 			return nil
 		}
 		workingDir, _ := filepath.Abs(".")
-		ignorePats, _ := fs.ReadLoreSkillsIgnore(workingDir)
+		ignorePats, _ := fs.ReadSTHIgnore(workingDir)
 		var allChanges []fs.DryRunChange
 		anyChanges := false
 		for _, rec := range v2State.Entries {
@@ -110,7 +110,7 @@ func (a *app) runUpdate(args []string) error {
 	v2Updated := false
 
 	workingDir, _ := filepath.Abs(".")
-	ignorePats, _ := fs.ReadLoreSkillsIgnore(workingDir)
+	ignorePats, _ := fs.ReadSTHIgnore(workingDir)
 
 	// T018/T025: pre-fetch latest commit SHA once per unique providerID.
 	latestSHAs := make(map[string]string)
@@ -177,9 +177,9 @@ func (a *app) runUpdate(args []string) error {
 			continue
 		}
 
-		// T021: Skip if installed path is excluded by .loreskillsignore (SC-003).
+		// T021: Skip if installed path is excluded by .sthignore (SC-003).
 		if fs.MatchesIgnorePattern(record.SourcePath, ignorePats) {
-			a.writeStdout(fmt.Sprintf("Ressource '%s' exclue par .loreskillsignore.", record.Name))
+			a.writeStdout(fmt.Sprintf("Ressource '%s' exclue par .sthignore.", record.Name))
 			continue
 		}
 
@@ -296,7 +296,7 @@ func (a *app) startupStableUpdateOffer() *fs.StableUpdateOffer {
 	return offer
 }
 
-func (a *app) resolveStableUpdate(ctx context.Context, force bool) (*lorehttp.ReleaseAsset, *fs.StableUpdateOffer, error) {
+func (a *app) resolveStableUpdate(ctx context.Context, force bool) (*sthhttp.ReleaseAsset, *fs.StableUpdateOffer, error) {
 	metadata := currentReleaseMetadata()
 	if strings.TrimSpace(metadata.ReleasesAPIURL) == "" {
 		return nil, nil, nil
@@ -334,7 +334,7 @@ func (a *app) resolveStableUpdate(ctx context.Context, force bool) (*lorehttp.Re
 }
 
 func currentExecutablePath() (string, error) {
-	if override := strings.TrimSpace(os.Getenv("LORESKILLS_EXECUTABLE_PATH")); override != "" {
+	if override := strings.TrimSpace(os.Getenv("STH_EXECUTABLE_PATH")); override != "" {
 		return override, nil
 	}
 

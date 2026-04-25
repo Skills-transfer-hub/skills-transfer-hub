@@ -1,4 +1,4 @@
-# Specification Quality Checklist: LoreSkills CLI Product Roadmap
+# Specification Quality Checklist: STH CLI Product Roadmap
 
 **Purpose**: Validate specification completeness and quality before proceeding to planning  
 **Created**: 2026-04-23  

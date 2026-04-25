@@ -40,7 +40,7 @@ jobs:
           $goos = (go env GOOS).Trim()
           $goarch = (go env GOARCH).Trim()
           $archiveExt = if ($goos -eq 'windows') { 'zip' } else { 'tar.gz' }
-          $assetName = "loreskills-$goos-$goarch.$archiveExt"
+          $assetName = "sth-$goos-$goarch.$archiveExt"
           "VERSION=dev-ci" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "COMMIT=${{ github.sha }}" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "BUILD_DATE=$((Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ'))" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
@@ -54,4 +54,4 @@ jobs:
         env:
           CGO_ENABLED: "0"
         run: |
-          go build -trimpath -ldflags "-X loreskills/cmd.version=$env:VERSION -X loreskills/cmd.commit=$env:COMMIT -X loreskills/cmd.buildDate=$env:BUILD_DATE -X loreskills/cmd.target=$env:TARGET -X loreskills/cmd.releaseAPIURL=$env:RELEASE_API_URL -X loreskills/cmd.releaseAssetName=$env:RELEASE_ASSET_NAME -X loreskills/cmd.releaseChecksumName=$env:RELEASE_CHECKSUM_NAME" -o loreskills .
+          go build -trimpath -ldflags "-X sth/cmd.version=$env:VERSION -X sth/cmd.commit=$env:COMMIT -X sth/cmd.buildDate=$env:BUILD_DATE -X sth/cmd.target=$env:TARGET -X sth/cmd.releaseAPIURL=$env:RELEASE_API_URL -X sth/cmd.releaseAssetName=$env:RELEASE_ASSET_NAME -X sth/cmd.releaseChecksumName=$env:RELEASE_CHECKSUM_NAME" -o sth .

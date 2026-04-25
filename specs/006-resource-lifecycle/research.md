@@ -7,7 +7,7 @@ Decision / Rationale / Alternatives Considered.
 
 ## R-001 · resolved_version semantic: commit SHA vs content SHA256
 
-**Decision**: `resolved_version` in `lore-state-v2.json` stores the **Git commit SHA**
+**Decision**: `resolved_version` in `sth-state-v2.json` stores the **Git commit SHA**
 of the provider's `catalog_ref` branch at the time the resource was installed or last
 updated — not the SHA256 of the downloaded content.
 
@@ -32,7 +32,7 @@ store the commit SHA returned by the GitHub API. The content SHA256 stays in
 
 ## R-002 · Detecting "outdated" status without downloading all content
 
-**Decision**: For `loreskills status`, issue **one GitHub API call per provider** to
+**Decision**: For `sth status`, issue **one GitHub API call per provider** to
 retrieve the current HEAD commit SHA of `catalog_ref`. Compare it to each installed
 resource's `resolved_version` within that provider. A mismatch → `outdated`.
 
@@ -64,7 +64,7 @@ No additional state is required.
 
 **Edge case — unknown baseline**: If a resource record exists but `managed_files` is
 empty or all entries have an empty `sha256`, the status is `unknown-baseline`. The tool
-suggests `loreskills install --force <name>` to re-establish integrity tracking (FR-004).
+suggests `sth install --force <name>` to re-establish integrity tracking (FR-004).
 
 **Alternatives considered**:
 - **mtime-based staleness**: Unreliable; mtime can be reset by VCS operations or file
@@ -79,7 +79,7 @@ suggests `loreskills install --force <name>` to re-establish integrity tracking 
 segment-splitting for `**` glob support.
 
 **Algorithm**:
-1. Read `.loreskillsignore` line-by-line with `bufio.Scanner`.
+1. Read `.sthignore` line-by-line with `bufio.Scanner`.
 2. Skip blank lines and lines starting with `#`.
 3. For each pattern:
    - Normalise to forward-slash form (`filepath.ToSlash`).
@@ -137,14 +137,14 @@ spec scenario US3-5).
 
 **Decision**: Before writing any file during `install`, call `BuildOwnerIndex()` to
 produce a `map[string]string` (file path → owning resource name) from
-`lore-state-v2.json`. If any file to be installed already appears in the index under a
+`sth-state-v2.json`. If any file to be installed already appears in the index under a
 different resource name:
 - Without `--force`: halt with `OwnershipConflict` error listing the contested path and
   both resource names (FR-022, FR-023).
 - With `--force`: overwrite the file, update the index, transfer ownership in state,
   emit a warning (FR-024).
 
-During `loreskills update` the conflict guard applies only to newly introduced files
+During `sth update` the conflict guard applies only to newly introduced files
 (files not previously owned by the resource being updated). Existing owned files are
 updated normally (US6-3: skip conflicting resource, report it, continue with others).
 
@@ -154,7 +154,7 @@ updated normally (US6-3: skip conflicting resource, report it, continue with oth
 
 ---
 
-## R-007 · Interactive confirmation for `loreskills remove`
+## R-007 · Interactive confirmation for `sth remove`
 
 **Decision**: Implement the confirmation prompt by reading from `a.stdin` using
 `bufio.NewReader`. The `--yes` flag (a global flag available on all interactive
@@ -172,7 +172,7 @@ command returns an error rather than hanging.
 
 ---
 
-## R-008 · Partial deletion failure handling in `loreskills remove`
+## R-008 · Partial deletion failure handling in `sth remove`
 
 **Decision**: Attempt to delete all managed files in a loop. Collect individual file
 deletion errors. If any deletion fails:
@@ -185,7 +185,7 @@ missing file is treated as already deleted (FR-009). The state entry is still cl
 in this case.
 
 **Interruption recovery (SIGINT)**: Partial state is intentional. The next
-`loreskills remove` run re-reads the (still-present) state entry and attempts deletion
+`sth remove` run re-reads the (still-present) state entry and attempts deletion
 of the remaining files, converging toward a clean state.
 
 ---
@@ -204,11 +204,11 @@ Unresolvable pins are surfaced by `status` and `update`; `install` is unaffected
 
 ---
 
-## R-010 · `.loreskillsignore` — all-files-excluded edge case
+## R-010 · `.sthignore` — all-files-excluded edge case
 
-**Decision**: If all files in a bundle are excluded by `.loreskillsignore` patterns,
+**Decision**: If all files in a bundle are excluded by `.sthignore` patterns,
 the install proceeds with zero files written. `managed_files` is empty. A warning is
-printed: `"warning: no files installed — all excluded by .loreskillsignore"` (edge case
+printed: `"warning: no files installed — all excluded by .sthignore"` (edge case
 from spec). The state entry IS written so the resource appears in `status` and `remove`.
 
 **Rationale**: The user made an intentional choice. Recording the (empty) state entry

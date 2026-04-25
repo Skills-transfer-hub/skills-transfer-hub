@@ -1,26 +1,30 @@
 <!--
 SYNC IMPACT REPORT
-Version change: (template) → 1.0.0
-Added sections: Core Principles (×4), Contraintes Techniques, Style de Code, Governance
-Removed sections: N/A (initial fill)
+Version change: 1.0.0 → 1.1.0
+Added sections: explicit dependency carve-out for fsnotify (Principle I)
+Removed sections: none
 Templates updated:
-  ✅ constitution.md — filled
-  ✅ plan-template.md — Constitution Check section already present; principles now defined
-  ✅ spec-template.md — no constitution-specific changes required
-  ✅ tasks-template.md — no constitution-specific changes required
+  ✅ constitution.md — fsnotify exception added under Principle I
 Follow-up TODOs: none
 -->
 
-# LoreSkills Constitution
+# STH Constitution
 
 ## Principes Fondamentaux
 
-### I. Zéro Dépendance Externe (NON-NÉGOCIABLE)
+### I. Zéro Dépendance Externe (NON-NÉGOCIABLE, sauf exceptions listées)
 
 Le projet DOIT utiliser exclusivement la bibliothèque standard de Go (`os`, `net/http`,
 `path/filepath`, `encoding/json`, etc.). Aucun module tiers (Cobra, Viper, resty…) n'est
 autorisé. Chaque nouvelle dépendance proposée DOIT être rejetée à la revue sauf si elle
 est fournie par la stdlib Go.
+
+**Exceptions ratifiées** (toute nouvelle exception nécessite un amendement explicite) :
+
+- `github.com/fsnotify/fsnotify` — la stdlib n'expose aucune API portable de notification
+  filesystem. Requis uniquement par `sth buddy --watch`. Justification : implémenter la
+  surveillance manuellement via polling ou ioctl spécifiques à chaque OS dépasse le
+  budget complexité raisonnable d'une simple commande d'observation.
 
 **Raison** : garantir un binaire final minuscule, sans chaîne d'approvisionnement externe
 et reproductible par `go build` seul.
@@ -63,8 +67,8 @@ chaque couche.
 - **Build** : `go build ./...` DOIT réussir sans warning avec `go vet ./...`.
 - **Tests** : `go test ./...` DOIT passer sur les trois OS cibles.
 - **Binaire** : produit par `CGO_ENABLED=0 go build` — aucune dépendance dynamique.
-- **Configuration** : fichier JSON ou TOML dans un emplacement standard (`~/.config/loreskills/`
-  ou variable d'environnement `LORESKILLS_CONFIG`).
+- **Configuration** : fichier JSON ou TOML dans un emplacement standard (`~/.config/sth/`
+  ou variable d'environnement `STH_CONFIG`).
 
 ## Style de Code
 
@@ -86,7 +90,7 @@ chaque couche.
   - PATCH : clarification, reformulation, correction de coquilles.
 - Toute PR DOIT vérifier la conformité avec les quatre principes fondamentaux avant approbation.
 
-**Version**: 1.0.0 | **Ratified**: 2026-04-19 | **Last Amended**: 2026-04-19
+**Version**: 1.1.0 | **Ratified**: 2026-04-19 | **Last Amended**: 2026-04-25
 
 ## Règles de Qualité et Tests (TDD Strict)
 1. **Couverture Obligatoire :** TOUTE nouvelle fonctionnalité, commande CLI ou fonction utilitaire doit IMPÉRATIVEMENT être accompagnée de ses Tests Unitaires (TU). C'est non négociable.

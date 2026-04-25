@@ -30,7 +30,7 @@ var providerGuides = map[string]providerGuide{
 		MinimumPermission:   "Contents: Read",
 		RepositoryIDFormat:  "owner/repo",
 		RepositoryIDExample: "octo-org/skills-catalog",
-		EnvVars:             []string{"GITHUB_TOKEN", "LORESKILLS_TOKEN"},
+		EnvVars:             []string{"GITHUB_TOKEN", "STH_TOKEN"},
 	},
 	"gitlab": {
 		Key:                 "gitlab",
@@ -42,7 +42,7 @@ var providerGuides = map[string]providerGuide{
 		MinimumPermission:   "read_repository",
 		RepositoryIDFormat:  "group/project ou group/subgroup/project",
 		RepositoryIDExample: "plateforme/ia/skills-catalog",
-		EnvVars:             []string{"GITLAB_TOKEN", "LORESKILLS_TOKEN"},
+		EnvVars:             []string{"GITLAB_TOKEN", "STH_TOKEN"},
 	},
 	"azure-devops": {
 		Key:                 "azure-devops",
@@ -54,7 +54,7 @@ var providerGuides = map[string]providerGuide{
 		MinimumPermission:   "Code (Read)",
 		RepositoryIDFormat:  "organisation/projet/repo",
 		RepositoryIDExample: "mon-org/mon-projet/skills-catalog",
-		EnvVars:             []string{"AZURE_DEVOPS_EXT_PAT", "AZURE_DEVOPS_TOKEN", "LORESKILLS_TOKEN"},
+		EnvVars:             []string{"AZURE_DEVOPS_EXT_PAT", "AZURE_DEVOPS_TOKEN", "STH_TOKEN"},
 	},
 	"bitbucket": {
 		Key:                 "bitbucket",
@@ -66,7 +66,7 @@ var providerGuides = map[string]providerGuide{
 		MinimumPermission:   "Repositories: Read",
 		RepositoryIDFormat:  "workspace/repo",
 		RepositoryIDExample: "mon-workspace/skills-catalog",
-		EnvVars:             []string{"BITBUCKET_TOKEN", "LORESKILLS_TOKEN"},
+		EnvVars:             []string{"BITBUCKET_TOKEN", "STH_TOKEN"},
 		Notes:               []string{"Utiliser un API token Atlassian pour Bitbucket Cloud."},
 	},
 }

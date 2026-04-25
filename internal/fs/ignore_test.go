@@ -50,7 +50,7 @@ func TestParseIgnoreFile_absent(t *testing.T) {
 func TestParseIgnoreFile_commentsAndBlanks(t *testing.T) {
 	dir := t.TempDir()
 	content := "# this is a comment\n\n*.log\n\n# another comment\n*.tmp\n"
-	if err := os.WriteFile(filepath.Join(dir, ".loreskillsignore"), []byte(content), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, ".sthignore"), []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -72,7 +72,7 @@ func TestParseIgnoreFile_commentsAndBlanks(t *testing.T) {
 func TestParseIgnoreFile_matchesWithPatterns(t *testing.T) {
 	dir := t.TempDir()
 	content := "*.test.md\n"
-	if err := os.WriteFile(filepath.Join(dir, ".loreskillsignore"), []byte(content), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, ".sthignore"), []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
 

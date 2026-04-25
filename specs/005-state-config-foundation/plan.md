@@ -5,7 +5,7 @@
 
 ## Summary
 
-Extend `project.json` and `lore-state.json` to support multi-provider configuration and
+Extend `project.json` and `sth-state.json` to support multi-provider configuration and
 per-resource file inventory with SHA256 checksums. The v1 → v2 migration is automatic on
 first command run, atomic (write-then-rename), concurrency-safe (advisory lock), and
 observable (stderr progress lines). All logic lives in the existing `internal/fs/` layer
@@ -16,8 +16,8 @@ using Go stdlib only; no new external dependencies.
 **Language/Version**: Go 1.22 (go.mod)  
 **Primary Dependencies**: stdlib only — `os`, `encoding/json`, `crypto/sha256`,
 `path/filepath`, `io`, `time`, `regexp`; no third-party modules  
-**Storage**: JSON files — `.loreskills/project.json` (project config), `lore-state.json`
-(installed resource state), `.lore-state.lock` (advisory lock), `*.bak` (migration backups)  
+**Storage**: JSON files — `.sth/project.json` (project config), `sth-state.json`
+(installed resource state), `.sth-state.lock` (advisory lock), `*.bak` (migration backups)  
 **Testing**: `go test ./...` with standard `testing` package; no external assertion libs  
 **Target Platform**: Cross-platform — Windows, macOS, Linux; `CGO_ENABLED=0`  
 **Project Type**: CLI tool  
@@ -52,7 +52,7 @@ specs/005-state-config-foundation/
 ├── quickstart.md        # Phase 1 output
 ├── contracts/
 │   ├── project-json-v2.md        # project.json v2 schema contract
-│   └── lore-state-json-v2.md     # lore-state.json v2 schema contract
+│   └── sth-state-v2.md     # sth-state.json v2 schema contract
 └── tasks.md             # Phase 2 output (/speckit.tasks - NOT created here)
 ```
 

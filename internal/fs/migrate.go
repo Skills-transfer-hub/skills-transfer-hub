@@ -91,7 +91,7 @@ func MigrateProjectConfig(path string, w io.Writer) (ProjectConfigV2, error) {
 	if err := atomicWriteFile(path, append(out, '\n'), 0o644); err != nil {
 		return ProjectConfigV2{}, fmt.Errorf("écriture de %s échouée : %w", path, err)
 	}
-	fmt.Fprintf(w, "[loreskills] migrating project.json v1 → v2 … done\n")
+	fmt.Fprintf(w, "[sth] migrating project.json v1 → v2 … done\n")
 
 	return cfg, nil
 }
@@ -155,7 +155,7 @@ func MigrateInstalledState(path string, w io.Writer) (InstalledResourceStateV2, 
 	if err := atomicWriteFile(path, append(out, '\n'), 0o644); err != nil {
 		return InstalledResourceStateV2{}, fmt.Errorf("écriture de %s échouée : %w", path, err)
 	}
-	fmt.Fprintf(w, "[loreskills] migrating lore-state.json v1 → v2 … done\n")
+	fmt.Fprintf(w, "[sth] migrating sth-state.json v1 → v2 … done\n")
 
 	return state, nil
 }

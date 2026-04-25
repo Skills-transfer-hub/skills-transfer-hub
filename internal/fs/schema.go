@@ -33,7 +33,7 @@ func (c *OwnershipConflict) Error() string {
 		c.FilePath, c.ExistingOwner, c.NewOwner)
 }
 
-// ProjectConfigV2 is the v2 project configuration stored in .loreskills/project.json.
+// ProjectConfigV2 is the v2 project configuration stored in .sth/project.json.
 type ProjectConfigV2 struct {
 	SchemaVersion int             `json:"schema_version"`
 	Providers     []ProviderEntry `json:"providers"`
@@ -57,13 +57,13 @@ type ResourceEntry struct {
 	PinnedVersion string `json:"pinned_version,omitempty"`
 }
 
-// InstalledResourceStateV2 is the v2 state stored in lore-state.json.
+// InstalledResourceStateV2 is the v2 state stored in sth-state.json.
 type InstalledResourceStateV2 struct {
 	SchemaVersion int                         `json:"schema_version"`
 	Entries       []InstalledResourceRecordV2 `json:"entries"`
 }
 
-// InstalledResourceRecordV2 tracks one installed resource in lore-state.json v2.
+// InstalledResourceRecordV2 tracks one installed resource in sth-state.json v2.
 type InstalledResourceRecordV2 struct {
 	ResourceName    string        `json:"resource_name"`
 	ProviderID      string        `json:"provider_id"`

@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"loreskills/internal/fs"
+	"sth/internal/fs"
 	neturl "net/url"
 	"path"
 	"sort"
@@ -185,7 +185,7 @@ func (c *Client) ListRepositoryTree(ctx context.Context, profile fs.ProjectProfi
 }
 
 func (c *Client) listGitHubTree(ctx context.Context, profile fs.ProjectProfile, headers credentialHeaders) ([]repositoryTreeEntry, error) {
-	baseURL := strings.TrimRight(getEnvOrDefault("LORESKILLS_GITHUB_API_BASE_URL", "https://api.github.com"), "/")
+	baseURL := strings.TrimRight(getEnvOrDefault("STH_GITHUB_API_BASE_URL", "https://api.github.com"), "/")
 	requestURL := fmt.Sprintf("%s/repos/%s/git/trees/%s?recursive=1", baseURL, strings.TrimSpace(profile.RepositoryID), neturl.PathEscape(strings.TrimSpace(profile.Ref)))
 	data, err := c.downloadURL(ctx, requestURL, headers.headers)
 	if err != nil {
@@ -207,7 +207,7 @@ func (c *Client) listGitHubTree(ctx context.Context, profile fs.ProjectProfile, 
 
 func (c *Client) listGitLabTree(ctx context.Context, profile fs.ProjectProfile, headers credentialHeaders) ([]repositoryTreeEntry, error) {
 	const maxPages = 100
-	baseURL := strings.TrimRight(getEnvOrDefault("LORESKILLS_GITLAB_API_BASE_URL", "https://gitlab.com/api/v4"), "/")
+	baseURL := strings.TrimRight(getEnvOrDefault("STH_GITLAB_API_BASE_URL", "https://gitlab.com/api/v4"), "/")
 	entries := make([]repositoryTreeEntry, 0)
 
 	for page := 1; page <= maxPages; page++ {
@@ -242,7 +242,7 @@ func (c *Client) listAzureDevOpsTree(ctx context.Context, profile fs.ProjectProf
 		return nil, fmt.Errorf("repository_id Azure DevOps invalide : %q", profile.RepositoryID)
 	}
 
-	baseURL := strings.TrimRight(getEnvOrDefault("LORESKILLS_AZURE_DEVOPS_BASE_URL", "https://dev.azure.com"), "/")
+	baseURL := strings.TrimRight(getEnvOrDefault("STH_AZURE_DEVOPS_BASE_URL", "https://dev.azure.com"), "/")
 	requestURL := fmt.Sprintf("%s/%s/%s/_apis/git/repositories/%s/items?scopePath=/&recursionLevel=Full&versionDescriptor.version=%s&includeContentMetadata=true&api-version=7.1", baseURL, neturl.PathEscape(parts[0]), neturl.PathEscape(parts[1]), neturl.PathEscape(parts[2]), neturl.QueryEscape(strings.TrimSpace(profile.Ref)))
 	data, err := c.downloadURL(ctx, requestURL, headers.headers)
 	if err != nil {
@@ -263,7 +263,7 @@ func (c *Client) listAzureDevOpsTree(ctx context.Context, profile fs.ProjectProf
 }
 
 func (c *Client) listBitbucketTree(ctx context.Context, profile fs.ProjectProfile, headers credentialHeaders) ([]repositoryTreeEntry, error) {
-	baseURL := strings.TrimRight(getEnvOrDefault("LORESKILLS_BITBUCKET_API_BASE_URL", "https://api.bitbucket.org/2.0"), "/")
+	baseURL := strings.TrimRight(getEnvOrDefault("STH_BITBUCKET_API_BASE_URL", "https://api.bitbucket.org/2.0"), "/")
 	requestURL := fmt.Sprintf("%s/repositories/%s/src/%s/?pagelen=100", baseURL, strings.TrimSpace(profile.RepositoryID), neturl.PathEscape(strings.TrimSpace(profile.Ref)))
 	entries := make([]repositoryTreeEntry, 0)
 

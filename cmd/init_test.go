@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"loreskills/internal/fs"
+	"sth/internal/fs"
 )
 
 func TestRun_initCreatesProjectProfile(t *testing.T) {
@@ -23,7 +23,7 @@ func TestRun_initCreatesProjectProfile(t *testing.T) {
 		_, _ = w.Write([]byte(testCatalogMarkdown("| skill | alpha | skills | skills/alpha.md | Alpha |")))
 	}))
 	defer server.Close()
-	t.Setenv("LORESKILLS_GITHUB_RAW_BASE_URL", server.URL)
+	t.Setenv("STH_GITHUB_RAW_BASE_URL", server.URL)
 
 	// providerID(default), provider(default=github), private(default=yes), reviewAgain(no), skip token, repoID, ref, catalogPath, targetDir
 	result := runCLIWithInput(t, projectDir, homeDir, "\n\n\n\n\nowner/repo\n\n\n\n", "init")
@@ -38,7 +38,7 @@ func TestRun_initCreatesProjectProfile(t *testing.T) {
 		t.Fatalf("stdout %q does not contain reachability confirmation", result.stdout)
 	}
 
-	configPath := filepath.Join(projectDir, ".loreskills", "project.json")
+	configPath := filepath.Join(projectDir, ".sth", "project.json")
 	data, err := os.ReadFile(configPath)
 	if err != nil {
 		t.Fatalf("ReadFile(%s): %v", configPath, err)
@@ -76,9 +76,9 @@ func TestRun_initImportsLegacyConfigWhenAccepted(t *testing.T) {
 		_, _ = w.Write([]byte(testCatalogMarkdown("| skill | alpha | skills | skills/alpha.md | Alpha |")))
 	}))
 	defer server.Close()
-	t.Setenv("LORESKILLS_GITHUB_RAW_BASE_URL", server.URL)
+	t.Setenv("STH_GITHUB_RAW_BASE_URL", server.URL)
 
-	configPath := filepath.Join(homeDir, ".loreskillsrc")
+	configPath := filepath.Join(homeDir, ".sthrc")
 	original := []byte("{\"repo_raw_url\":\"https://raw.githubusercontent.com/owner/repo/main/skills\",\"target_dir\":\".claude/skills\"}\n")
 	if err := os.WriteFile(configPath, original, 0o600); err != nil {
 		t.Fatalf("WriteFile(%s): %v", configPath, err)
@@ -93,7 +93,7 @@ func TestRun_initImportsLegacyConfigWhenAccepted(t *testing.T) {
 	}
 	assertContains(t, result.stdout, "Configuration projet enregistrée")
 
-	data, err := os.ReadFile(filepath.Join(projectDir, ".loreskills", "project.json"))
+	data, err := os.ReadFile(filepath.Join(projectDir, ".sth", "project.json"))
 	if err != nil {
 		t.Fatalf("ReadFile(project profile): %v", err)
 	}
@@ -130,7 +130,7 @@ func TestRun_initKeepsExistingProjectProfileWhenUserDeclinesReplacement(t *testi
 	}
 	assertContains(t, result.stdout, "Configuration projet conservée")
 
-	data, err := os.ReadFile(filepath.Join(projectDir, ".loreskills", "project.json"))
+	data, err := os.ReadFile(filepath.Join(projectDir, ".sth", "project.json"))
 	if err != nil {
 		t.Fatalf("ReadFile(project profile): %v", err)
 	}
@@ -152,14 +152,14 @@ func TestRun_initGuidesUserThroughPublicGitHubSetup(t *testing.T) {
 		_, _ = w.Write([]byte(testCatalogMarkdown("| skill | alpha | skills | skills/alpha.md | Alpha |")))
 	}))
 	defer server.Close()
-	t.Setenv("LORESKILLS_GITHUB_RAW_BASE_URL", server.URL)
+	t.Setenv("STH_GITHUB_RAW_BASE_URL", server.URL)
 
 	result := runCLIWithInput(t, projectDir, homeDir, "\ngithub\nn\n\nowner-only\nowner/repo\n\n\n\n", "init")
 
 	if result.err != nil {
 		t.Fatalf("Run() error = %v\nstdout=%s\nstderr=%s", result.err, result.stdout, result.stderr)
 	}
-	assertContains(t, result.stdout, "Assistant de configuration LoreSkills")
+	assertContains(t, result.stdout, "Assistant de configuration STH")
 	assertContains(t, result.stdout, "Etape 1/5 - Choisir le provider")
 	assertContains(t, result.stdout, "Etape 2/5 - Type d'acces au depot")
 	assertContains(t, result.stdout, "Depot public")
@@ -167,7 +167,7 @@ func TestRun_initGuidesUserThroughPublicGitHubSetup(t *testing.T) {
 	assertContains(t, result.stdout, "Repository ID invalide")
 	assertContains(t, result.stdout, "Etape 5/5 - Validation de l'acces distant")
 	assertContains(t, result.stdout, "Configuration projet enregistrée")
-	assertContains(t, result.stdout, "Prochaine étape : utilisez `loreskills list`.")
+	assertContains(t, result.stdout, "Prochaine étape : utilisez `sth list`.")
 	assertEmpty(t, result.stderr)
 }
 
@@ -206,7 +206,7 @@ func TestRun_initShowsTokenGuidanceForPrivateRepo(t *testing.T) {
 			wantEnvVar:    "GITHUB_TOKEN",
 			repoID:        "owner/repo",
 			serverPathFmt: "/owner/repo/main/SKILLS.md",
-			rawBaseURLEnv: "LORESKILLS_GITHUB_RAW_BASE_URL",
+			rawBaseURLEnv: "STH_GITHUB_RAW_BASE_URL",
 		},
 		{
 			name:          "gitlab",
@@ -214,7 +214,7 @@ func TestRun_initShowsTokenGuidanceForPrivateRepo(t *testing.T) {
 			wantEnvVar:    "GITLAB_TOKEN",
 			repoID:        "owner/repo",
 			serverPathFmt: "/api/v4/projects/owner%2Frepo/repository/files/SKILLS.md/raw",
-			rawBaseURLEnv: "LORESKILLS_GITLAB_API_BASE_URL",
+			rawBaseURLEnv: "STH_GITLAB_API_BASE_URL",
 		},
 		{
 			name:          "bitbucket",
@@ -222,7 +222,7 @@ func TestRun_initShowsTokenGuidanceForPrivateRepo(t *testing.T) {
 			wantEnvVar:    "BITBUCKET_TOKEN",
 			repoID:        "owner/repo",
 			serverPathFmt: "/2.0/repositories/owner/repo/src/main/SKILLS.md",
-			rawBaseURLEnv: "LORESKILLS_BITBUCKET_API_BASE_URL",
+			rawBaseURLEnv: "STH_BITBUCKET_API_BASE_URL",
 		},
 	}
 
@@ -245,7 +245,7 @@ func TestRun_initShowsTokenGuidanceForPrivateRepo(t *testing.T) {
 			}
 			t.Setenv(p.rawBaseURLEnv, baseURL)
 			// Set a dummy token so the credential fallback does not block waiting for git credentials.
-			t.Setenv("LORESKILLS_TOKEN", "dummy-test-token")
+			t.Setenv("STH_TOKEN", "dummy-test-token")
 
 			// Input: providerID(default), provider, private=y, reviewAgain(no), skip token, repoID, ref, catalogPath, targetDir
 			input := "\n" + p.name + "\ny\n\n\n" + p.repoID + "\n\n\n\n"
@@ -257,7 +257,7 @@ func TestRun_initShowsTokenGuidanceForPrivateRepo(t *testing.T) {
 			assertContains(t, result.stdout, "Depot prive - Authentification requise")
 			assertContains(t, result.stdout, p.wantURL)
 			assertContains(t, result.stdout, p.wantEnvVar)
-			assertContains(t, result.stdout, "LORESKILLS_TOKEN")
+			assertContains(t, result.stdout, "STH_TOKEN")
 			switch p.name {
 			case "github":
 				assertContains(t, result.stdout, "Contents: Read")
@@ -279,7 +279,7 @@ func TestRun_initRejectsUnsupportedProviderThenContinues(t *testing.T) {
 		_, _ = w.Write([]byte(testCatalogMarkdown("| skill | alpha | react | react/alpha/SKILL.md | Alpha |")))
 	}))
 	defer server.Close()
-	t.Setenv("LORESKILLS_GITHUB_RAW_BASE_URL", server.URL)
+	t.Setenv("STH_GITHUB_RAW_BASE_URL", server.URL)
 
 	result := runCLIWithInput(t, projectDir, homeDir, "\ngitea\ngithub\nn\nn\nowner/repo\n\n\n\n", "init")
 
@@ -298,8 +298,8 @@ func TestRun_initRejectsSelfHostedRepositoryURLThenAcceptsHostedIdentifier(t *te
 		_, _ = w.Write([]byte(testCatalogMarkdown("| skill | alpha | react | react/alpha/SKILL.md | Alpha |")))
 	}))
 	defer server.Close()
-	t.Setenv("LORESKILLS_GITLAB_API_BASE_URL", server.URL+"/api/v4")
-	t.Setenv("LORESKILLS_TOKEN", "dummy-test-token")
+	t.Setenv("STH_GITLAB_API_BASE_URL", server.URL+"/api/v4")
+	t.Setenv("STH_TOKEN", "dummy-test-token")
 
 	input := "\ngitlab\nn\nn\nhttps://git.example.com/group/project\ngroup/project\n\n\n\n"
 	result := runCLIWithInput(t, projectDir, homeDir, input, "init")
@@ -319,8 +319,8 @@ func TestRun_initAllowsReviewingProviderGuidanceAgain(t *testing.T) {
 		_, _ = w.Write([]byte(testCatalogMarkdown("| skill | alpha | react | react/alpha/SKILL.md | Alpha |")))
 	}))
 	defer server.Close()
-	t.Setenv("LORESKILLS_GITHUB_RAW_BASE_URL", server.URL)
-	t.Setenv("LORESKILLS_TOKEN", "dummy-test-token")
+	t.Setenv("STH_GITHUB_RAW_BASE_URL", server.URL)
+	t.Setenv("STH_TOKEN", "dummy-test-token")
 
 	input := "\ngithub\ny\ny\nn\n\nowner/repo\n\n\n\n"
 	result := runCLIWithInput(t, projectDir, homeDir, input, "init")
@@ -347,7 +347,7 @@ func TestRun_initPrivateGitHubWithTokenPassesValidation(t *testing.T) {
 		_, _ = w.Write([]byte(testCatalogMarkdown("| skill | alpha | skills | skills/alpha.md | Alpha |")))
 	}))
 	defer server.Close()
-	t.Setenv("LORESKILLS_GITHUB_RAW_BASE_URL", server.URL)
+	t.Setenv("STH_GITHUB_RAW_BASE_URL", server.URL)
 
 	// Input: providerID(default), provider=github, private=y, reviewAgain(no), enter token, repoID, ref, catalogPath, targetDir
 	input := "\ngithub\ny\n\n" + testToken + "\nowner/repo\n\n\n\n"
@@ -369,9 +369,9 @@ func TestRun_initAzureDevOpsShowsTokenGuidance(t *testing.T) {
 		_, _ = w.Write([]byte(testCatalogMarkdown("| skill | alpha | skills | skills/alpha.md | Alpha |")))
 	}))
 	defer server.Close()
-	t.Setenv("LORESKILLS_AZURE_DEVOPS_BASE_URL", server.URL)
+	t.Setenv("STH_AZURE_DEVOPS_BASE_URL", server.URL)
 	// Set a dummy token so the credential fallback does not block waiting for git credentials.
-	t.Setenv("LORESKILLS_TOKEN", "dummy-test-token")
+	t.Setenv("STH_TOKEN", "dummy-test-token")
 
 	// Input: providerID(default), azure-devops, private=y, reviewAgain(no), skip token, org/project/repo, ref, catalogPath, targetDir
 	input := "\nazure-devops\ny\n\n\norg/project/repo\n\n\n\n"
@@ -394,7 +394,7 @@ func TestProviderTokenEnvVar(t *testing.T) {
 		{"gitlab", "GITLAB_TOKEN"},
 		{"azure-devops", "AZURE_DEVOPS_EXT_PAT"},
 		{"bitbucket", "BITBUCKET_TOKEN"},
-		{"unknown", "LORESKILLS_TOKEN"},
+		{"unknown", "STH_TOKEN"},
 	}
 	for _, test := range tests {
 		t.Run(test.provider, func(t *testing.T) {
@@ -413,7 +413,7 @@ func TestRunInit_EmptyProject_CreatesV2WithOneProvider(t *testing.T) {
 		_, _ = w.Write([]byte(testCatalogMarkdown("| skill | alpha | skills | skills/alpha.md | Alpha |")))
 	}))
 	defer server.Close()
-	t.Setenv("LORESKILLS_GITHUB_RAW_BASE_URL", server.URL)
+	t.Setenv("STH_GITHUB_RAW_BASE_URL", server.URL)
 
 	// providerID=default, provider=github, private=no, reviewAgain(no), repoID=org/repo, ref=main, catalogPath=SKILLS.md, targetDir=.claude/skills
 	input := "default\ngithub\nn\n\norg/repo\nmain\nSKILLS.md\n.claude/skills\n"
@@ -424,7 +424,7 @@ func TestRunInit_EmptyProject_CreatesV2WithOneProvider(t *testing.T) {
 	}
 	assertContains(t, result.stdout, "Configuration projet enregistrée")
 
-	configPath := filepath.Join(projectDir, ".loreskills", "project.json")
+	configPath := filepath.Join(projectDir, ".sth", "project.json")
 	data, err := os.ReadFile(configPath)
 	if err != nil {
 		t.Fatalf("ReadFile(%s): %v", configPath, err)
@@ -463,7 +463,7 @@ func TestRunInit_ExistingV2_AppendsSecondProvider(t *testing.T) {
 		_, _ = w.Write([]byte(testCatalogMarkdown("| skill | alpha | skills | skills/alpha.md | Alpha |")))
 	}))
 	defer server.Close()
-	t.Setenv("LORESKILLS_GITHUB_RAW_BASE_URL", server.URL)
+	t.Setenv("STH_GITHUB_RAW_BASE_URL", server.URL)
 
 	writeProjectConfigV2ForTest(t, projectDir, fs.ProjectConfigV2{
 		SchemaVersion: 2,
@@ -481,7 +481,7 @@ func TestRunInit_ExistingV2_AppendsSecondProvider(t *testing.T) {
 		t.Fatalf("Run() error = %v\nstdout=%s\nstderr=%s", result.err, result.stdout, result.stderr)
 	}
 
-	configPath := filepath.Join(projectDir, ".loreskills", "project.json")
+	configPath := filepath.Join(projectDir, ".sth", "project.json")
 	data, err := os.ReadFile(configPath)
 	if err != nil {
 		t.Fatalf("ReadFile(%s): %v", configPath, err)
@@ -528,7 +528,7 @@ func TestRunInit_DuplicateProviderID_ReturnsError(t *testing.T) {
 		t.Fatalf("expected stdout to mention 'default', got: stdout=%s", result.stdout)
 	}
 
-	configPath := filepath.Join(projectDir, ".loreskills", "project.json")
+	configPath := filepath.Join(projectDir, ".sth", "project.json")
 	data, err := os.ReadFile(configPath)
 	if err != nil {
 		t.Fatalf("ReadFile(%s): %v", configPath, err)
@@ -550,7 +550,7 @@ func TestRunInit_V2WrittenCorrectly_ProvidersArray(t *testing.T) {
 		_, _ = w.Write([]byte(testCatalogMarkdown("| skill | alpha | skills | skills/alpha.md | Alpha |")))
 	}))
 	defer server.Close()
-	t.Setenv("LORESKILLS_GITHUB_RAW_BASE_URL", server.URL)
+	t.Setenv("STH_GITHUB_RAW_BASE_URL", server.URL)
 
 	input := "myprovider\ngithub\nn\n\norg/repo\nmain\nSKILLS.md\n.claude/skills\n"
 	result := runCLIWithInput(t, projectDir, homeDir, input, "init")
@@ -559,7 +559,7 @@ func TestRunInit_V2WrittenCorrectly_ProvidersArray(t *testing.T) {
 		t.Fatalf("Run() error = %v\nstdout=%s", result.err, result.stdout)
 	}
 
-	configPath := filepath.Join(projectDir, ".loreskills", "project.json")
+	configPath := filepath.Join(projectDir, ".sth", "project.json")
 	data, err := os.ReadFile(configPath)
 	if err != nil {
 		t.Fatalf("ReadFile(%s): %v", configPath, err)

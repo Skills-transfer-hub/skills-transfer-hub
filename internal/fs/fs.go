@@ -22,26 +22,26 @@ import (
 )
 
 const (
-	configFileName        = ".loreskillsrc"
-	projectConfigDirName  = ".loreskills"
+	configFileName        = ".sthrc"
+	projectConfigDirName  = ".sth"
 	projectConfigFileName = "project.json"
-	stateFileName         = "lore-state.json"
-	stateFileNameV2       = "lore-state-v2.json"
+	stateFileName         = "sth-state.json"
+	stateFileNameV2       = "sth-state-v2.json"
 	defaultRef            = "main"
 	defaultCatalogPath    = "SKILLS.md"
 	defaultTargetDir      = ".claude/skills"
 
-	// En-tête ajouté en début de chaque ressource Markdown gérée par LoreSkills.
-	skillHeader = "> ⚠️ ATTENTION : Skill géré par LoreSkills. Ne pas modifier manuellement.\n\n"
+	// En-tête ajouté en début de chaque ressource Markdown gérée par STH.
+	skillHeader = "> ⚠️ ATTENTION : Skill géré par STH. Ne pas modifier manuellement.\n\n"
 )
 
-// Config stores the legacy LoreSkills user configuration.
+// Config stores the legacy STH user configuration.
 type Config struct {
 	RepoRawURL string `json:"repo_raw_url"`
 	TargetDir  string `json:"target_dir"`
 }
 
-// ProjectProfile stores the project-local LoreSkills configuration.
+// ProjectProfile stores the project-local STH configuration.
 type ProjectProfile struct {
 	Provider           string `json:"provider"`
 	RepositoryID       string `json:"repository_id"`
@@ -134,7 +134,7 @@ func NormalizeRepositoryID(provider, repositoryID string) (string, error) {
 	return strings.Join(parts, "/"), nil
 }
 
-// InstalledResourceRecord describes one installed resource in lore-state.json.
+// InstalledResourceRecord describes one installed resource in sth-state.json.
 type InstalledResourceRecord struct {
 	CatalogID     string              `json:"catalog_id"`
 	ResourceType  string              `json:"resource_type"`
@@ -153,7 +153,7 @@ type InstalledResourceState struct {
 	Entries []InstalledResourceRecord `json:"entries"`
 }
 
-// ConfigPath returns the absolute path to ~/.loreskillsrc.
+// ConfigPath returns the absolute path to ~/.sthrc.
 func ConfigPath() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -190,7 +190,7 @@ func ReadConfigIfPresent() (*Config, error) {
 	return &cfg, nil
 }
 
-// WriteDefaultConfig creates ~/.loreskillsrc with LoreSkills starter values.
+// WriteDefaultConfig creates ~/.sthrc with STH starter values.
 func WriteDefaultConfig() (string, error) {
 	path, err := ConfigPath()
 	if err != nil {
@@ -231,7 +231,7 @@ func ReadConfig() (*Config, error) {
 		if pathErr != nil {
 			return nil, pathErr
 		}
-		return nil, fmt.Errorf("configuration introuvable (%s) — exécutez `loreskills init`", path)
+		return nil, fmt.Errorf("configuration introuvable (%s) — exécutez `sth init`", path)
 	}
 
 	return cfg, nil
@@ -313,7 +313,7 @@ func ReadProjectProfile() (*ProjectProfile, error) {
 		if pathErr != nil {
 			return nil, pathErr
 		}
-		return nil, fmt.Errorf("configuration projet introuvable (%s) — exécutez `loreskills init` dans ce projet", path)
+		return nil, fmt.Errorf("configuration projet introuvable (%s) — exécutez `sth init` dans ce projet", path)
 	}
 
 	return profile, nil
@@ -552,7 +552,7 @@ func ResolveManagedPath(managedRoot, relativePath string) (string, error) {
 	return candidate, nil
 }
 
-// InstallCatalogEntry writes the catalog entry and updates lore-state.json.
+// InstallCatalogEntry writes the catalog entry and updates sth-state.json.
 func InstallCatalogEntry(targetDir string, entry CatalogEntry, content []byte) (InstalledResourceRecord, error) {
 	record, _, err := SaveCatalogEntry(targetDir, entry, content)
 	if err != nil {
@@ -621,7 +621,7 @@ func SaveInstalledResource(record InstalledResourceRecord, content []byte) error
 	return nil
 }
 
-// UpsertInstalledResource stores or replaces the given record in lore-state.json.
+// UpsertInstalledResource stores or replaces the given record in sth-state.json.
 func UpsertInstalledResource(targetDir string, record InstalledResourceRecord) error {
 	if err := validateInstalledRecord(record); err != nil {
 		return err
@@ -657,7 +657,7 @@ func UpsertInstalledResource(targetDir string, record InstalledResourceRecord) e
 	return writeInstalledState(targetDir, state)
 }
 
-// ReadInstalledState loads the tracked resource state from lore-state.json.
+// ReadInstalledState loads the tracked resource state from sth-state.json.
 func ReadInstalledState(targetDir string) (InstalledResourceState, error) {
 	if err := validateTargetDir(targetDir); err != nil {
 		return InstalledResourceState{}, err
@@ -834,7 +834,7 @@ func extractBinaryFromArchive(assetName string, assetData []byte) ([]byte, os.Fi
 		}
 		for _, file := range reader.File {
 			baseName := path.Base(file.Name)
-			if baseName != "loreskills" && baseName != "loreskills.exe" {
+			if baseName != "sth" && baseName != "sth.exe" {
 				continue
 			}
 			opened, err := file.Open()
@@ -855,7 +855,7 @@ func extractBinaryFromArchive(assetName string, assetData []byte) ([]byte, os.Fi
 			return data, mode, nil
 		}
 
-		return nil, 0, fmt.Errorf("binaire LoreSkills introuvable dans %s", assetName)
+		return nil, 0, fmt.Errorf("binaire STH introuvable dans %s", assetName)
 	}
 
 	if strings.HasSuffix(assetName, ".tar.gz") {
@@ -876,7 +876,7 @@ func extractBinaryFromArchive(assetName string, assetData []byte) ([]byte, os.Fi
 			}
 
 			baseName := path.Base(header.Name)
-			if baseName != "loreskills" && baseName != "loreskills.exe" {
+			if baseName != "sth" && baseName != "sth.exe" {
 				continue
 			}
 
@@ -892,7 +892,7 @@ func extractBinaryFromArchive(assetName string, assetData []byte) ([]byte, os.Fi
 			return data, mode, nil
 		}
 
-		return nil, 0, fmt.Errorf("binaire LoreSkills introuvable dans %s", assetName)
+		return nil, 0, fmt.Errorf("binaire STH introuvable dans %s", assetName)
 	}
 
 	return nil, 0, fmt.Errorf("format d'archive non pris en charge : %s", assetName)
@@ -902,11 +902,72 @@ func addManagedHeaderIfMarkdown(installedPath string, content []byte) []byte {
 	if !strings.EqualFold(filepath.Ext(installedPath), ".md") {
 		return content
 	}
-	if bytes.HasPrefix(content, []byte(skillHeader)) {
-		return content
+
+	headerBytes := []byte(skillHeader)
+
+	if bodyStart := frontmatterBodyOffset(content); bodyStart >= 0 {
+		// File has YAML frontmatter (e.g. SKILL.md). Claude requires the
+		// frontmatter on line 1, so we inject the STH warning *after* the
+		// closing `---` instead of prepending it.
+		if bytes.HasPrefix(content[bodyStart:], headerBytes) {
+			return content
+		}
+		out := make([]byte, 0, len(content)+len(headerBytes))
+		out = append(out, content[:bodyStart]...)
+		out = append(out, headerBytes...)
+		out = append(out, content[bodyStart:]...)
+		return out
 	}
 
-	return append([]byte(skillHeader), content...)
+	if bytes.HasPrefix(content, headerBytes) {
+		return content
+	}
+	return append(headerBytes, content...)
+}
+
+// frontmatterBodyOffset returns the byte offset of the body (i.e. the index
+// just past the closing `---` line and its terminating newline) when content
+// starts with a YAML frontmatter block. It returns -1 when there is no
+// frontmatter. The detection tolerates an optional UTF-8 BOM and both LF and
+// CRLF line endings, but requires the closing `---` to appear on its own line.
+func frontmatterBodyOffset(content []byte) int {
+	bomLen := 0
+	if bytes.HasPrefix(content, []byte{0xEF, 0xBB, 0xBF}) {
+		bomLen = 3
+	}
+	rest := content[bomLen:]
+
+	var openLen int
+	switch {
+	case bytes.HasPrefix(rest, []byte("---\n")):
+		openLen = 4
+	case bytes.HasPrefix(rest, []byte("---\r\n")):
+		openLen = 5
+	default:
+		return -1
+	}
+
+	body := rest[openLen:]
+	for offset := 0; offset <= len(body); {
+		nl := bytes.IndexByte(body[offset:], '\n')
+		var line []byte
+		var nextOffset int
+		if nl == -1 {
+			line = body[offset:]
+			nextOffset = len(body)
+		} else {
+			line = body[offset : offset+nl]
+			nextOffset = offset + nl + 1
+		}
+		if bytes.Equal(bytes.TrimRight(line, "\r"), []byte("---")) {
+			return bomLen + openLen + nextOffset
+		}
+		if nl == -1 {
+			break
+		}
+		offset = nextOffset
+	}
+	return -1
 }
 
 func validateConfig(cfg Config) error {
@@ -1228,7 +1289,7 @@ func ReadProjectConfigV2() (ProjectConfigV2, error) {
 }
 
 // ReadInstalledStateV2 loads the v2 installed state for targetDir.
-// If lore-state-v2.json does not exist, it falls back to lore-state.json,
+// If sth-state-v2.json does not exist, it falls back to sth-state.json,
 // converting v1 format in memory without writing to disk.
 // Returns an empty v2 state if neither file exists.
 func ReadInstalledStateV2(targetDir string) (InstalledResourceStateV2, error) {
@@ -1295,8 +1356,8 @@ func parseInstalledStateV2FromBytes(data []byte, path string) (InstalledResource
 	return InstalledResourceStateV2{SchemaVersion: 2, Entries: entries}, nil
 }
 
-// PromoteInstalledState creates lore-state-v2.json from lore-state.json if needed.
-// It is a no-op when lore-state-v2.json already exists or lore-state.json is absent.
+// PromoteInstalledState creates sth-state-v2.json from sth-state.json if needed.
+// It is a no-op when sth-state-v2.json already exists or sth-state.json is absent.
 // On v1→v2 promotion, a progress message is written to w. A nil w defaults to io.Discard.
 func PromoteInstalledState(targetDir string, w io.Writer) error {
 	if w == nil {
@@ -1326,12 +1387,12 @@ func PromoteInstalledState(targetDir string, w io.Writer) error {
 	}
 	if err := WriteInstalledStateV2(targetDir, state); err != nil {
 		if needsMigration {
-			fmt.Fprintf(w, "[loreskills] migrating lore-state.json v1 → v2 … failed: %v\n", err)
+			fmt.Fprintf(w, "[sth] migrating sth-state.json v1 → v2 … failed: %v\n", err)
 		}
 		return err
 	}
 	if needsMigration {
-		fmt.Fprintf(w, "[loreskills] migrating lore-state.json v1 → v2 … done\n")
+		fmt.Fprintf(w, "[sth] migrating sth-state.json v1 → v2 … done\n")
 	}
 	return nil
 }
@@ -1379,7 +1440,7 @@ func WriteInstalledStateV2(targetDir string, state InstalledResourceStateV2) err
 	return atomicWriteFile(statePath, append(data, '\n'), 0o644)
 }
 
-// InstallCatalogEntryV2 writes the catalog entry to disk and records it in lore-state-v2.json.
+// InstallCatalogEntryV2 writes the catalog entry to disk and records it in sth-state-v2.json.
 // providerID identifies the source provider in the v2 state; pass "default" for legacy v1 installs.
 func InstallCatalogEntryV2(targetDir string, entry CatalogEntry, content []byte, providerID string) (InstalledResourceRecordV2, error) {
 	if providerID == "" {
@@ -1404,7 +1465,7 @@ func InstallCatalogEntryV2(targetDir string, entry CatalogEntry, content []byte,
 	return v2record, nil
 }
 
-// UpsertInstalledResourceV2 stores or replaces the given record in lore-state-v2.json.
+// UpsertInstalledResourceV2 stores or replaces the given record in sth-state-v2.json.
 func UpsertInstalledResourceV2(targetDir string, record InstalledResourceRecordV2) error {
 	if err := EnsureTargetDir(targetDir); err != nil {
 		return err

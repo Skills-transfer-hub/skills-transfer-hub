@@ -1,8 +1,8 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "loreskills/project-config-v2",
-  "title": "LoreSkills Project Configuration v2",
-  "description": "Schema for .loreskills/project.json (schema_version: 2)",
+  "$id": "sth/project-config-v2",
+  "title": "STH Project Configuration v2",
+  "description": "Schema for .sth/project.json (schema_version: 2)",
   "type": "object",
   "required": ["schema_version", "providers", "resources"],
   "additionalProperties": false,

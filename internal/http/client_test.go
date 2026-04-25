@@ -2,7 +2,7 @@ package http
 
 import (
 	"context"
-	"loreskills/internal/fs"
+	"sth/internal/fs"
 	"strings"
 	"testing"
 
@@ -50,7 +50,7 @@ func TestClient_ListCatalog_success(t *testing.T) {
 		)))
 	})
 	defer server.Close()
-	t.Setenv("LORESKILLS_GITHUB_RAW_BASE_URL", server.URL)
+	t.Setenv("STH_GITHUB_RAW_BASE_URL", server.URL)
 
 	client := NewClient(server.Client())
 	entries, err := client.ListCatalog(context.Background(), githubProfileForTest(".claude/resources"))
@@ -68,7 +68,7 @@ func TestClient_ListCatalog_success(t *testing.T) {
 func TestClient_DownloadCatalogEntry_notFound(t *testing.T) {
 	server := newCatalogServer(t, stdhttp.NotFoundHandler().ServeHTTP)
 	defer server.Close()
-	t.Setenv("LORESKILLS_GITHUB_RAW_BASE_URL", server.URL)
+	t.Setenv("STH_GITHUB_RAW_BASE_URL", server.URL)
 
 	client := NewClient(server.Client())
 	_, err := client.DownloadCatalogEntry(context.Background(), githubProfileForTest(".claude/resources"), fs.CatalogEntry{
@@ -108,14 +108,14 @@ func TestClient_CheckForStableUpdate_selectsLatestStableRelease(t *testing.T) {
     "tag_name": "v3.0.0-beta.1",
     "prerelease": true,
     "assets": [
-      {"name": "loreskills-windows-amd64.zip", "browser_download_url": "` + serverURL + `/beta"}
+      {"name": "sth-windows-amd64.zip", "browser_download_url": "` + serverURL + `/beta"}
     ]
   },
   {
     "tag_name": "v2.0.0",
     "prerelease": false,
     "assets": [
-      {"name": "loreskills-windows-amd64.zip", "browser_download_url": "` + serverURL + `/asset"},
+      {"name": "sth-windows-amd64.zip", "browser_download_url": "` + serverURL + `/asset"},
       {"name": "SHA256SUMS", "browser_download_url": "` + serverURL + `/checksum"}
     ]
   }
@@ -128,7 +128,7 @@ func TestClient_CheckForStableUpdate_selectsLatestStableRelease(t *testing.T) {
 	release, err := client.CheckForStableUpdate(context.Background(), ReleaseMetadata{
 		CurrentVersion: "v1.0.0",
 		ReleasesAPIURL: server.URL + "/releases",
-		AssetName:      "loreskills-windows-amd64.zip",
+		AssetName:      "sth-windows-amd64.zip",
 		ChecksumName:   "SHA256SUMS",
 	})
 	if err != nil {
@@ -157,7 +157,7 @@ func TestClient_CheckForStableUpdate_ignoresPrereleaseOnlyFeed(t *testing.T) {
     "tag_name": "v3.0.0-beta.1",
     "prerelease": true,
     "assets": [
-      {"name": "loreskills-windows-amd64.zip", "browser_download_url": "` + serverURL + `/beta"},
+      {"name": "sth-windows-amd64.zip", "browser_download_url": "` + serverURL + `/beta"},
       {"name": "SHA256SUMS", "browser_download_url": "` + serverURL + `/checksum"}
     ]
   }
@@ -170,7 +170,7 @@ func TestClient_CheckForStableUpdate_ignoresPrereleaseOnlyFeed(t *testing.T) {
 	release, err := client.CheckForStableUpdate(context.Background(), ReleaseMetadata{
 		CurrentVersion: "v1.0.0",
 		ReleasesAPIURL: server.URL + "/releases",
-		AssetName:      "loreskills-windows-amd64.zip",
+		AssetName:      "sth-windows-amd64.zip",
 		ChecksumName:   "SHA256SUMS",
 	})
 	if err != nil {
@@ -197,8 +197,8 @@ func TestClient_CheckProjectAccess_acceptsStructureScanWhenCatalogMissing(t *tes
 		}
 	})
 	defer server.Close()
-	t.Setenv("LORESKILLS_GITHUB_RAW_BASE_URL", server.URL)
-	t.Setenv("LORESKILLS_GITHUB_API_BASE_URL", server.URL)
+	t.Setenv("STH_GITHUB_RAW_BASE_URL", server.URL)
+	t.Setenv("STH_GITHUB_API_BASE_URL", server.URL)
 
 	client := NewClient(server.Client())
 	err := client.CheckProjectAccess(context.Background(), githubProfileForTest(".claude/resources"))

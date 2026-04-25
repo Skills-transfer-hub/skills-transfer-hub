@@ -10,7 +10,7 @@ import (
 // The destination file is either updated atomically or left unchanged on failure.
 func atomicWriteFile(path string, data []byte, perm os.FileMode) error {
 	dir := filepath.Dir(path)
-	tmp, err := os.CreateTemp(dir, ".loreskills-tmp-*")
+	tmp, err := os.CreateTemp(dir, ".sth-tmp-*")
 	if err != nil {
 		return fmt.Errorf("create temp file: %w", err)
 	}

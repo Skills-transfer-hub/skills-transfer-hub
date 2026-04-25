@@ -12,7 +12,7 @@
 
 ```bash
 # Build
-CGO_ENABLED=0 go build -o loreskills .
+CGO_ENABLED=0 go build -o sth .
 
 # Run all tests
 go test ./...
@@ -38,7 +38,7 @@ go test -v ./internal/fs/...
 ## v2 JSON Schemas
 
 - **project.json v2**: `specs/005-state-config-foundation/contracts/project-config-v2.json`
-- **lore-state.json v2**: `specs/005-state-config-foundation/contracts/lore-state-v2.json`
+- **sth-state.json v2**: `specs/005-state-config-foundation/contracts/sth-state-v2.json`
 
 ## Understanding the Migration
 
@@ -47,21 +47,21 @@ required. The flow is:
 
 ```
 ReadProjectConfigV2()
-  └─> read .loreskills/project.json
+  └─> read .sth/project.json
         ├─ schema_version == 2 → return as-is
         └─ schema_version absent or != 2 → MigrateProjectConfig()
-              ├─> create .loreskills/project.json.bak
-              ├─> rewrite .loreskills/project.json with v2 schema
+              ├─> create .sth/project.json.bak
+              ├─> rewrite .sth/project.json with v2 schema
               └─> return v2 config
 ```
 
-Same pattern for `ReadInstalledStateV2()` and `lore-state.json`.
+Same pattern for `ReadInstalledStateV2()` and `sth-state.json`.
 
 ## Adding a Second Provider (manual test)
 
 ```bash
 # After initial init (provider "default" created)
-loreskills init
+sth init
 # > "Configuration projet existante détectée"
 # > "Ajouter un nouveau provider ?" [Y/n]: y
 # > "ID du provider (ex: public)": public
@@ -100,7 +100,7 @@ func TestMigrateProjectConfig_V1ToV2(t *testing.T) {
 
 // Test SHA256 is written for managed files
 func TestInstallWritesManagedFiles(t *testing.T) {
-    // ... install a resource and verify lore-state.json has managed_files with sha256
+    // ... install a resource and verify sth-state.json has managed_files with sha256
 }
 ```
 
@@ -123,14 +123,14 @@ This spec (005) MUST be fully complete and merged before work begins on:
 | `MigrateInstalledState` | ⚠️ Partial | Missing: `io.Writer` param, stderr progress, atomic write; also targets wrong file |
 | `WriteInstalledStateV2` | ⚠️ Partial | Missing: atomic write-then-rename, lock |
 | `WriteProjectConfigV2` | ⚠️ Partial | Missing: atomic write-then-rename |
-| Multi-provider `loreskills init` | ✅ Done | |
+| Multi-provider `sth init` | ✅ Done | |
 | `PinnedVersion` lookup | ✅ Done | |
 | Ownership conflict detection | ✅ Done | |
 | `atomicWriteFile` helper | ❌ Missing | Create `internal/fs/atomic.go` |
 | `AcquireStateLock` | ❌ Missing | Create `internal/fs/lock.go` |
 | `resolved_version` population | ❌ Missing | `InstallCatalogEntryV2` needs `resolvedVersion` param |
 | Auto-migration on command entry | ❌ Missing | `runMigrations(stderr)` call in each `cmd/` handler |
-| File naming: `lore-state.json` | ❌ Missing | `WriteInstalledStateV2` writes to wrong file (`lore-state-v2.json`) |
+| File naming: `sth-state.json` | ❌ Missing | `WriteInstalledStateV2` writes to wrong file (`sth-state-v2.json`) |
 
 ## New API Signatures to Implement
 

@@ -3,7 +3,7 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"loreskills/internal/fs"
+	"sth/internal/fs"
 )
 
 func (a *app) runList() error {

@@ -1,7 +1,7 @@
 package main
 
 import (
-	"loreskills/cmd"
+	"sth/cmd"
 	"os"
 )
 

@@ -1,6 +1,6 @@
 # Contract: `project.json` v2 Schema
 
-**File path**: `.loreskills/project.json`  
+**File path**: `.sth/project.json`  
 **Schema version**: 2  
 **Owner**: `internal/fs/` — written by `WriteProjectConfigV2`, read by `ReadProjectConfigV2`
 
@@ -60,14 +60,14 @@
 |-------|------|----------|-------------|-------------|
 | `resource_name` | string | yes | Non-empty | Catalog ID of the resource (`type::folder::name`) |
 | `provider_id` | string | yes | Must match an existing `providers[].id` | Links the resource to its source provider |
-| `pinned_version` | string | no | Commit SHA or tag; omitted if not pinned | When present, `loreskills update` skips this resource |
+| `pinned_version` | string | no | Commit SHA or tag; omitted if not pinned | When present, `sth update` skips this resource |
 
 ---
 
 ## Invariants
 
 1. `schema_version` MUST be `2`.
-2. `providers` array MUST NOT be `null`; MAY be empty before `loreskills init` runs.
+2. `providers` array MUST NOT be `null`; MAY be empty before `sth init` runs.
 3. Provider `id` values MUST be unique within `providers`.
 4. Each `resource.provider_id` MUST reference a `providers[].id` in the same file.
 5. The `catalog_path` field uses forward slashes (URL-style paths), not OS-native separators.
@@ -92,9 +92,9 @@
 
 ## Consumers
 
-- `loreskills init` — writes provider entries
-- `loreskills list` — reads `providers[0]` (primary provider for catalog fetch)
-- `loreskills install` — reads `providers`, `resources`; writes `resources` on pin
-- `loreskills update` — reads `providers`, `resources.pinned_version`
-- `loreskills status` — reads `providers`, `resources`
-- `loreskills remove` — reads `resources`; removes entry on unpin (spec 006)
+- `sth init` — writes provider entries
+- `sth list` — reads `providers[0]` (primary provider for catalog fetch)
+- `sth install` — reads `providers`, `resources`; writes `resources` on pin
+- `sth update` — reads `providers`, `resources.pinned_version`
+- `sth status` — reads `providers`, `resources`
+- `sth remove` — reads `resources`; removes entry on unpin (spec 006)
