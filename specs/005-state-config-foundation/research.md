@@ -129,20 +129,17 @@ function approach lets each command be migrated and tested independently (SC-005
 
 ## Decision 8: Advisory File Lock — `O_CREATE|O_EXCL` approach
 
-**Decision**: Implement advisory locking via `os.OpenFile(lockPath, os.O_CREATE|os.O_EXCL, 0o644)`.
-- If the call succeeds, the lock is held and the file descriptor is kept open until
-  `io.Closer.Close()` is called, which removes the lock file via `os.Remove`.
+**Decision**: Implement advisory locking by creating `<stateDir>/.lore-state.lock` with
+`os.OpenFile(..., os.O_CREATE|os.O_EXCL, 0o644)`, then closing the file immediately after
+successful creation.
+- If the call succeeds, the lock is represented by the presence of the lock file and a
+  returned cleanup function removes it via `os.Remove`.
 - If `O_EXCL` fails (file already exists), return an error immediately (fail-fast, FR-015).
 - Lock file path: `<stateDir>/.lore-state.lock` (same directory as `lore-state.json`).
 
 **API**:
 ```go
-func AcquireStateLock(lockPath string) (io.Closer, error)
-```
-Callers use `defer lock.Close()` to guarantee release even on panic.
-
-**Rationale**: `O_CREATE|O_EXCL` is the only cross-platform atomic test-and-set available
-in Go stdlib without CGO. No platform-specific syscalls needed.
+func AcquireStateLock(targetDir string) (func(), error)
 
 **Alternatives considered**:
 - `flock(2)` via `syscall` package: non-portable to Windows without build tags. Rejected.
