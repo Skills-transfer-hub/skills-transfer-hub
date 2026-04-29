@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://schemas.microsoft.com/packaging/2015/06/nuspec.xsd">
+  <metadata>
+    <id>sth</id>
+    <version>__VERSION__</version>
+    <packageSourceUrl>https://github.com/Grandpied33/skills-transfer-hub</packageSourceUrl>
+    <owners>Grandpied33</owners>
+    <title>STH (Skills Transfer Hub)</title>
+    <authors>Hugo MR</authors>
+    <projectUrl>https://github.com/Grandpied33/skills-transfer-hub</projectUrl>
+    <licenseUrl>https://github.com/Grandpied33/skills-transfer-hub/blob/main/LICENSE</licenseUrl>
+    <requireLicenseAcceptance>false</requireLicenseAcceptance>
+    <projectSourceUrl>https://github.com/Grandpied33/skills-transfer-hub</projectSourceUrl>
+    <docsUrl>https://github.com/Grandpied33/skills-transfer-hub#readme</docsUrl>
+    <bugTrackerUrl>https://github.com/Grandpied33/skills-transfer-hub/issues</bugTrackerUrl>
+    <tags>sth cli ai skills go</tags>
+    <summary>CLI to install AI skills from a hosted catalog</summary>
+    <description>
+STH (Skills Transfer Hub) is a single-binary Go CLI that connects a project to a hosted repository of AI resources, reads a SKILLS.md catalog, installs resources locally, and keeps them up to date.
+
+Visible commands:
+- `sth` opens the guided menu
+- `sth init` configures a hosted repository for the current project
+- `sth list` lists installable resources
+- `sth install &lt;resource-ref&gt;` installs a resource
+- `sth update` refreshes tracked resources
+- `sth update self` self-updates the CLI from GitHub Releases
+    </description>
+    <releaseNotes>https://github.com/Grandpied33/skills-transfer-hub/releases/tag/v__VERSION__</releaseNotes>
+  </metadata>
+  <files>
+    <file src="tools\**" target="tools" />
+  </files>
+</package>
