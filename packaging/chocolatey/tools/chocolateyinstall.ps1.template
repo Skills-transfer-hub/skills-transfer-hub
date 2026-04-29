@@ -1,0 +1,13 @@
+$ErrorActionPreference = 'Stop'
+
+$toolsDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
+
+$packageArgs = @{
+  packageName    = 'sth'
+  unzipLocation  = $toolsDir
+  url64bit       = 'https://github.com/Grandpied33/skills-transfer-hub/releases/download/__TAG__/sth-windows-amd64.zip'
+  checksum64     = '__CHECKSUM__'
+  checksumType64 = 'sha256'
+}
+
+Install-ChocolateyZipPackage @packageArgs

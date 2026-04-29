@@ -18,6 +18,30 @@ Le flux actuel est centré sur le projet courant, pas sur une configuration part
 
 ## Installation
 
+### Via un gestionnaire de paquets
+
+Sous macOS ou Linux (Homebrew tap personnel) :
+
+```bash
+brew install Grandpied33/sth/sth
+```
+
+Sous Windows (winget) :
+
+```powershell
+winget install Grandpied33.sth
+```
+
+Sous Windows (Chocolatey) :
+
+```powershell
+choco install sth
+```
+
+> Si vous installez STH via un gestionnaire de paquets, utilisez ce gestionnaire pour les mises à jour (`brew upgrade sth`, `winget upgrade Grandpied33.sth`, `choco upgrade sth`) plutôt que `sth update self`. La commande `sth update self` reste fonctionnelle mais sera écrasée à la prochaine mise à jour du paquet.
+
+### Depuis GitHub Releases
+
 STH est publié sur GitHub Releases avec les archives suivantes :
 
 - `sth-windows-amd64.zip`
