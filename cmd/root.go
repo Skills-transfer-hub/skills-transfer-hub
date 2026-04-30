@@ -321,6 +321,11 @@ func (a *app) run(args []string) error {
 // reportCloudUsageBestEffort sends a single usage record to the LoreSkills API
 // for any successful command, when the active project profile uses the cloud
 // provider. Failures are swallowed — telemetry must never block a CLI command.
+//
+// Runs synchronously with a tight timeout: a goroutine here would be killed
+// when main returns (this is the last call before exit), so we'd lose nearly
+// every record. 500ms is short enough to stay invisible on a healthy network
+// and the request is fully cancelled if it overshoots.
 func (a *app) reportCloudUsageBestEffort(command string) {
 	if command == "login" || command == "logout" || command == "version" || command == "help" {
 		return
@@ -345,11 +350,9 @@ func (a *app) reportCloudUsageBestEffort(command string) {
 	if !found {
 		return
 	}
-	go func() {
-		ctx, cancel := contextWithTimeout(1500)
-		defer cancel()
-		_ = a.client.ReportCloudUsage(ctx, profile, valueOrDefault(version, "dev"))
-	}()
+	ctx, cancel := contextWithTimeout(500)
+	defer cancel()
+	_ = a.client.ReportCloudUsage(ctx, profile, valueOrDefault(version, "dev"))
 }
 
 func findCommandSpec(name string) (commandSpec, bool) {

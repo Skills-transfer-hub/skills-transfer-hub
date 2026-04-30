@@ -402,7 +402,7 @@ func providerResourceURL(profile fs.ProjectProfile, resourcePath string) (string
 		// Resource path here is actually the catalog_id ("type::folder::name").
 		// The CLI side passes either CatalogPath ("__catalog__") or entry.SourcePath.
 		// We map them onto /v1/catalog and /v1/skills/<id> respectively.
-		baseURL := strings.TrimRight(getEnvOrDefault("STH_LORESKILLS_BASE_URL", "https://api.loreskills.dev/cli"), "/")
+		baseURL := LoreSkillsBaseURL()
 		if trimmedPath == "__catalog__" {
 			return baseURL + "/v1/catalog", nil
 		}

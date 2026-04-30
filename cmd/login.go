@@ -3,31 +3,22 @@ package cmd
 import (
 	"bufio"
 	"context"
-	"encoding/json"
 	"fmt"
-	stdhttp "net/http"
 	"os"
 	"strings"
 	"time"
 
 	"sth/internal/auth"
 	"sth/internal/fs"
+
+	"golang.org/x/term"
 )
 
 const (
 	loginProviderName  = "loreskills-cloud"
 	loginDefaultProvID = "loreskills"
+	accessCheckTimeout = 10 * time.Second
 )
-
-type accessCheckResponse struct {
-	OK   bool `json:"ok"`
-	Org  struct {
-		ID   string `json:"id"`
-		Name string `json:"name"`
-	} `json:"org"`
-	Plan      string `json:"plan"`
-	ExpiresAt string `json:"expires_at"`
-}
 
 // runLogin prompts for an API key, validates it via /v1/access-check, persists
 // it in the OS keychain, and ensures a `loreskills-cloud` provider entry exists
@@ -58,7 +49,9 @@ func (a *app) runLogin(args []string) error {
 		return fmt.Errorf("clé invalide : doit commencer par lsk_live_")
 	}
 
-	resp, err := a.callAccessCheck(key)
+	ctx, cancel := context.WithTimeout(context.Background(), accessCheckTimeout)
+	defer cancel()
+	resp, err := a.client.AccessCheck(ctx, key)
 	if err != nil {
 		return fmt.Errorf("vérification de la clé échouée : %w", err)
 	}
@@ -98,55 +91,32 @@ func (a *app) runLogout(args []string) error {
 	return nil
 }
 
+// promptAPIKey reads the key from stdin. When stdin is a terminal we use
+// term.ReadPassword so the key isn't echoed (no shell history, no shoulder
+// surfing). Non-TTY stdin (CI, tests, piping) falls back to a line reader.
 func (a *app) promptAPIKey() (string, error) {
 	a.writeStdout("Colle ta clé LoreSkills (lsk_live_…) puis Entrée :")
+
+	if f, ok := a.stdin.(*os.File); ok {
+		fd := int(f.Fd())
+		if term.IsTerminal(fd) {
+			b, err := term.ReadPassword(fd)
+			// ReadPassword swallows the trailing newline echo; emit one so the
+			// next line of output isn't glued to the prompt.
+			a.writeStdout("")
+			if err != nil {
+				return "", fmt.Errorf("lecture clé échouée : %w", err)
+			}
+			return strings.TrimSpace(string(b)), nil
+		}
+	}
+
 	reader := bufio.NewReader(a.stdin)
 	line, err := reader.ReadString('\n')
 	if err != nil {
 		return "", fmt.Errorf("lecture clé échouée : %w", err)
 	}
 	return strings.TrimSpace(line), nil
-}
-
-func (a *app) callAccessCheck(key string) (accessCheckResponse, error) {
-	baseURL := strings.TrimRight(loreskillsBaseURL(), "/")
-	req, err := stdhttp.NewRequestWithContext(
-		context.Background(),
-		stdhttp.MethodPost,
-		baseURL+"/v1/access-check",
-		nil,
-	)
-	if err != nil {
-		return accessCheckResponse{}, err
-	}
-	req.Header.Set("Authorization", "Bearer "+key)
-
-	httpClient := &stdhttp.Client{Timeout: 10 * time.Second}
-	resp, err := httpClient.Do(req)
-	if err != nil {
-		return accessCheckResponse{}, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode == stdhttp.StatusUnauthorized {
-		return accessCheckResponse{}, fmt.Errorf("clé refusée (HTTP 401)")
-	}
-	if resp.StatusCode != stdhttp.StatusOK {
-		return accessCheckResponse{}, fmt.Errorf("réponse inattendue (HTTP %d)", resp.StatusCode)
-	}
-
-	var out accessCheckResponse
-	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
-		return accessCheckResponse{}, fmt.Errorf("réponse JSON invalide : %w", err)
-	}
-	return out, nil
-}
-
-func loreskillsBaseURL() string {
-	if v := strings.TrimSpace(os.Getenv("STH_LORESKILLS_BASE_URL")); v != "" {
-		return v
-	}
-	return "https://api.loreskills.dev/cli"
 }
 
 // ensureCloudProviderEntry guarantees .sth/project.json has a loreskills-cloud
@@ -175,10 +145,11 @@ func loginHelpText() string {
 		"Usage : sth login [<api-key>]",
 		"",
 		"Authentifie le CLI auprès de LoreSkills Cloud.",
-		"Si aucune clé n'est passée en argument, elle est demandée interactivement.",
+		"Si aucune clé n'est passée en argument, elle est demandée interactivement (saisie masquée en TTY).",
 		"La clé est validée puis stockée dans le keychain de l'OS.",
 		"",
 		"La variable LORESKILLS_API_KEY peut servir de fallback en l'absence de keychain (CI).",
 		"Pour basculer le CLI sur un backend de dev, exporte STH_LORESKILLS_BASE_URL.",
 	}, "\n")
 }
+

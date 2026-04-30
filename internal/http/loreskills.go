@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	stdhttp "net/http"
 	"strings"
 	"time"
@@ -13,6 +14,61 @@ import (
 )
 
 func nowRFC3339() string { return time.Now().UTC().Format(time.RFC3339) }
+
+// defaultLoreskillsBaseURL is the production base URL for the LoreSkills Cloud
+// API. STH_LORESKILLS_BASE_URL overrides it (dev/staging backends).
+const defaultLoreskillsBaseURL = "https://api.loreskills.dev/cli"
+
+// LoreSkillsBaseURL returns the LoreSkills Cloud base URL with the env override
+// applied and any trailing slash stripped. Exported so cmd/* can reuse it.
+func LoreSkillsBaseURL() string {
+	return strings.TrimRight(getEnvOrDefault("STH_LORESKILLS_BASE_URL", defaultLoreskillsBaseURL), "/")
+}
+
+// AccessCheckResult is what `sth login` gets back after validating a key.
+type AccessCheckResult struct {
+	OK        bool           `json:"ok"`
+	Org       AccessCheckOrg `json:"org"`
+	Plan      string         `json:"plan"`
+	ExpiresAt string         `json:"expires_at"`
+}
+
+// AccessCheckOrg is the org block embedded in AccessCheckResult.
+type AccessCheckOrg struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+// AccessCheck validates an API key against POST /v1/access-check. Used by
+// `sth login` before persisting the key to the keychain — the key isn't yet
+// stored, so we set Authorization manually instead of going through
+// resolveCredentialHeaders. Reuses the shared httpClient for connection pooling.
+func (c *Client) AccessCheck(ctx context.Context, key string) (AccessCheckResult, error) {
+	req, err := stdhttp.NewRequestWithContext(ctx, stdhttp.MethodPost, LoreSkillsBaseURL()+"/v1/access-check", nil)
+	if err != nil {
+		return AccessCheckResult{}, err
+	}
+	req.Header.Set("Authorization", "Bearer "+key)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return AccessCheckResult{}, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == stdhttp.StatusUnauthorized {
+		return AccessCheckResult{}, fmt.Errorf("clé refusée (HTTP 401)")
+	}
+	if resp.StatusCode != stdhttp.StatusOK {
+		return AccessCheckResult{}, fmt.Errorf("réponse inattendue (HTTP %d)", resp.StatusCode)
+	}
+
+	var out AccessCheckResult
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&out); err != nil {
+		return AccessCheckResult{}, fmt.Errorf("réponse JSON invalide : %w", err)
+	}
+	return out, nil
+}
 
 // LoreSkills Cloud-specific request paths and decoding live here so the rest of
 // client.go stays focused on Git providers.
@@ -34,6 +90,15 @@ type cloudSkillResponse struct {
 	DownloadURL string `json:"download_url"`
 	SHA256      string `json:"sha256"`
 	Version     string `json:"version"`
+}
+
+type usageReportRecord struct {
+	Ts         string `json:"ts"`
+	CLIVersion string `json:"cli_version"`
+}
+
+type usageReportPayload struct {
+	Commands []usageReportRecord `json:"commands"`
 }
 
 // listCloudCatalog calls GET /v1/catalog and maps the response onto
@@ -117,13 +182,13 @@ func (c *Client) reportCloudUsage(ctx context.Context, profile fs.ProjectProfile
 	if err != nil {
 		return err
 	}
-	baseURL := strings.TrimRight(getEnvOrDefault("STH_LORESKILLS_BASE_URL", "https://api.loreskills.dev/cli"), "/")
-	payload, _ := json.Marshal(map[string]interface{}{
-		"commands": []map[string]string{
-			{"ts": nowRFC3339(), "cli_version": cliVersion},
-		},
+	payload, err := json.Marshal(usageReportPayload{
+		Commands: []usageReportRecord{{Ts: nowRFC3339(), CLIVersion: cliVersion}},
 	})
-	req, err := stdhttp.NewRequestWithContext(ctx, stdhttp.MethodPost, baseURL+"/v1/usage", strings.NewReader(string(payload)))
+	if err != nil {
+		return fmt.Errorf("encodage usage : %w", err)
+	}
+	req, err := stdhttp.NewRequestWithContext(ctx, stdhttp.MethodPost, LoreSkillsBaseURL()+"/v1/usage", strings.NewReader(string(payload)))
 	if err != nil {
 		return err
 	}
