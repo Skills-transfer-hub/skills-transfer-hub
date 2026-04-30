@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"sth/internal/fs"
 	stdhttp "net/http"
 	neturl "net/url"
 	"os"
@@ -17,6 +16,9 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"sth/internal/auth"
+	"sth/internal/fs"
 )
 
 type Client struct {
@@ -84,6 +86,11 @@ func NewClient(httpClient *stdhttp.Client) *Client {
 
 // CheckProjectAccess verifies that the remote catalog is reachable.
 func (c *Client) CheckProjectAccess(ctx context.Context, profile fs.ProjectProfile) error {
+	if strings.EqualFold(strings.TrimSpace(profile.Provider), "loreskills-cloud") {
+		_, err := c.listCloudCatalog(ctx, profile)
+		return err
+	}
+
 	_, err := c.fetchCatalogBytes(ctx, profile)
 	if err == nil {
 		return nil
@@ -107,6 +114,10 @@ func (c *Client) CheckProjectAccess(ctx context.Context, profile fs.ProjectProfi
 
 // ListCatalog returns the remote installable resources from SKILLS.md.
 func (c *Client) ListCatalog(ctx context.Context, profile fs.ProjectProfile) ([]fs.CatalogEntry, error) {
+	if strings.EqualFold(strings.TrimSpace(profile.Provider), "loreskills-cloud") {
+		return c.listCloudCatalog(ctx, profile)
+	}
+
 	data, err := c.fetchCatalogBytes(ctx, profile)
 	if err != nil {
 		if !isNotFoundError(err) {
@@ -181,6 +192,10 @@ func (c *Client) DownloadCatalogEntry(ctx context.Context, profile fs.ProjectPro
 	}
 	if err := validateCatalogEntry(entry); err != nil {
 		return nil, err
+	}
+
+	if strings.EqualFold(strings.TrimSpace(profile.Provider), "loreskills-cloud") {
+		return c.downloadCloudResource(ctx, profile, entry)
 	}
 
 	resourceURL, err := providerResourceURL(profile, entry.SourcePath)
@@ -383,6 +398,15 @@ func providerResourceURL(profile fs.ProjectProfile, resourcePath string) (string
 	}
 
 	switch strings.ToLower(strings.TrimSpace(profile.Provider)) {
+	case "loreskills-cloud":
+		// Resource path here is actually the catalog_id ("type::folder::name").
+		// The CLI side passes either CatalogPath ("__catalog__") or entry.SourcePath.
+		// We map them onto /v1/catalog and /v1/skills/<id> respectively.
+		baseURL := LoreSkillsBaseURL()
+		if trimmedPath == "__catalog__" {
+			return baseURL + "/v1/catalog", nil
+		}
+		return fmt.Sprintf("%s/v1/skills/%s", baseURL, neturl.PathEscape(strings.TrimPrefix(trimmedPath, "/"))), nil
 	case "github":
 		baseURL := strings.TrimRight(getEnvOrDefault("STH_GITHUB_RAW_BASE_URL", "https://raw.githubusercontent.com"), "/")
 		return fmt.Sprintf("%s/%s/%s/%s", baseURL, strings.TrimSpace(profile.RepositoryID), strings.TrimSpace(profile.Ref), strings.TrimPrefix(trimmedPath, "/")), nil
@@ -408,6 +432,20 @@ func resolveCredentialHeaders(ctx context.Context, profile fs.ProjectProfile) (c
 	// Session-only token entered during init (not persisted to disk).
 	if profile.APIToken != "" {
 		return providerAPITokenHeaders(profile.APIToken, profile.Provider), nil
+	}
+
+	// LoreSkills Cloud: keychain lookup with env fallback. No git-credential leg.
+	if strings.EqualFold(strings.TrimSpace(profile.Provider), "loreskills-cloud") {
+		key, err := auth.LoadAPIKey()
+		if err != nil {
+			return credentialHeaders{
+				source: AccessSource{Kind: "none", Hint: "loreskills-cloud", Resolved: false},
+			}, err
+		}
+		return credentialHeaders{
+			headers: map[string]string{"Authorization": "Bearer " + key},
+			source:  AccessSource{Kind: "keychain", Hint: auth.KeyringService, Resolved: true},
+		}, nil
 	}
 
 	if headers, ok := resolveEnvironmentHeaders(profile); ok {
@@ -633,6 +671,10 @@ func validateCatalogUniqueness(entries []fs.CatalogEntry) error {
 func validateProfile(profile fs.ProjectProfile) error {
 	if strings.TrimSpace(profile.Provider) == "" {
 		return errors.New("provider doit être renseigné")
+	}
+	// loreskills-cloud derives org scope from the API key — no repo/ref/catalog required.
+	if strings.EqualFold(strings.TrimSpace(profile.Provider), "loreskills-cloud") {
+		return nil
 	}
 	if strings.TrimSpace(profile.RepositoryID) == "" {
 		return errors.New("repository_id doit être renseigné")

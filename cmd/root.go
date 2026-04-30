@@ -1,13 +1,19 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
 	sthfs "sth/internal/fs"
 	sthhttp "sth/internal/http"
 	"strings"
+	"time"
 )
+
+func contextWithTimeout(ms int) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.Background(), time.Duration(ms)*time.Millisecond)
+}
 
 type commandSpec struct {
 	name     string
@@ -271,6 +277,14 @@ func (a *app) run(args []string) error {
 			break
 		}
 		err = a.runVersion()
+	case "login":
+		if len(args) >= 2 && isHelpFlag(args[1]) {
+			a.writeStdout(loginHelpText())
+			return nil
+		}
+		err = a.runLogin(args[1:])
+	case "logout":
+		err = a.runLogout(args[1:])
 	case "stockholm":
 		if len(args) != 1 {
 			err = fmt.Errorf("usage : sth stockholm")
@@ -300,7 +314,45 @@ func (a *app) run(args []string) error {
 		return err
 	}
 
+	a.reportCloudUsageBestEffort(args[0])
 	return nil
+}
+
+// reportCloudUsageBestEffort sends a single usage record to the LoreSkills API
+// for any successful command, when the active project profile uses the cloud
+// provider. Failures are swallowed — telemetry must never block a CLI command.
+//
+// Runs synchronously with a tight timeout: a goroutine here would be killed
+// when main returns (this is the last call before exit), so we'd lose nearly
+// every record. 500ms is short enough to stay invisible on a healthy network
+// and the request is fully cancelled if it overshoots.
+func (a *app) reportCloudUsageBestEffort(command string) {
+	if command == "login" || command == "logout" || command == "version" || command == "help" {
+		return
+	}
+	cfg, err := sthfs.ReadProjectConfigV2()
+	if err != nil || len(cfg.Providers) == 0 {
+		return
+	}
+	var profile sthfs.ProjectProfile
+	found := false
+	for _, p := range cfg.Providers {
+		if strings.EqualFold(p.Provider, "loreskills-cloud") {
+			profile = sthfs.ProjectProfile{
+				Provider:    p.Provider,
+				TargetDir:   p.TargetDir,
+				CatalogPath: p.CatalogPath,
+			}
+			found = true
+			break
+		}
+	}
+	if !found {
+		return
+	}
+	ctx, cancel := contextWithTimeout(500)
+	defer cancel()
+	_ = a.client.ReportCloudUsage(ctx, profile, valueOrDefault(version, "dev"))
 }
 
 func findCommandSpec(name string) (commandSpec, bool) {
