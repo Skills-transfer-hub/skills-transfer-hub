@@ -257,6 +257,18 @@ func sourcePath(rec fs.InstalledResourceRecordV2, targetDir string) string {
 }
 
 func (a *app) runSelfUpdate() error {
+	// Bail before doing any work if the binary is owned by a package manager —
+	// `update self` would otherwise overwrite the file in place and corrupt
+	// the manager's tracking (Cellar/<v>, scoop/apps/<v>). The user's right
+	// move is `brew upgrade` / `scoop update`.
+	execPath, _ := currentExecutablePath()
+	if pm := detectPackageManager(execPath); pm.name != "" {
+		return fmt.Errorf(
+			"sth a été installé via %s. Pour mettre à jour, lance `%s` au lieu de `sth update self`",
+			pm.name, pm.upgradeHint,
+		)
+	}
+
 	release, _, err := a.resolveStableUpdate(context.Background(), true)
 	if err != nil {
 		return err

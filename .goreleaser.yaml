@@ -1,0 +1,104 @@
+# GoReleaser config for sth.
+# Docs: https://goreleaser.com/customization/
+#
+# Local smoke test (no publish):
+#   goreleaser release --snapshot --clean --skip=publish
+#
+# What this produces per release:
+#   - dist/sth-{linux,darwin,windows}-{amd64,arm64} binaries (Linux/Win arm64 skipped)
+#   - dist/sth-{os}-{arch}.{tar.gz|zip} archives
+#   - dist/SHA256SUMS
+#   - dist/sth.rb        (Homebrew Formula — uploaded as a release asset, NOT auto-pushed)
+#   - dist/sth.json      (Scoop manifest  — uploaded as a release asset, NOT auto-pushed)
+#
+# Promotion to the tap/bucket repos is manual (see release-artifacts/README.md).
+
+version: 2
+
+project_name: sth
+
+before:
+  hooks:
+    - go vet ./...
+    - go test ./...
+
+builds:
+  - id: sth
+    main: .
+    binary: sth
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+      - -X sth/cmd.version={{.Version}}
+      - -X sth/cmd.commit={{.ShortCommit}}
+      - -X sth/cmd.buildDate={{.Date}}
+      - -X sth/cmd.target={{.Os}}/{{.Arch}}
+      - -X sth/cmd.releaseAPIURL=https://api.github.com/repos/{{.Env.GITHUB_REPOSITORY}}/releases
+      - -X sth/cmd.releaseAssetName=sth-{{.Os}}-{{.Arch}}{{ if eq .Os "windows" }}.zip{{ else }}.tar.gz{{ end }}
+      - -X sth/cmd.releaseChecksumName=SHA256SUMS
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ignore:
+      # Match the existing release matrix: skip linux/arm64 and windows/arm64.
+      # Add them back when there's user demand.
+      - goos: linux
+        goarch: arm64
+      - goos: windows
+        goarch: arm64
+
+archives:
+  - id: default
+    name_template: "sth-{{ .Os }}-{{ .Arch }}"
+    format_overrides:
+      - goos: windows
+        format: zip
+    files:
+      - README.md
+
+checksum:
+  name_template: "SHA256SUMS"
+  algorithm: sha256
+
+# Homebrew Formula generation. We DO NOT push to the tap repo automatically —
+# `skip_upload: "true"` keeps the generated dist/sth.rb local. The release step
+# below uploads it as a GitHub release asset; promotion to Grandpied33/homebrew-sth
+# is a manual `cp` + `git push` (see release-artifacts/README.md).
+brews:
+  - name: sth
+    repository:
+      owner: Grandpied33
+      name: homebrew-sth
+    skip_upload: "true"
+    homepage: "https://github.com/Grandpied33/skills-transfer-hub"
+    description: "Skills Transfer Hub CLI — install reusable AI skills, agents and commands."
+    install: |
+      bin.install "sth"
+    test: |
+      assert_match "STH", shell_output("#{bin}/sth version")
+
+# Scoop manifest generation. Same logic as brews: skip auto-push, file ends up
+# in dist/ and is published as a release asset for manual promotion.
+scoops:
+  - name: sth
+    repository:
+      owner: Grandpied33
+      name: scoop-sth
+    skip_upload: true
+    homepage: "https://github.com/Grandpied33/skills-transfer-hub"
+    description: "Skills Transfer Hub CLI — install reusable AI skills, agents and commands."
+
+release:
+  github:
+    owner: Grandpied33
+    name: skills-transfer-hub
+  extra_files:
+    - glob: dist/sth.rb
+    - glob: dist/sth.json
