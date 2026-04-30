@@ -130,6 +130,96 @@ Copy-Item .\sth-windows-amd64\sth.exe "$env:USERPROFILE\bin\sth.exe" -Force
 sth.exe version
 ```
 
+## Sortir une release Alpha
+
+Le pipeline GoReleaser et la détection brew/scoop sont déjà en place ; il reste à finaliser
+les canaux de distribution. Cette section sert de checklist quand on s'y remettra.
+
+### Validation locale (à faire au moins une fois avant le premier tag)
+
+À exécuter sur le poste de release, sans rien pousser sur GitHub :
+
+1. **Installer GoReleaser** (`brew install goreleaser` ou `scoop install goreleaser`).
+2. **Smoke build** :
+   ```bash
+   goreleaser release --snapshot --clean --skip=publish
+   ls dist/                 # binaires + SHA256SUMS + sth.rb + sth.json
+   ```
+3. **Inspecter** `dist/sth.rb` et `dist/sth.json` : URLs cohérentes, SHA256 réels, structure conforme.
+4. **Tester un binaire localement** :
+   ```bash
+   ./dist/sth-windows-amd64_windows_amd64_v1/sth.exe version
+   STH_EXECUTABLE_PATH="/opt/homebrew/Cellar/sth/0.1.0/bin/sth" \
+     ./dist/sth-darwin-arm64_darwin_arm64/sth update self   # doit renvoyer le hint brew
+   ```
+5. **E2E contre le back** (avec une clé de test générée via le dashboard) :
+   ```bash
+   export STH_LORESKILLS_BASE_URL=https://jcdadtdkgnwobejkmpgv.supabase.co/functions/v1/cli
+   ./dist/.../sth login lsk_live_…
+   ./dist/.../sth list
+   ./dist/.../sth install <skill>
+   ```
+6. **Remplacer les placeholders** dans `release-artifacts/homebrew-sth/Formula/sth.rb` et
+   `release-artifacts/scoop-sth/bucket/sth.json` par le contenu généré dans `dist/` (les hash
+   `0000…` doivent disparaître). Commit le résultat.
+
+### Mise en place des repos de distribution (one-shot)
+
+```bash
+# Repos publics vides
+gh repo create Grandpied33/homebrew-sth --public --description "Homebrew tap for sth"
+gh repo create Grandpied33/scoop-sth    --public --description "Scoop bucket for sth"
+
+# Bootstrap depuis les templates
+git clone https://github.com/Grandpied33/homebrew-sth.git ../homebrew-sth
+cp -r release-artifacts/homebrew-sth/* ../homebrew-sth/
+(cd ../homebrew-sth && git add -A && git commit -m "bootstrap tap" && git push)
+
+git clone https://github.com/Grandpied33/scoop-sth.git ../scoop-sth
+cp -r release-artifacts/scoop-sth/* ../scoop-sth/
+(cd ../scoop-sth && git add -A && git commit -m "bootstrap bucket" && git push)
+```
+
+### Release + promotion par tag
+
+1. Tagger : `git tag v0.1.0-alpha.1 && git push --tags` puis créer la GitHub Release
+   (ou `workflow_dispatch` sur le workflow Release pour validation).
+2. GoReleaser produit binaires, archives, `SHA256SUMS`, `sth.rb`, `sth.json` et les
+   attache à la release.
+3. **Promouvoir** vers tap + bucket :
+   ```bash
+   TAG=v0.1.0-alpha.1
+   gh release download "$TAG" -p sth.rb -p sth.json -D /tmp/sth-release
+   cp /tmp/sth-release/sth.rb   ../homebrew-sth/Formula/sth.rb
+   (cd ../homebrew-sth && git commit -am "sth $TAG" && git push)
+   cp /tmp/sth-release/sth.json ../scoop-sth/bucket/sth.json
+   (cd ../scoop-sth && git commit -am "sth $TAG" && git push)
+   ```
+4. **Vérifier sur 2 machines** :
+   - macOS : `brew install grandpied33/sth/sth && sth version`
+   - Windows : `scoop bucket add sth https://github.com/Grandpied33/scoop-sth && scoop install sth && sth version`
+   - Sur les deux : `sth update self` doit renvoyer le hint brew/scoop, **pas** essayer de remplacer le binaire.
+
+### Pièges à éviter
+
+- **Ne pas tagger sans la validation locale** ci-dessus. Si une release Alpha plante côté
+  login ou contrat backend, le gate Alpha bloque les utilisateurs jusqu'à la release suivante.
+- **`sth update self`** est le seul filet pour les installs directes. S'il est cassé,
+  les utilisateurs sont coincés à re-télécharger l'archive à la main. Le tester avant
+  chaque release en simulant un binaire obsolète.
+- **Pre-release vs stable** : le gate filtre `prerelease: true` côté GitHub. Si tu tagges
+  comme prerelease, le gate ne le verra pas comme "latest stable" et passera. Pour l'Alpha
+  on tagge en release stable mais avec `-alpha.N` dans la version.
+
+### Reportés à la Beta
+
+- **Winget** (manifest YAML, PR vers `microsoft/winget-pkgs`, modération 1-3 jours par release).
+- **Chocolatey** (modération communautaire qui peut prendre des semaines).
+- **Auto-PR vers tap/bucket** : passer `skip_upload: false` dans `.goreleaser.yaml` et
+  fournir un `HOMEBREW_TAP_GITHUB_TOKEN`, une fois la cadence release stabilisée.
+- **Linux arm64 / Windows arm64** : ajouter aux `goarch` du `.goreleaser.yaml` quand
+  un utilisateur le demande.
+
 ## Démarrage rapide
 
 ### 0. Utiliser l'entrée guidée
