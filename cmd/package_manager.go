@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"path/filepath"
 	"strings"
 )
 
@@ -27,7 +26,11 @@ func detectPackageManager(execPath string) packageManager {
 	if strings.TrimSpace(execPath) == "" {
 		return packageManager{}
 	}
-	p := strings.ToLower(filepath.ToSlash(execPath))
+	// Normalize path separators ourselves: filepath.ToSlash is a no-op on
+	// Linux (where '\' is a valid filename byte, not a separator), so a
+	// Windows path tested under a Linux runner would slip through. We always
+	// want substring matches against forward-slash patterns regardless of OS.
+	p := strings.ToLower(strings.ReplaceAll(execPath, `\`, "/"))
 
 	switch {
 	case strings.Contains(p, "/cellar/sth/"),
