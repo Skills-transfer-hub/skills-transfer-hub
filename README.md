@@ -61,7 +61,31 @@ présent est idempotent (ne consomme pas de quota).
 
 ## Installation
 
-STH est publié sur GitHub Releases avec les archives suivantes :
+### macOS / Linux — Homebrew
+
+```bash
+brew install grandpied33/sth/sth
+# Mise à jour ultérieure :
+brew upgrade grandpied33/sth/sth
+```
+
+### Windows — Scoop
+
+```powershell
+scoop bucket add sth https://github.com/Grandpied33/scoop-sth
+scoop install sth
+# Mise à jour ultérieure :
+scoop update sth
+```
+
+> **Note** : pour une install brew/scoop, utilise toujours `brew upgrade` /
+> `scoop update`. La commande `sth update self` détecte une install managée et
+> bascule automatiquement sur le bon hint pour ne pas casser le tracking du
+> package manager.
+
+### Téléchargement direct (GitHub Releases)
+
+STH est aussi publié sur GitHub Releases avec les archives suivantes :
 
 - `sth-windows-amd64.zip`
 - `sth-linux-amd64.tar.gz`

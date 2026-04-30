@@ -99,11 +99,28 @@ func writeAlphaGateState(state fs.UpdateCheckState) {
 	_, _ = fs.WriteUpdateCheckState(state)
 }
 
+// osExecutable is package-level so tests can stub it without touching the
+// global os.Executable function.
+var osExecutable = os.Executable
+
+// upgradeCommand returns the shell command users should run to get the latest
+// version, picking the right package-manager hint when the binary is owned by
+// brew or scoop, and falling back to `sth update self` otherwise.
+func upgradeCommand() string {
+	if execPath, err := osExecutable(); err == nil {
+		if pm := detectPackageManager(execPath); pm.name != "" {
+			return pm.upgradeHint
+		}
+	}
+	return "sth update self"
+}
+
 func alphaGateOutdatedError(current, latest string) error {
 	return fmt.Errorf(
-		"Alpha : version %s obsolète, dernière version %s. Lance `sth update self` pour mettre à jour",
+		"Alpha : version %s obsolète, dernière version %s. Lance `%s` pour mettre à jour",
 		valueOrDefault(current, "dev"),
 		valueOrDefault(latest, "inconnue"),
+		upgradeCommand(),
 	)
 }
 

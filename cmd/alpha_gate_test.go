@@ -377,6 +377,111 @@ func TestAlphaGate_staleCache_refreshes(t *testing.T) {
 	}
 }
 
+func TestUpgradeCommand_packageManagerHints(t *testing.T) {
+	cases := []struct {
+		name     string
+		execPath string
+		execErr  error
+		want     string
+	}{
+		{"brew Apple Silicon", "/opt/homebrew/Cellar/sth/0.1.0/bin/sth", nil, "brew upgrade grandpied33/sth/sth"},
+		{"brew Intel", "/usr/local/Cellar/sth/0.1.0/bin/sth", nil, "brew upgrade grandpied33/sth/sth"},
+		{"scoop", `C:\Users\hugo\scoop\apps\sth\current\sth.exe`, nil, "scoop update sth"},
+		{"manual install", "/usr/local/bin/sth", nil, "sth update self"},
+		{"os.Executable error", "", errSentinel, "sth update self"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			prev := osExecutable
+			osExecutable = func() (string, error) { return tc.execPath, tc.execErr }
+			t.Cleanup(func() { osExecutable = prev })
+
+			got := upgradeCommand()
+			if got != tc.want {
+				t.Fatalf("upgradeCommand() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestAlphaGate_outdatedMessage_brew_pointsToBrewUpgrade(t *testing.T) {
+	srv, _ := releasesServer(t, "ok", "v1.2.0")
+	withReleaseMetadata(t, "v1.0.0", srv.URL+"/releases")
+
+	prev := osExecutable
+	osExecutable = func() (string, error) {
+		return "/opt/homebrew/Cellar/sth/0.1.0/bin/sth", nil
+	}
+	t.Cleanup(func() { osExecutable = prev })
+
+	result := runCLIWithOptions(t, cliOptions{
+		args:         []string{"list"},
+		client:       sthhttp.NewClient(srv.Client()),
+		userCacheDir: t.TempDir(),
+	})
+
+	if result.err == nil {
+		t.Fatalf("expected gate block, got nil err")
+	}
+	assertContains(t, result.stderr, "obsolète")
+	assertContains(t, result.stderr, "brew upgrade")
+	assertNotContains(t, result.stderr, "sth update self")
+}
+
+func TestAlphaGate_outdatedMessage_scoop_pointsToScoopUpdate(t *testing.T) {
+	srv, _ := releasesServer(t, "ok", "v1.2.0")
+	withReleaseMetadata(t, "v1.0.0", srv.URL+"/releases")
+
+	prev := osExecutable
+	osExecutable = func() (string, error) {
+		return `C:\Users\hugo\scoop\apps\sth\current\sth.exe`, nil
+	}
+	t.Cleanup(func() { osExecutable = prev })
+
+	result := runCLIWithOptions(t, cliOptions{
+		args:         []string{"list"},
+		client:       sthhttp.NewClient(srv.Client()),
+		userCacheDir: t.TempDir(),
+	})
+
+	if result.err == nil {
+		t.Fatalf("expected gate block, got nil err")
+	}
+	assertContains(t, result.stderr, "obsolète")
+	assertContains(t, result.stderr, "scoop update sth")
+}
+
+var errSentinel = &sentinelErr{}
+
+type sentinelErr struct{}
+
+func (*sentinelErr) Error() string { return "sentinel" }
+
+// TestRunSelfUpdate_bailsOutOnPackageManagerInstall verifies that the
+// bail-out fires before any network/disk work — even with a server returning
+// 500, the command must surface the brew/scoop hint and fail fast.
+func TestRunSelfUpdate_bailsOutOnPackageManagerInstall(t *testing.T) {
+	srv, hits := releasesServer(t, "500", "")
+	withReleaseMetadata(t, "v1.0.0", srv.URL+"/releases")
+
+	t.Setenv("STH_EXECUTABLE_PATH", "/opt/homebrew/Cellar/sth/0.1.0/bin/sth")
+
+	result := runCLIWithOptions(t, cliOptions{
+		args:         []string{"update", "self"},
+		client:       sthhttp.NewClient(srv.Client()),
+		userCacheDir: t.TempDir(),
+	})
+
+	if result.err == nil {
+		t.Fatalf("expected error, got nil")
+	}
+	assertContains(t, result.stderr, "Homebrew")
+	assertContains(t, result.stderr, "brew upgrade")
+	if atomic.LoadInt32(hits) != 0 {
+		t.Fatalf("server hits = %d, want 0 (bail must fire before any release fetch)", *hits)
+	}
+}
+
 func TestAlphaGate_writesCacheWithGateTTL(t *testing.T) {
 	srv, _ := releasesServer(t, "ok", "v1.0.0")
 	withReleaseMetadata(t, "v1.0.0", srv.URL+"/releases")
