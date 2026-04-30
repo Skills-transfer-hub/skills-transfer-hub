@@ -182,6 +182,12 @@ func Run(args []string) error {
 
 func (a *app) run(args []string) error {
 	_ = a.offerLegacyProjectDirMigration()
+
+	if err := a.enforceAlphaGate(context.Background(), args); err != nil {
+		a.writeStderr(fmt.Sprintf("Erreur : %v", err))
+		return err
+	}
+
 	if len(args) == 0 {
 		if a.isInteractiveSession() {
 			return a.runGuidedMenu()
