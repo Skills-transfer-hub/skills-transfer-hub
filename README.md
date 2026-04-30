@@ -61,31 +61,31 @@ présent est idempotent (ne consomme pas de quota).
 
 ## Installation
 
-### macOS / Linux — Homebrew
+### Via un gestionnaire de paquets
+
+Sous macOS ou Linux (Homebrew tap personnel) :
 
 ```bash
-brew install grandpied33/sth/sth
-# Mise à jour ultérieure :
-brew upgrade grandpied33/sth/sth
+brew install Grandpied33/sth/sth
 ```
 
-### Windows — Scoop
+Sous Windows (winget) :
 
 ```powershell
-scoop bucket add sth https://github.com/Grandpied33/scoop-sth
-scoop install sth
-# Mise à jour ultérieure :
-scoop update sth
+winget install Grandpied33.sth
 ```
 
-> **Note** : pour une install brew/scoop, utilise toujours `brew upgrade` /
-> `scoop update`. La commande `sth update self` détecte une install managée et
-> bascule automatiquement sur le bon hint pour ne pas casser le tracking du
-> package manager.
+Sous Windows (Chocolatey) :
 
-### Téléchargement direct (GitHub Releases)
+```powershell
+choco install sth
+```
 
-STH est aussi publié sur GitHub Releases avec les archives suivantes :
+> Si vous installez STH via un gestionnaire de paquets, utilisez ce gestionnaire pour les mises à jour (`brew upgrade sth`, `winget upgrade Grandpied33.sth`, `choco upgrade sth`) plutôt que `sth update self`. La commande `sth update self` reste fonctionnelle mais sera écrasée à la prochaine mise à jour du paquet.
+
+### Depuis GitHub Releases
+
+STH est publié sur GitHub Releases avec les archives suivantes :
 
 - `sth-windows-amd64.zip`
 - `sth-linux-amd64.tar.gz`

@@ -1,0 +1,56 @@
+name: Publish to winget
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to republish (e.g. v0.1.2)
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  winget:
+    name: Submit winget manifest
+    runs-on: windows-latest
+    if: github.event_name == 'workflow_dispatch' || github.event.release.prerelease == false
+
+    steps:
+      - name: Resolve tag
+        id: meta
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "tag=${{ github.event.inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=${{ github.event.release.tag_name }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Wait for windows asset
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.meta.outputs.tag }}
+        run: |
+          for i in $(seq 1 30); do
+            assets="$(gh release view "$TAG" --repo "${{ github.repository }}" --json assets --jq '.assets[].name' 2>/dev/null || true)"
+            if echo "$assets" | grep -q '^sth-windows-amd64.zip$'; then
+              echo "Windows asset is present."
+              exit 0
+            fi
+            echo "Waiting for sth-windows-amd64.zip ($i/30)..."
+            sleep 30
+          done
+          echo "Timed out waiting for windows asset." >&2
+          exit 1
+
+      - name: Submit winget manifest
+        uses: vedantmgoyal2009/winget-releaser@v2
+        with:
+          identifier: Grandpied33.sth
+          version: ${{ steps.meta.outputs.tag }}
+          installers-regex: '^sth-windows-amd64\.zip$'
+          token: ${{ secrets.WINGET_TOKEN }}
