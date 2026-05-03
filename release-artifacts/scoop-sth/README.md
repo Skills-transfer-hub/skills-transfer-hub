@@ -13,7 +13,7 @@ Upgrade:
 scoop update sth
 ```
 
-Source repo: <https://github.com/Grandpied33/skills-transfer-hub>
+Releases: <https://github.com/Grandpied33/sth-releases>
 
 ## Manifest updates
 

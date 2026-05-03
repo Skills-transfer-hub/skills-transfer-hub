@@ -29,4 +29,7 @@ jobs:
           version: latest
           args: release --clean
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # PAT with `contents:write` on Grandpied33/sth-releases (the public
+          # artifacts repo). The default GITHUB_TOKEN can't push to a different
+          # repo, so we use a Personal Access Token stored as RELEASE_PAT.
+          GITHUB_TOKEN: ${{ secrets.RELEASE_PAT }}

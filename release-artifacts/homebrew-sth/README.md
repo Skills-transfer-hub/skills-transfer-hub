@@ -12,7 +12,7 @@ Upgrade:
 brew upgrade grandpied33/sth/sth
 ```
 
-Source repo: <https://github.com/Grandpied33/skills-transfer-hub>
+Releases: <https://github.com/Grandpied33/sth-releases>
 
 ## Formula updates
 
