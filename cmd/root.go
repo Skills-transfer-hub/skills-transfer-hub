@@ -181,8 +181,6 @@ func Run(args []string) error {
 }
 
 func (a *app) run(args []string) error {
-	_ = a.offerLegacyProjectDirMigration()
-
 	if err := a.enforceAlphaGate(context.Background(), args); err != nil {
 		a.writeStderr(fmt.Sprintf("Erreur : %v", err))
 		return err
@@ -324,7 +322,7 @@ func (a *app) run(args []string) error {
 	return nil
 }
 
-// reportCloudUsageBestEffort sends a single usage record to the LoreSkills API
+// reportCloudUsageBestEffort sends a single usage record to the STH Cloud API
 // for any successful command, when the active project profile uses the cloud
 // provider. Failures are swallowed — telemetry must never block a CLI command.
 //
@@ -343,7 +341,7 @@ func (a *app) reportCloudUsageBestEffort(command string) {
 	var profile sthfs.ProjectProfile
 	found := false
 	for _, p := range cfg.Providers {
-		if strings.EqualFold(p.Provider, "loreskills-cloud") {
+		if strings.EqualFold(p.Provider, "sth-cloud") {
 			profile = sthfs.ProjectProfile{
 				Provider:    p.Provider,
 				TargetDir:   p.TargetDir,

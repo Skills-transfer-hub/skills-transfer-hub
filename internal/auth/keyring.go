@@ -1,4 +1,4 @@
-// Package auth wraps OS keychain access for the LoreSkills Cloud provider.
+// Package auth wraps OS keychain access for the STH Cloud provider.
 package auth
 
 import (
@@ -13,18 +13,18 @@ const (
 	// KeyringService is the constant identifier under which the API key is
 	// stored in the OS keychain (Windows Credential Manager, macOS Keychain,
 	// libsecret on Linux).
-	KeyringService = "loreskills"
+	KeyringService = "sth-cloud"
 	defaultAccount = "default"
 
 	// EnvAPIKey is the environment variable consulted as a fallback when no
 	// keychain entry is found. Useful for CI and headless environments.
-	EnvAPIKey = "LORESKILLS_API_KEY"
+	EnvAPIKey = "STH_CLOUD_API_KEY"
 )
 
 // ErrKeyNotFound is returned when no API key is configured (keychain miss + env unset).
-var ErrKeyNotFound = errors.New("aucune clé LoreSkills configurée — exécute `sth login`")
+var ErrKeyNotFound = errors.New("aucune clé STH Cloud configurée — exécute `sth login`")
 
-// SaveAPIKey persists the key to the OS keychain under (service=loreskills, user=default).
+// SaveAPIKey persists the key to the OS keychain under (service=sth-cloud, user=default).
 func SaveAPIKey(key string) error {
 	if key == "" {
 		return errors.New("clé vide")
@@ -35,7 +35,7 @@ func SaveAPIKey(key string) error {
 	return nil
 }
 
-// LoadAPIKey reads the key from the keychain, falling back to LORESKILLS_API_KEY
+// LoadAPIKey reads the key from the keychain, falling back to STH_CLOUD_API_KEY
 // if the keychain has no entry. Returns ErrKeyNotFound if neither source has a value.
 func LoadAPIKey() (string, error) {
 	key, err := keyring.Get(KeyringService, defaultAccount)

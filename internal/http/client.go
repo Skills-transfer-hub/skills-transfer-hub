@@ -86,7 +86,7 @@ func NewClient(httpClient *stdhttp.Client) *Client {
 
 // CheckProjectAccess verifies that the remote catalog is reachable.
 func (c *Client) CheckProjectAccess(ctx context.Context, profile fs.ProjectProfile) error {
-	if strings.EqualFold(strings.TrimSpace(profile.Provider), "loreskills-cloud") {
+	if strings.EqualFold(strings.TrimSpace(profile.Provider), "sth-cloud") {
 		_, err := c.listCloudCatalog(ctx, profile)
 		return err
 	}
@@ -114,7 +114,7 @@ func (c *Client) CheckProjectAccess(ctx context.Context, profile fs.ProjectProfi
 
 // ListCatalog returns the remote installable resources from SKILLS.md.
 func (c *Client) ListCatalog(ctx context.Context, profile fs.ProjectProfile) ([]fs.CatalogEntry, error) {
-	if strings.EqualFold(strings.TrimSpace(profile.Provider), "loreskills-cloud") {
+	if strings.EqualFold(strings.TrimSpace(profile.Provider), "sth-cloud") {
 		return c.listCloudCatalog(ctx, profile)
 	}
 
@@ -194,7 +194,7 @@ func (c *Client) DownloadCatalogEntry(ctx context.Context, profile fs.ProjectPro
 		return nil, err
 	}
 
-	if strings.EqualFold(strings.TrimSpace(profile.Provider), "loreskills-cloud") {
+	if strings.EqualFold(strings.TrimSpace(profile.Provider), "sth-cloud") {
 		return c.downloadCloudResource(ctx, profile, entry)
 	}
 
@@ -398,11 +398,11 @@ func providerResourceURL(profile fs.ProjectProfile, resourcePath string) (string
 	}
 
 	switch strings.ToLower(strings.TrimSpace(profile.Provider)) {
-	case "loreskills-cloud":
+	case "sth-cloud":
 		// Resource path here is actually the catalog_id ("type::folder::name").
 		// The CLI side passes either CatalogPath ("__catalog__") or entry.SourcePath.
 		// We map them onto /v1/catalog and /v1/skills/<id> respectively.
-		baseURL := LoreSkillsBaseURL()
+		baseURL := CloudBaseURL()
 		if trimmedPath == "__catalog__" {
 			return baseURL + "/v1/catalog", nil
 		}
@@ -434,12 +434,12 @@ func resolveCredentialHeaders(ctx context.Context, profile fs.ProjectProfile) (c
 		return providerAPITokenHeaders(profile.APIToken, profile.Provider), nil
 	}
 
-	// LoreSkills Cloud: keychain lookup with env fallback. No git-credential leg.
-	if strings.EqualFold(strings.TrimSpace(profile.Provider), "loreskills-cloud") {
+	// STH Cloud: keychain lookup with env fallback. No git-credential leg.
+	if strings.EqualFold(strings.TrimSpace(profile.Provider), "sth-cloud") {
 		key, err := auth.LoadAPIKey()
 		if err != nil {
 			return credentialHeaders{
-				source: AccessSource{Kind: "none", Hint: "loreskills-cloud", Resolved: false},
+				source: AccessSource{Kind: "none", Hint: "sth-cloud", Resolved: false},
 			}, err
 		}
 		return credentialHeaders{
@@ -672,8 +672,8 @@ func validateProfile(profile fs.ProjectProfile) error {
 	if strings.TrimSpace(profile.Provider) == "" {
 		return errors.New("provider doit être renseigné")
 	}
-	// loreskills-cloud derives org scope from the API key — no repo/ref/catalog required.
-	if strings.EqualFold(strings.TrimSpace(profile.Provider), "loreskills-cloud") {
+	// sth-cloud derives org scope from the API key — no repo/ref/catalog required.
+	if strings.EqualFold(strings.TrimSpace(profile.Provider), "sth-cloud") {
 		return nil
 	}
 	if strings.TrimSpace(profile.RepositoryID) == "" {

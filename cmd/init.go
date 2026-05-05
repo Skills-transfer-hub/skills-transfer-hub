@@ -89,11 +89,23 @@ func (a *app) runInit() error {
 	a.writeStdout(
 		"Etape 1/5 - Choisir le provider",
 		"Providers pris en charge : github, gitlab, azure-devops, bitbucket.",
+		"sth-cloud (SaaS) est annonce mais pas encore disponible en Alpha.",
 	)
 
 	provider, err := promptProvider(reader, a.stdout, defaults.Provider)
 	if err != nil {
 		return err
+	}
+
+	if IsCloudProvider(provider) {
+		a.writeStdout(
+			"",
+			"STH Cloud n'est pas encore disponible en Alpha.",
+			"Inscris-toi a la liste d'attente : https://sth-dashboard.vercel.app/pricing",
+			"",
+			"En attendant, choisis un provider Git (github, gitlab, azure-devops, bitbucket).",
+		)
+		return fmt.Errorf("sth-cloud sera disponible apres l'Alpha")
 	}
 
 	a.writeStdout(

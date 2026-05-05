@@ -69,25 +69,25 @@ var providerGuides = map[string]providerGuide{
 		EnvVars:             []string{"BITBUCKET_TOKEN", "STH_TOKEN"},
 		Notes:               []string{"Utiliser un API token Atlassian pour Bitbucket Cloud."},
 	},
-	"loreskills-cloud": {
-		Key:              "loreskills-cloud",
-		DisplayName:      "LoreSkills Cloud",
-		HostedDomain:     "api.loreskills.dev",
-		DocumentationURL: "https://loreskills.dev/docs/cli/login",
-		ActionURL:        "https://app.loreskills.dev/dashboard/licenses",
+	"sth-cloud": {
+		Key:              "sth-cloud",
+		DisplayName:      "STH Cloud (bientôt)",
+		HostedDomain:     "api.sth-cloud.example",
+		DocumentationURL: "https://sth-cloud.example/docs/cli/login",
+		ActionURL:        "https://app.sth-cloud.example/dashboard/licenses",
 		CredentialKind:   "api-key",
-		EnvVars:          []string{"LORESKILLS_API_KEY", "STH_TOKEN"},
+		EnvVars:          []string{"STH_CLOUD_API_KEY", "STH_TOKEN"},
 		Notes: []string{
-			"Provider SaaS : la clé est gérée par sth login et stockée dans le keychain OS.",
-			"Pas de repository_id à fournir — la licence détermine le scope (org).",
+			"Provider SaaS — pas encore disponible en Alpha. Inscris-toi pour être averti au lancement.",
+			"L'option reste sélectionnable mais le wizard t'orientera vers la landing.",
 		},
 	},
 }
 
-// IsCloudProvider reports whether the provider name targets the LoreSkills SaaS
+// IsCloudProvider reports whether the provider name targets the STH Cloud SaaS
 // (no repo / ref / catalog_path required, auth via API key).
 func IsCloudProvider(provider string) bool {
-	return strings.EqualFold(strings.TrimSpace(provider), "loreskills-cloud")
+	return strings.EqualFold(strings.TrimSpace(provider), "sth-cloud")
 }
 
 func supportedProviders() []providerGuide {
