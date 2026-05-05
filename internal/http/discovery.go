@@ -171,7 +171,7 @@ func (c *Client) ListRepositoryTree(ctx context.Context, profile fs.ProjectProfi
 	}
 
 	switch strings.ToLower(strings.TrimSpace(profile.Provider)) {
-	case "loreskills-cloud":
+	case "sth-cloud":
 		// Phase 1: bundle discovery is unsupported on the cloud provider.
 		// Catalog is the single source of truth via /v1/catalog.
 		_ = headers

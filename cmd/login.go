@@ -15,13 +15,13 @@ import (
 )
 
 const (
-	loginProviderName  = "loreskills-cloud"
-	loginDefaultProvID = "loreskills"
+	loginProviderName  = "sth-cloud"
+	loginDefaultProvID = "sth-cloud"
 	accessCheckTimeout = 10 * time.Second
 )
 
 // runLogin prompts for an API key, validates it via /v1/access-check, persists
-// it in the OS keychain, and ensures a `loreskills-cloud` provider entry exists
+// it in the OS keychain, and ensures a `sth-cloud` provider entry exists
 // in .sth/project.json.
 func (a *app) runLogin(args []string) error {
 	if len(args) > 0 && isHelpFlag(args[0]) {
@@ -78,7 +78,7 @@ func (a *app) runLogin(args []string) error {
 // runLogout deletes the keychain entry. Idempotent.
 func (a *app) runLogout(args []string) error {
 	if len(args) > 0 && isHelpFlag(args[0]) {
-		a.writeStdout("Usage : sth logout — supprime la clé LoreSkills du keychain.")
+		a.writeStdout("Usage : sth logout — supprime la clé STH Cloud du keychain.")
 		return nil
 	}
 	if len(args) > 0 {
@@ -95,7 +95,7 @@ func (a *app) runLogout(args []string) error {
 // term.ReadPassword so the key isn't echoed (no shell history, no shoulder
 // surfing). Non-TTY stdin (CI, tests, piping) falls back to a line reader.
 func (a *app) promptAPIKey() (string, error) {
-	a.writeStdout("Colle ta clé LoreSkills (lsk_live_…) puis Entrée :")
+	a.writeStdout("Colle ta clé STH Cloud (lsk_live_…) puis Entrée :")
 
 	if f, ok := a.stdin.(*os.File); ok {
 		fd := int(f.Fd())
@@ -119,7 +119,7 @@ func (a *app) promptAPIKey() (string, error) {
 	return strings.TrimSpace(line), nil
 }
 
-// ensureCloudProviderEntry guarantees .sth/project.json has a loreskills-cloud
+// ensureCloudProviderEntry guarantees .sth/project.json has a sth-cloud
 // provider entry. Idempotent: if one already exists, we leave it alone.
 func ensureCloudProviderEntry() error {
 	cfg, err := fs.ReadProjectConfigV2()
@@ -144,12 +144,12 @@ func loginHelpText() string {
 	return strings.Join([]string{
 		"Usage : sth login [<api-key>]",
 		"",
-		"Authentifie le CLI auprès de LoreSkills Cloud.",
+		"Authentifie le CLI auprès de STH Cloud.",
 		"Si aucune clé n'est passée en argument, elle est demandée interactivement (saisie masquée en TTY).",
 		"La clé est validée puis stockée dans le keychain de l'OS.",
 		"",
-		"La variable LORESKILLS_API_KEY peut servir de fallback en l'absence de keychain (CI).",
-		"Pour basculer le CLI sur un backend de dev, exporte STH_LORESKILLS_BASE_URL.",
+		"La variable STH_CLOUD_API_KEY peut servir de fallback en l'absence de keychain (CI).",
+		"Pour basculer le CLI sur un backend de dev, exporte STH_CLOUD_BASE_URL.",
 	}, "\n")
 }
 

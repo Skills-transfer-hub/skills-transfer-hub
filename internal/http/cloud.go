@@ -15,14 +15,14 @@ import (
 
 func nowRFC3339() string { return time.Now().UTC().Format(time.RFC3339) }
 
-// defaultLoreskillsBaseURL is the production base URL for the LoreSkills Cloud
-// API. STH_LORESKILLS_BASE_URL overrides it (dev/staging backends).
-const defaultLoreskillsBaseURL = "https://api.loreskills.dev/cli"
+// defaultCloudBaseURL is the production base URL for the STH Cloud API.
+// STH_CLOUD_BASE_URL overrides it (dev/staging backends).
+const defaultCloudBaseURL = "https://api.loreskills.dev/cli"
 
-// LoreSkillsBaseURL returns the LoreSkills Cloud base URL with the env override
-// applied and any trailing slash stripped. Exported so cmd/* can reuse it.
-func LoreSkillsBaseURL() string {
-	return strings.TrimRight(getEnvOrDefault("STH_LORESKILLS_BASE_URL", defaultLoreskillsBaseURL), "/")
+// CloudBaseURL returns the STH Cloud base URL with the env override applied
+// and any trailing slash stripped. Exported so cmd/* can reuse it.
+func CloudBaseURL() string {
+	return strings.TrimRight(getEnvOrDefault("STH_CLOUD_BASE_URL", defaultCloudBaseURL), "/")
 }
 
 // AccessCheckResult is what `sth login` gets back after validating a key.
@@ -44,7 +44,7 @@ type AccessCheckOrg struct {
 // stored, so we set Authorization manually instead of going through
 // resolveCredentialHeaders. Reuses the shared httpClient for connection pooling.
 func (c *Client) AccessCheck(ctx context.Context, key string) (AccessCheckResult, error) {
-	req, err := stdhttp.NewRequestWithContext(ctx, stdhttp.MethodPost, LoreSkillsBaseURL()+"/v1/access-check", nil)
+	req, err := stdhttp.NewRequestWithContext(ctx, stdhttp.MethodPost, CloudBaseURL()+"/v1/access-check", nil)
 	if err != nil {
 		return AccessCheckResult{}, err
 	}
@@ -70,7 +70,7 @@ func (c *Client) AccessCheck(ctx context.Context, key string) (AccessCheckResult
 	return out, nil
 }
 
-// LoreSkills Cloud-specific request paths and decoding live here so the rest of
+// STH Cloud-specific request paths and decoding live here so the rest of
 // client.go stays focused on Git providers.
 
 type cloudCatalogResponse struct {
@@ -175,7 +175,7 @@ func (c *Client) downloadCloudResource(ctx context.Context, profile fs.ProjectPr
 // reportCloudUsage POSTs /v1/usage in fire-and-forget mode. Errors are returned
 // but callers typically ignore them (best-effort telemetry).
 func (c *Client) reportCloudUsage(ctx context.Context, profile fs.ProjectProfile, cliVersion string) error {
-	if !strings.EqualFold(strings.TrimSpace(profile.Provider), "loreskills-cloud") {
+	if !strings.EqualFold(strings.TrimSpace(profile.Provider), "sth-cloud") {
 		return nil
 	}
 	headers, err := resolveCredentialHeaders(ctx, profile)
@@ -188,7 +188,7 @@ func (c *Client) reportCloudUsage(ctx context.Context, profile fs.ProjectProfile
 	if err != nil {
 		return fmt.Errorf("encodage usage : %w", err)
 	}
-	req, err := stdhttp.NewRequestWithContext(ctx, stdhttp.MethodPost, LoreSkillsBaseURL()+"/v1/usage", strings.NewReader(string(payload)))
+	req, err := stdhttp.NewRequestWithContext(ctx, stdhttp.MethodPost, CloudBaseURL()+"/v1/usage", strings.NewReader(string(payload)))
 	if err != nil {
 		return err
 	}

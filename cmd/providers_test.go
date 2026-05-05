@@ -19,7 +19,7 @@ func TestFindProviderGuide_returnsBitbucketCloudMetadata(t *testing.T) {
 }
 
 func TestSupportedProviderKeys_areStableAndComplete(t *testing.T) {
-	want := []string{"azure-devops", "bitbucket", "github", "gitlab", "loreskills-cloud"}
+	want := []string{"azure-devops", "bitbucket", "github", "gitlab", "sth-cloud"}
 	got := supportedProviderKeys()
 	if len(got) != len(want) {
 		t.Fatalf("len(got) = %d, want %d", len(got), len(want))

@@ -8,8 +8,8 @@ Le flux actuel est centré sur le projet courant, pas sur une configuration part
 
 - `sth` ouvre le menu guidé en terminal interactif, y affiche l'état du projet et l'offre de mise à jour stable en cache, puis affiche la prochaine étape utile en contexte non interactif
 - `sth init` configure de manière interactive un dépôt hébergé supporté pour le projet courant
-- `sth login [<api-key>]` authentifie le CLI auprès de **LoreSkills Cloud** (provider SaaS) — clé stockée dans le keychain OS
-- `sth logout` supprime la clé LoreSkills du keychain
+- `sth login [<api-key>]` authentifie le CLI auprès de **STH Cloud** (provider SaaS) — clé stockée dans le keychain OS
+- `sth logout` supprime la clé STH Cloud du keychain
 - `sth list` lit `SKILLS.md` ou détecte les bundles compatibles et liste les ressources installables
 - `sth install <resource-ref>` installe une ressource du catalogue distant
 - `sth update` met à jour les ressources suivies dans le projet courant
@@ -18,10 +18,10 @@ Le flux actuel est centré sur le projet courant, pas sur une configuration part
 - `sth help [commande]` affiche l'aide générale ou ciblée
 - `sth version` affiche la même signature minimale que `sth`
 
-## Provider LoreSkills Cloud (SaaS)
+## Provider STH Cloud (SaaS)
 
 En plus des providers Git classiques (GitHub / GitLab / Azure DevOps / Bitbucket), STH peut
-maintenant pointer sur le SaaS **LoreSkills Cloud** : pas de PAT Git à gérer, l'auth passe par
+maintenant pointer sur le SaaS **STH Cloud** : pas de PAT Git à gérer, l'auth passe par
 une API key hashée côté serveur.
 
 ### Workflow
@@ -36,8 +36,8 @@ une API key hashée côté serveur.
    ```
 3. La clé est validée via `/v1/access-check`, puis stockée dans le keychain OS
    (Windows Credential Manager / macOS Keychain / Linux libsecret).
-4. STH écrit automatiquement un provider `loreskills-cloud` dans `.sth/project.json`.
-5. Toutes les commandes suivantes (`sth list`, `sth install`, …) tapent l'API LoreSkills.
+4. STH écrit automatiquement un provider `sth-cloud` dans `.sth/project.json`.
+5. Toutes les commandes suivantes (`sth list`, `sth install`, …) tapent l'API STH Cloud.
 6. Après chaque commande réussie, un record d'usage est envoyé à `/v1/usage`
    (best-effort, ne bloque jamais le CLI).
 
@@ -45,8 +45,8 @@ une API key hashée côté serveur.
 
 | Variable | Rôle |
 |---|---|
-| `LORESKILLS_API_KEY` | Fallback de la clé si le keychain n'est pas dispo (CI headless) |
-| `STH_LORESKILLS_BASE_URL` | Override l'URL de base (default : prod). Ex. dev local : `http://127.0.0.1:54321/functions/v1/cli` |
+| `STH_CLOUD_API_KEY` | Fallback de la clé si le keychain n'est pas dispo (CI headless) |
+| `STH_CLOUD_BASE_URL` | Override l'URL de base (default : prod). Ex. dev local : `http://127.0.0.1:54321/functions/v1/cli` |
 
 ### Quotas (Phase 1)
 
@@ -154,7 +154,7 @@ les canaux de distribution. Cette section sert de checklist quand on s'y remettr
    ```
 5. **E2E contre le back** (avec une clé de test générée via le dashboard) :
    ```bash
-   export STH_LORESKILLS_BASE_URL=https://jcdadtdkgnwobejkmpgv.supabase.co/functions/v1/cli
+   export STH_CLOUD_BASE_URL=https://jcdadtdkgnwobejkmpgv.supabase.co/functions/v1/cli
    ./dist/.../sth login lsk_live_…
    ./dist/.../sth list
    ./dist/.../sth install <skill>
