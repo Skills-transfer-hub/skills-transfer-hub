@@ -17,7 +17,7 @@ func nowRFC3339() string { return time.Now().UTC().Format(time.RFC3339) }
 
 // defaultCloudBaseURL is the production base URL for the STH Cloud API.
 // STH_CLOUD_BASE_URL overrides it (dev/staging backends).
-const defaultCloudBaseURL = "https://api.loreskills.dev/cli"
+const defaultCloudBaseURL = "https://api.sth-cloud.example/cli"
 
 // CloudBaseURL returns the STH Cloud base URL with the env override applied
 // and any trailing slash stripped. Exported so cmd/* can reuse it.

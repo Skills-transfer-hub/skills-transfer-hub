@@ -255,8 +255,6 @@ Le `repository_id` peut être saisi sous forme canonique (`owner/repo`) ou sous 
 
 Si un ancien `~/.sthrc` existe, STH propose de l'importer pour migrer vers le nouveau format projet.
 
-Si un dossier `.loreskills/` est détecté dans le projet courant sans `.sth/`, STH propose aussi une migration automatique vers `.sth/`.
-
 ### 2. Authentification privée
 
 STH ne persiste pas les secrets. Il s'appuie sur une authentification externe déjà disponible et rappelle dans `sth init` les URLs officielles pour créer le token/API token :
