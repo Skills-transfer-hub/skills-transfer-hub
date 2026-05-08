@@ -9,7 +9,7 @@ import (
 // layout (e.g. dropped into /usr/local/bin or %LOCALAPPDATA%) name stays empty
 // and the caller treats the install as self-managed.
 type packageManager struct {
-	name        string // "Homebrew", "Scoop", or "" for unknown
+	name        string // "Homebrew", "Scoop", "Chocolatey", "winget", or "" for unknown
 	upgradeHint string // shell-ready command, e.g. "brew upgrade grandpied33/sth/sth"
 }
 
@@ -22,6 +22,9 @@ type packageManager struct {
 //   - macOS Apple Homebrew  : /opt/homebrew/Cellar/sth/<v>/bin/sth
 //   - Linuxbrew             : /home/linuxbrew/.linuxbrew/Cellar/sth/<v>/bin/sth
 //   - Scoop                 : %USERPROFILE%\scoop\apps\sth\<v>\sth.exe
+//   - Chocolatey (shim)     : %ProgramData%\chocolatey\bin\sth.exe
+//   - Chocolatey (real)     : %ProgramData%\chocolatey\lib\sth\tools\sth.exe
+//   - winget                : %LOCALAPPDATA%\Microsoft\WinGet\Packages\Grandpied33.STH_*\sth.exe
 func detectPackageManager(execPath string) packageManager {
 	if strings.TrimSpace(execPath) == "" {
 		return packageManager{}
@@ -44,6 +47,17 @@ func detectPackageManager(execPath string) packageManager {
 		return packageManager{
 			name:        "Scoop",
 			upgradeHint: "scoop update sth",
+		}
+	case strings.Contains(p, "/chocolatey/bin/sth.exe"),
+		strings.Contains(p, "/chocolatey/lib/sth/"):
+		return packageManager{
+			name:        "Chocolatey",
+			upgradeHint: "choco upgrade sth",
+		}
+	case strings.Contains(p, "/winget/packages/grandpied33.sth"):
+		return packageManager{
+			name:        "winget",
+			upgradeHint: "winget upgrade Grandpied33.STH",
 		}
 	default:
 		return packageManager{}
