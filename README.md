@@ -139,28 +139,30 @@ sth.exe version
 
 ## Pipeline de release
 
-Le packaging est entièrement orchestré par GoReleaser. À chaque PR mergée sur `main` :
+Le packaging est orchestré par GoReleaser + un workflow Chocolatey dédié. À chaque PR mergée sur `main` :
 
-1. `auto-release.yml` calcule le prochain tag stable (`vX.Y.Z`) ou pré-release (`vX.Y.Z-rc.N` si la PR a le label `prerelease`) et crée la GitHub Release.
-2. `release.yml` détecte la release publiée et lance `goreleaser release --clean` qui :
+1. `auto-release.yml` calcule le prochain tag stable (`vX.Y.Z`) ou pré-release (`vX.Y.Z-rc.N` si la PR a le label `prerelease`) et crée la GitHub Release. Authentifié via `RELEASE_PAT` (un PAT — pas le `GITHUB_TOKEN` par défaut — sinon l'event `release.published` ne déclencherait pas les workflows en aval).
+2. `release.yml` (Linux) lance `goreleaser release --clean` qui :
    - construit les binaires (`linux-amd64`, `darwin-amd64`, `darwin-arm64`, `windows-amd64`)
    - attache les archives + `SHA256SUMS` à la release publique sur `Grandpied33/sth-releases`
    - pousse `Formula/sth.rb` sur `Grandpied33/homebrew-sth`
    - pousse `bucket/sth.json` sur `Grandpied33/scoop-sth`
-   - publie le `nupkg` sur `chocolatey.org`
    - ouvre une PR sur `microsoft/winget-pkgs` depuis `Grandpied33/winget-pkgs`
+3. `publish-chocolatey.yml` (Windows, en parallèle) attend les assets Windows + `SHA256SUMS` sur `sth-releases` (max 5 min de poll), rend le nuspec depuis `packaging/chocolatey/`, puis `choco pack` + `choco push` natifs vers `chocolatey.org`. Découplé de `release.yml` pour ne pas être affecté par une erreur tardive de GoReleaser (création de PR winget par exemple).
 
 ### Secrets requis (GitHub → Settings → Secrets and variables → Actions)
 
-| Secret | Usage | Permission minimum |
+| Secret | Usage | Type / Permissions |
 |---|---|---|
-| `RELEASE_PAT` | GoReleaser crée la release publique sur `sth-releases` (cross-repo, le `GITHUB_TOKEN` par défaut ne peut pas push) | PAT `Contents: R/W` sur `sth-releases` |
-| `HOMEBREW_TAP_TOKEN` | Push Formula sur `homebrew-sth` | PAT `Contents: R/W` sur `homebrew-sth` |
-| `SCOOP_BUCKET_TOKEN` | Push manifest sur `scoop-sth` | PAT `Contents: R/W` sur `scoop-sth` |
-| `WINGET_TOKEN` | Push branche + ouvrir PR vers `microsoft/winget-pkgs` | PAT `Contents: R/W` + `Pull requests: R/W` sur `Grandpied33/winget-pkgs` |
+| `RELEASE_PAT` | `auto-release.yml` crée la release sur `skills-transfer-hub` ET GoReleaser la publie cross-repo sur `sth-releases` | Fine-grained PAT `Contents: R/W` sur `skills-transfer-hub` + `sth-releases` |
+| `HOMEBREW_TAP_TOKEN` | Push Formula sur `homebrew-sth` | Fine-grained PAT `Contents: R/W` sur `homebrew-sth` |
+| `SCOOP_BUCKET_TOKEN` | Push manifest sur `scoop-sth` | Fine-grained PAT `Contents: R/W` sur `scoop-sth` |
+| `WINGET_TOKEN` | Push branche `sth-X.Y.Z` sur le fork + créer PR cross-fork vers `microsoft/winget-pkgs` | **PAT classique** avec scope `public_repo` |
 | `CHOCOLATEY_API_KEY` | `choco push` vers `push.chocolatey.org` | API key Chocolatey |
 
-Un seul PAT GitHub fine-grained avec accès aux 4 repos (`sth-releases`, `homebrew-sth`, `scoop-sth`, `winget-pkgs`) suffit pour les 4 premiers secrets.
+Un seul PAT fine-grained avec accès à `skills-transfer-hub` + `sth-releases` + `homebrew-sth` + `scoop-sth` suffit pour `RELEASE_PAT` + `HOMEBREW_TAP_TOKEN` + `SCOOP_BUCKET_TOKEN` (tous la même valeur).
+
+⚠️ **`WINGET_TOKEN` doit être un PAT classique** (pas fine-grained). Les fine-grained PATs avec "Only select repositories" ne peuvent pas créer de PR cross-fork vers `microsoft/winget-pkgs` (qui n'est pas dans la liste, et ne peut pas y être ajouté puisque vous ne possédez pas ce repo). Le PAT classique avec scope `public_repo` permet à GitHub de créer une PR depuis votre fork vers n'importe quel repo public upstream. Alternative : un fine-grained PAT en mode "All public repositories" avec `Pull requests: Write` + `Contents: Read`.
 
 ### Smoke test local avant tag
 
