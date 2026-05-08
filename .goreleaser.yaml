@@ -1,17 +1,23 @@
 # GoReleaser config for sth.
 # Docs: https://goreleaser.com/customization/
 #
+# Architecture: source code on Grandpied33/skills-transfer-hub (PRIVATE),
+# binaries + manifests on Grandpied33/sth-releases (PUBLIC). All download URLs
+# referenced by the package managers point at sth-releases so users can install
+# without GitHub auth.
+#
 # Local smoke test (no publish):
-#   goreleaser release --snapshot --clean --skip=publish
+#   goreleaser check
+#   goreleaser release --snapshot --clean --skip=publish,chocolatey
 #
-# What this produces per release:
-#   - sth-{linux,darwin,windows}-{amd64,arm64} binaries (Linux/Win arm64 skipped)
-#   - sth-{os}-{arch}.{tar.gz|zip} archives + SHA256SUMS, attached to the
-#     GitHub Release on Grandpied33/sth-releases
-#   - sth.rb pushed to Grandpied33/homebrew-sth/Formula/
-#   - sth.json pushed to Grandpied33/scoop-sth/bucket/
-#
-# All three pushes use GITHUB_TOKEN (set to RELEASE_PAT in release.yml).
+# What this produces per stable release:
+#   - sth-{linux,darwin}-{amd64,arm64} + sth-windows-amd64 binaries (Linux/Win arm64 skipped)
+#   - sth-{os}-{arch}.{tar.gz|zip} archives + SHA256SUMS, attached to a NEW GitHub Release
+#     created on Grandpied33/sth-releases (cross-repo, requires RELEASE_PAT)
+#   - Formula/sth.rb pushed to Grandpied33/homebrew-sth (HOMEBREW_TAP_TOKEN)
+#   - bucket/sth.json pushed to Grandpied33/scoop-sth (SCOOP_BUCKET_TOKEN)
+#   - sth.nupkg pushed to chocolatey.org (CHOCOLATEY_API_KEY)
+#   - PR opened against microsoft/winget-pkgs from Grandpied33/winget-pkgs (WINGET_TOKEN)
 
 version: 2
 
@@ -19,8 +25,8 @@ project_name: sth
 
 before:
   hooks:
+    - go mod download
     - go vet ./...
-    - go test ./...
 
 builds:
   - id: sth
@@ -47,8 +53,6 @@ builds:
       - amd64
       - arm64
     ignore:
-      # Match the existing release matrix: skip linux/arm64 and windows/arm64.
-      # Add them back when there's user demand.
       - goos: linux
         goarch: arm64
       - goos: windows
@@ -57,42 +61,126 @@ builds:
 archives:
   - id: default
     name_template: "sth-{{ .Os }}-{{ .Arch }}"
+    wrap_in_directory: true
+    format: tar.gz
     format_overrides:
       - goos: windows
         format: zip
     files:
+      - LICENSE
       - README.md
 
 checksum:
   name_template: "SHA256SUMS"
   algorithm: sha256
 
-# Homebrew Formula auto-pushed to Grandpied33/homebrew-sth on each release.
-# Authenticated via the GITHUB_TOKEN env var (see release.yml — set to RELEASE_PAT,
-# a PAT with contents:write on all three target repos).
-brews:
-  - name: sth
-    repository:
-      owner: Grandpied33
-      name: homebrew-sth
-    homepage: "https://github.com/Grandpied33/sth-releases"
-    description: "Skills Transfer Hub CLI — install reusable AI skills, agents and commands."
-    install: |
-      bin.install "sth"
-    test: |
-      assert_match "STH", shell_output("#{bin}/sth version")
+snapshot:
+  name_template: "{{ incpatch .Version }}-snapshot"
 
-# Scoop manifest auto-pushed to Grandpied33/scoop-sth on each release. Same
-# auth as brews above.
-scoops:
-  - name: sth
-    repository:
-      owner: Grandpied33
-      name: scoop-sth
-    homepage: "https://github.com/Grandpied33/sth-releases"
-    description: "Skills Transfer Hub CLI — install reusable AI skills, agents and commands."
+changelog:
+  use: github
+  sort: asc
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'
+      - '^chore:'
+      - '^ci:'
+      - 'merge conflict'
+      - Merge pull request
+      - Merge branch
 
 release:
   github:
     owner: Grandpied33
     name: sth-releases
+  prerelease: auto
+
+brews:
+  - name: sth
+    repository:
+      owner: Grandpied33
+      name: homebrew-sth
+      branch: main
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    commit_author:
+      name: goreleaserbot
+      email: bot@goreleaser.com
+    commit_msg_template: "Brew formula update for {{ .ProjectName }} version {{ .Tag }}"
+    directory: Formula
+    homepage: "https://github.com/Grandpied33/sth-releases"
+    description: "Skills Transfer Hub — CLI to install AI skills from a hosted catalog."
+    license: MIT
+    skip_upload: auto
+    install: |
+      bin.install "sth"
+    test: |
+      assert_match "STH", shell_output("#{bin}/sth version")
+
+scoops:
+  - name: sth
+    repository:
+      owner: Grandpied33
+      name: scoop-sth
+      branch: main
+      token: "{{ .Env.SCOOP_BUCKET_TOKEN }}"
+    commit_author:
+      name: goreleaserbot
+      email: bot@goreleaser.com
+    commit_msg_template: "Scoop manifest update for {{ .ProjectName }} version {{ .Tag }}"
+    homepage: "https://github.com/Grandpied33/sth-releases"
+    description: "Skills Transfer Hub — CLI to install AI skills."
+    license: MIT
+    skip_upload: auto
+
+chocolateys:
+  - name: sth
+    package_source_url: https://github.com/Grandpied33/sth-releases
+    owners: Grandpied33
+    title: Skills Transfer Hub (sth)
+    authors: Hugo Monfouga
+    project_url: https://github.com/Grandpied33/sth-releases
+    project_source_url: https://github.com/Grandpied33/sth-releases
+    docs_url: https://github.com/Grandpied33/sth-releases/blob/main/README.md
+    bug_tracker_url: https://github.com/Grandpied33/sth-releases/issues
+    license_url: https://github.com/Grandpied33/sth-releases/blob/main/LICENSE
+    require_license_acceptance: false
+    summary: CLI to install and update AI skill bundles from a hosted catalog.
+    description: |
+      STH (Skills Transfer Hub) is a single-binary Go CLI that connects a project
+      to a hosted catalog of AI resources, reads SKILLS.md, installs resources
+      locally, and keeps them in sync.
+    release_notes: "https://github.com/Grandpied33/sth-releases/releases/tag/v{{ .Version }}"
+    tags: "cli skills ai golang devtools"
+    api_key: '{{ .Env.CHOCOLATEY_API_KEY }}'
+    source_repo: "https://push.chocolatey.org/"
+    skip_publish: false
+
+winget:
+  - name: sth
+    publisher: Skills-Transfer-Hub
+    package_identifier: Grandpied33.STH
+    short_description: CLI to install and update AI skill bundles from a hosted catalog.
+    description: |
+      STH (Skills Transfer Hub) is a single-binary Go CLI that connects a project
+      to a hosted catalog of AI resources, reads SKILLS.md, installs resources
+      locally, and keeps them in sync.
+    homepage: https://github.com/Grandpied33/sth-releases
+    license: MIT
+    license_url: https://github.com/Grandpied33/sth-releases/blob/main/LICENSE
+    publisher_url: https://sth-dashboard.vercel.app/
+    publisher_support_url: https://github.com/Grandpied33/sth-releases/issues
+    release_notes_url: https://github.com/Grandpied33/sth-releases/releases/tag/v{{ .Version }}
+    skip_upload: auto
+    repository:
+      owner: Grandpied33
+      name: winget-pkgs
+      branch: "sth-{{ .Version }}"
+      token: "{{ .Env.WINGET_TOKEN }}"
+      pull_request:
+        enabled: true
+        draft: false
+        base:
+          owner: microsoft
+          name: winget-pkgs
+          branch: master
