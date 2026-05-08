@@ -25,23 +25,23 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - name: Install Chocolatey CLI
-        uses: crazy-max/ghaction-chocolatey@v3
-        with:
-          args: --version
+      # Chocolatey is intentionally skipped from GoReleaser: the chocolateys
+      # target needs the `choco` CLI in PATH on the runner, and on Linux
+      # neither crazy-max/ghaction-chocolatey nor a manual mono+choco install
+      # exposes it reliably. We'll re-add Chocolatey publishing via a dedicated
+      # windows-latest workflow that uses `choco push` natively.
 
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v6
         with:
           distribution: goreleaser
           version: "~> v2"
-          args: release --clean
+          args: release --clean --skip=chocolatey
         env:
           # GoReleaser creates the release on the public Grandpied33/sth-releases repo
           # (cross-repo, the default GITHUB_TOKEN can't push there). RELEASE_PAT must
-          # have Contents: R/W on sth-releases.
+          # have Contents: R/W on skills-transfer-hub + sth-releases + the 3 tap repos.
           GITHUB_TOKEN: ${{ secrets.RELEASE_PAT }}
           HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
           SCOOP_BUCKET_TOKEN: ${{ secrets.SCOOP_BUCKET_TOKEN }}
-          CHOCOLATEY_API_KEY: ${{ secrets.CHOCOLATEY_API_KEY }}
           WINGET_TOKEN: ${{ secrets.WINGET_TOKEN }}
