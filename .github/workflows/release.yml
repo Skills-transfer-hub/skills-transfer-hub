@@ -25,18 +25,12 @@ jobs:
         with:
           go-version-file: go.mod
 
-      # Chocolatey is intentionally skipped from GoReleaser: the chocolateys
-      # target needs the `choco` CLI in PATH on the runner, and on Linux
-      # neither crazy-max/ghaction-chocolatey nor a manual mono+choco install
-      # exposes it reliably. We'll re-add Chocolatey publishing via a dedicated
-      # windows-latest workflow that uses `choco push` natively.
-
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v6
         with:
           distribution: goreleaser
           version: "~> v2"
-          args: release --clean --skip=chocolatey
+          args: release --clean
         env:
           # GoReleaser creates the release on the public Grandpied33/sth-releases repo
           # (cross-repo, the default GITHUB_TOKEN can't push there). RELEASE_PAT must
@@ -45,3 +39,83 @@ jobs:
           HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
           SCOOP_BUCKET_TOKEN: ${{ secrets.SCOOP_BUCKET_TOKEN }}
           WINGET_TOKEN: ${{ secrets.WINGET_TOKEN }}
+
+  chocolatey:
+    name: Pack and push Chocolatey package
+    needs: goreleaser
+    runs-on: windows-latest
+    if: github.event_name == 'workflow_dispatch' || github.event.release.prerelease == false
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Resolve tag and version
+        id: meta
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            tag="${{ github.ref_name }}"
+          else
+            tag="${{ github.event.release.tag_name }}"
+          fi
+          version="${tag#v}"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Download SHA256SUMS from sth-releases
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.meta.outputs.tag }}
+        run: |
+          gh release download "$TAG" --repo Grandpied33/sth-releases --pattern 'SHA256SUMS' --dir .
+
+      - name: Extract windows checksum
+        id: sums
+        shell: bash
+        run: |
+          checksum="$(awk '{ name = $NF; sub(/^\*/, "", name); if (name == "sth-windows-amd64.zip") print $1 }' SHA256SUMS)"
+          if [[ -z "$checksum" ]]; then
+            echo "Missing sth-windows-amd64.zip checksum in SHA256SUMS." >&2
+            cat SHA256SUMS >&2
+            exit 1
+          fi
+          echo "checksum=$checksum" >> "$GITHUB_OUTPUT"
+
+      - name: Render package files
+        shell: pwsh
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+          TAG: ${{ steps.meta.outputs.tag }}
+          CHECKSUM: ${{ steps.sums.outputs.checksum }}
+        run: |
+          $stage = Join-Path $env:RUNNER_TEMP 'choco-stage'
+          New-Item -ItemType Directory -Path $stage -Force | Out-Null
+          New-Item -ItemType Directory -Path (Join-Path $stage 'tools') -Force | Out-Null
+
+          $nuspec = Get-Content -Raw -Path 'packaging/chocolatey/sth.nuspec.template'
+          $nuspec = $nuspec.Replace('__VERSION__', $env:VERSION)
+          Set-Content -Path (Join-Path $stage 'sth.nuspec') -Value $nuspec -Encoding utf8
+
+          $install = Get-Content -Raw -Path 'packaging/chocolatey/tools/chocolateyinstall.ps1.template'
+          $install = $install.Replace('__VERSION__', $env:VERSION)
+          $install = $install.Replace('__TAG__', $env:TAG)
+          $install = $install.Replace('__CHECKSUM__', $env:CHECKSUM)
+          Set-Content -Path (Join-Path $stage 'tools/chocolateyinstall.ps1') -Value $install -Encoding utf8
+
+          Copy-Item 'packaging/chocolatey/tools/chocolateyuninstall.ps1' (Join-Path $stage 'tools/chocolateyuninstall.ps1')
+
+          "STAGE=$stage" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: choco pack
+        shell: pwsh
+        run: choco pack (Join-Path $env:STAGE 'sth.nuspec') --output-directory $env:STAGE
+
+      - name: choco push
+        shell: pwsh
+        env:
+          CHOCOLATEY_API_KEY: ${{ secrets.CHOCOLATEY_API_KEY }}
+        run: |
+          $package = Get-ChildItem -Path $env:STAGE -Filter 'sth.*.nupkg' | Select-Object -First 1
+          if (-not $package) { throw "No .nupkg found in $env:STAGE" }
+          choco push $package.FullName --source 'https://push.chocolatey.org/' --api-key $env:CHOCOLATEY_API_KEY

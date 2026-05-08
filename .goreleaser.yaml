@@ -133,28 +133,11 @@ scoops:
     license: MIT
     skip_upload: auto
 
-chocolateys:
-  - name: sth
-    package_source_url: https://github.com/Grandpied33/sth-releases
-    owners: Grandpied33
-    title: Skills Transfer Hub (sth)
-    authors: Hugo Monfouga
-    project_url: https://github.com/Grandpied33/sth-releases
-    project_source_url: https://github.com/Grandpied33/sth-releases
-    docs_url: https://github.com/Grandpied33/sth-releases/blob/main/README.md
-    bug_tracker_url: https://github.com/Grandpied33/sth-releases/issues
-    license_url: https://github.com/Grandpied33/sth-releases/blob/main/LICENSE
-    require_license_acceptance: false
-    summary: CLI to install and update AI skill bundles from a hosted catalog.
-    description: |
-      STH (Skills Transfer Hub) is a single-binary Go CLI that connects a project
-      to a hosted catalog of AI resources, reads SKILLS.md, installs resources
-      locally, and keeps them in sync.
-    release_notes: "https://github.com/Grandpied33/sth-releases/releases/tag/v{{ .Version }}"
-    tags: "cli skills ai golang devtools"
-    api_key: '{{ .Env.CHOCOLATEY_API_KEY }}'
-    source_repo: "https://push.chocolatey.org/"
-    skip_publish: false
+# Chocolatey is intentionally NOT a GoReleaser target: the chocolateys
+# block needs `choco` in PATH on the runner, and that's not reliable on
+# Linux runners. The `chocolatey` job in .github/workflows/release.yml
+# runs on windows-latest and uses the templates in packaging/chocolatey/
+# to pack and push the package natively.
 
 winget:
   - name: sth
