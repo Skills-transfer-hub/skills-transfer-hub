@@ -144,7 +144,7 @@ Le packaging est entièrement orchestré par GoReleaser. À chaque PR mergée su
 1. `auto-release.yml` calcule le prochain tag stable (`vX.Y.Z`) ou pré-release (`vX.Y.Z-rc.N` si la PR a le label `prerelease`) et crée la GitHub Release.
 2. `release.yml` détecte la release publiée et lance `goreleaser release --clean` qui :
    - construit les binaires (`linux-amd64`, `darwin-amd64`, `darwin-arm64`, `windows-amd64`)
-   - attache les archives + `SHA256SUMS` à la release sur `Grandpied33/skills-transfer-hub`
+   - attache les archives + `SHA256SUMS` à la release publique sur `Grandpied33/sth-releases`
    - pousse `Formula/sth.rb` sur `Grandpied33/homebrew-sth`
    - pousse `bucket/sth.json` sur `Grandpied33/scoop-sth`
    - publie le `nupkg` sur `chocolatey.org`
@@ -154,12 +154,13 @@ Le packaging est entièrement orchestré par GoReleaser. À chaque PR mergée su
 
 | Secret | Usage | Permission minimum |
 |---|---|---|
+| `RELEASE_PAT` | GoReleaser crée la release publique sur `sth-releases` (cross-repo, le `GITHUB_TOKEN` par défaut ne peut pas push) | PAT `Contents: R/W` sur `sth-releases` |
 | `HOMEBREW_TAP_TOKEN` | Push Formula sur `homebrew-sth` | PAT `Contents: R/W` sur `homebrew-sth` |
 | `SCOOP_BUCKET_TOKEN` | Push manifest sur `scoop-sth` | PAT `Contents: R/W` sur `scoop-sth` |
 | `WINGET_TOKEN` | Push branche + ouvrir PR vers `microsoft/winget-pkgs` | PAT `Contents: R/W` + `Pull requests: R/W` sur `Grandpied33/winget-pkgs` |
 | `CHOCOLATEY_API_KEY` | `choco push` vers `push.chocolatey.org` | API key Chocolatey |
 
-Un seul PAT GitHub fine-grained avec accès aux 3 repos suffit pour les 3 premiers secrets.
+Un seul PAT GitHub fine-grained avec accès aux 4 repos (`sth-releases`, `homebrew-sth`, `scoop-sth`, `winget-pkgs`) suffit pour les 4 premiers secrets.
 
 ### Smoke test local avant tag
 
@@ -180,7 +181,7 @@ Le `PackageIdentifier` `Grandpied33.STH` doit être validé manuellement par Mic
 
 ```powershell
 winget install Microsoft.WingetCreate
-wingetcreate new --urls https://github.com/Grandpied33/skills-transfer-hub/releases/download/<tag>/sth-windows-amd64.zip
+wingetcreate new --urls https://github.com/Grandpied33/sth-releases/releases/download/<tag>/sth-windows-amd64.zip
 ```
 
 Microsoft review la PR (~3–7 jours). Les versions suivantes sont ouvertes automatiquement par GoReleaser via `WINGET_TOKEN`.
