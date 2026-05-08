@@ -99,6 +99,10 @@ jobs:
         if: steps.pr.outputs.found == 'true' && steps.existing.outputs.tag == ''
         uses: softprops/action-gh-release@v2
         with:
+          # GITHUB_TOKEN-published releases do NOT trigger downstream workflows
+          # (release.published event is suppressed). RELEASE_PAT runs as a real
+          # user identity, so release.yml fires automatically on each release.
+          token: ${{ secrets.RELEASE_PAT }}
           tag_name: ${{ steps.next.outputs.tag }}
           name: ${{ steps.next.outputs.tag }}
           target_commitish: ${{ github.sha }}

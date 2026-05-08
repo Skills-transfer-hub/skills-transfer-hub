@@ -16,3 +16,7 @@ Thumbs.db
 sth
 sth.exe
 .claude/settings.local.json
+# Created by crazy-max/ghaction-chocolatey@v3 on Linux runners; would otherwise
+# leave the working dir dirty and break GoReleaser's git-state validation.
+# Pattern without trailing slash so it covers both a file and a directory.
+/opt
