@@ -162,7 +162,7 @@ Le packaging est orchestré par GoReleaser + un workflow Chocolatey dédié. À 
 
 Un seul PAT fine-grained avec accès à `skills-transfer-hub` + `sth-releases` + `homebrew-sth` + `scoop-sth` suffit pour `RELEASE_PAT` + `HOMEBREW_TAP_TOKEN` + `SCOOP_BUCKET_TOKEN` (tous la même valeur).
 
-⚠️ **`WINGET_TOKEN` doit être un PAT classique** (pas fine-grained). Les fine-grained PATs avec "Only select repositories" ne peuvent pas créer de PR cross-fork vers `microsoft/winget-pkgs` (qui n'est pas dans la liste, et ne peut pas y être ajouté puisque vous ne possédez pas ce repo). Le PAT classique avec scope `public_repo` permet à GitHub de créer une PR depuis votre fork vers n'importe quel repo public upstream. Alternative : un fine-grained PAT en mode "All public repositories" avec `Pull requests: Write` + `Contents: Read`.
+⚠️ **`WINGET_TOKEN` doit être un PAT classique** (pas fine-grained). Les fine-grained PATs avec "Only select repositories" ne peuvent pas créer de PR cross-fork vers `microsoft/winget-pkgs` (qui n'est pas dans la liste, et ne peut pas y être ajouté puisque vous ne possédez pas ce repo). Le PAT classique avec scope `public_repo` permet à GitHub de créer une PR depuis votre fork vers n'importe quel repo public upstream. Alternative : un fine-grained PAT en mode "All public repositories" avec `Pull requests: Write` + `Contents: Write` (le `Contents: Write` est requis pour pousser la branche `sth-X.Y.Z` sur le fork avant l'ouverture de PR).
 
 ### Smoke test local avant tag
 

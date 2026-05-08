@@ -62,6 +62,30 @@ func TestDetectPackageManager(t *testing.T) {
 			execPath: "/opt/Homebrew/CELLAR/sth/0.1.0/bin/sth",
 			wantName: "Homebrew",
 		},
+		{
+			name:        "Chocolatey shim in bin",
+			execPath:    `C:\ProgramData\chocolatey\bin\sth.exe`,
+			wantName:    "Chocolatey",
+			wantHintHas: "choco upgrade",
+		},
+		{
+			name:        "Chocolatey real binary in lib",
+			execPath:    `C:\ProgramData\chocolatey\lib\sth\tools\sth.exe`,
+			wantName:    "Chocolatey",
+			wantHintHas: "choco upgrade",
+		},
+		{
+			name:        "Chocolatey bin shim with non-sth tool is NOT detected",
+			execPath:    `C:\ProgramData\chocolatey\bin\someothertool.exe`,
+			wantName:    "",
+			wantHintHas: "",
+		},
+		{
+			name:        "winget LocalAppData",
+			execPath:    `C:\Users\hugo\AppData\Local\Microsoft\WinGet\Packages\Grandpied33.STH_Microsoft.Winget.Source_8wekyb3d8bbwe\sth.exe`,
+			wantName:    "winget",
+			wantHintHas: "winget upgrade",
+		},
 	}
 
 	for _, tc := range cases {
