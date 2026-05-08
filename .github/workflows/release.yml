@@ -7,6 +7,8 @@ on:
 
 permissions:
   contents: write
+  packages: write
+  id-token: write
 
 jobs:
   goreleaser:
@@ -23,13 +25,23 @@ jobs:
         with:
           go-version-file: go.mod
 
+      - name: Install Chocolatey CLI
+        uses: crazy-max/ghaction-chocolatey@v3
+        with:
+          args: --version
+
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v6
         with:
-          version: latest
+          distribution: goreleaser
+          version: "~> v2"
           args: release --clean
         env:
-          # PAT with `contents:write` on Grandpied33/sth-releases (the public
-          # artifacts repo). The default GITHUB_TOKEN can't push to a different
-          # repo, so we use a Personal Access Token stored as RELEASE_PAT.
+          # GoReleaser creates the release on the public Grandpied33/sth-releases repo
+          # (cross-repo, the default GITHUB_TOKEN can't push there). RELEASE_PAT must
+          # have Contents: R/W on sth-releases.
           GITHUB_TOKEN: ${{ secrets.RELEASE_PAT }}
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          SCOOP_BUCKET_TOKEN: ${{ secrets.SCOOP_BUCKET_TOKEN }}
+          CHOCOLATEY_API_KEY: ${{ secrets.CHOCOLATEY_API_KEY }}
+          WINGET_TOKEN: ${{ secrets.WINGET_TOKEN }}
