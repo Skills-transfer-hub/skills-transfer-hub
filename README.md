@@ -10,13 +10,21 @@ Le flux actuel est centré sur le projet courant, pas sur une configuration part
 - `sth init` configure de manière interactive un dépôt hébergé supporté pour le projet courant
 - `sth login [<api-key>]` authentifie le CLI auprès de **STH Cloud** (provider SaaS) — clé stockée dans le keychain OS
 - `sth logout` supprime la clé STH Cloud du keychain
-- `sth list` lit `SKILLS.md` ou détecte les bundles compatibles et liste les ressources installables
+- `sth list` lit `SKILLS.md` ou détecte les bundles compatibles et liste les ressources installables ; avec `--json`, retourne l'état des ressources installées (sémantique différente du mode texte)
 - `sth install <resource-ref>` installe une ressource du catalogue distant
-- `sth update` met à jour les ressources suivies dans le projet courant
+- `sth update [--fail-on-changes]` met à jour les ressources suivies dans le projet courant ; `--fail-on-changes` exit 1 (sans rien modifier) si une ressource gérée a été éditée localement, utile comme gate CI
 - `sth update self` vérifie et applique la dernière release GitHub stable compatible avec la plateforme courante
+- `sth status [--json]` montre l'état (à jour, obsolète, modifié-localement) de chaque ressource installée
+- `sth doctor` diagnostique la configuration STH du projet courant (project.json, sth-state, credentials, accès provider) avec une remédiation par check
+- `sth completion <bash|zsh|powershell>` génère un script de complétion shell ; à `source` dans votre shell
 - `sth buddy` affiche l'état du projet courant sous forme de compagnon visuel
 - `sth help [commande]` affiche l'aide générale ou ciblée
-- `sth version` affiche la même signature minimale que `sth`
+- `sth version [--json]` affiche la signature minimale (ou `{"version", "commit"}` en JSON)
+
+### Flags globaux
+
+- `--verbose` / `--debug` (alias) — émet sur `stderr` une trace `[verbose]` pour chaque requête HTTP (URL → status) et chaque chemin résolu (`project.json`, `sth-state-v2.json`). `stdout` reste propre.
+- `--json` — supporté par `list`, `status` et `version`. En cas d'erreur, le payload stdout devient `{"error": "<message>", "code": <int>}` et le process exit non-zero (FR-022).
 
 ## Provider STH Cloud (SaaS)
 
@@ -124,16 +132,16 @@ Sous macOS ou Linux :
 
 ```bash
 tar -xzf sth-linux-amd64.tar.gz
-sudo install sth-linux-amd64/sth /usr/local/bin/sth
+sudo install sth /usr/local/bin/sth
 sth version
 ```
 
 Sous Windows PowerShell :
 
 ```powershell
-Expand-Archive .\sth-windows-amd64.zip -DestinationPath .\sth-windows-amd64 -Force
+Expand-Archive .\sth-windows-amd64.zip -DestinationPath . -Force
 New-Item -ItemType Directory -Path "$env:USERPROFILE\bin" -Force | Out-Null
-Copy-Item .\sth-windows-amd64\sth.exe "$env:USERPROFILE\bin\sth.exe" -Force
+Copy-Item .\sth.exe "$env:USERPROFILE\bin\sth.exe" -Force
 sth.exe version
 ```
 
@@ -231,6 +239,22 @@ STH ne persiste pas les secrets. Il s'appuie sur une authentification externe d�
 - GitLab : PAT via `https://gitlab.com/-/user_settings/personal_access_tokens`, permission minimale `read_repository`, variables `GITLAB_TOKEN` ou `STH_TOKEN`
 - Azure DevOps : PAT via `https://dev.azure.com/<organisation>/_usersSettings/tokens`, permission minimale `Code (Read)`, variables `AZURE_DEVOPS_EXT_PAT`, `AZURE_DEVOPS_TOKEN`, ou `STH_TOKEN`
 - Bitbucket Cloud : API token via `https://id.atlassian.com/manage-profile/security/api-tokens`, permission minimale `Repositories: Read`, variable `BITBUCKET_TOKEN` ou `STH_TOKEN`
+
+#### Modèle de credential et auth recovery (spec 007)
+
+STH résout les credentials dans cet ordre, par requête réseau :
+
+1. **`profile.APIToken`** — token saisi à `sth init` (jamais persisté disque, session courante uniquement)
+2. **Keychain `sth-cloud`** — pour le provider SaaS uniquement, via `sth login`
+3. **`STH_TOKEN`** — variable d'environnement universelle (tous providers Git)
+4. **GitHub Actions OIDC** — quand `ACTIONS_ID_TOKEN_REQUEST_URL` et `ACTIONS_ID_TOKEN_REQUEST_TOKEN` sont injectés par l'action runner. Le JWT est demandé avec l'audience `sth-cli`. **Précondition** : le service cible doit valider cette claim — utile pour STH Cloud, mais `api.github.com` ne l'accepte pas. En CI sur un repo Git privé, préférez `STH_TOKEN`.
+5. **Variables d'env spécifiques au provider** : `GITHUB_TOKEN`, `GITLAB_TOKEN`, `AZURE_DEVOPS_EXT_PAT`, `AZURE_DEVOPS_TOKEN`, `BITBUCKET_TOKEN`, `BITBUCKET_USERNAME`+`BITBUCKET_APP_PASSWORD`
+6. **`git credential fill`** — réutilise les identifiants déjà gérés par votre git CLI
+7. **Prompt TTY** — uniquement dans une session interactive ; le token est exporté en `STH_TOKEN` pour le retry et n'est pas persisté
+
+Sur un `401`/`403` en TTY, STH affiche `Authentication failed (HTTP 4xx) — your token may have expired.` puis demande un token à coller. Une seule retry par invocation (FR-006). En CI, le `401` propage immédiatement avec un exit code non-zero.
+
+Aucun secret n'est jamais écrit sur disque (FR-002).
 
 STH accepte encore `BITBUCKET_USERNAME` et `BITBUCKET_APP_PASSWORD` pour la compatibilité Bitbucket, mais la guidance produit recommande désormais l'API token Atlassian.
 

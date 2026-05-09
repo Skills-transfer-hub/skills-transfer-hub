@@ -17,12 +17,13 @@ import (
 	"strings"
 	"time"
 
-	"sth/internal/auth"
 	"sth/internal/fs"
+	sthlog "sth/internal/log"
 )
 
 type Client struct {
 	httpClient *stdhttp.Client
+	verbose    sthlog.Verbose
 }
 
 // AccessSource describes how STH authenticated the current request.
@@ -81,7 +82,25 @@ func NewClient(httpClient *stdhttp.Client) *Client {
 		httpClient = &stdhttp.Client{Timeout: 10 * time.Second}
 	}
 
-	return &Client{httpClient: httpClient}
+	return &Client{httpClient: httpClient, verbose: sthlog.NewVerbose(nil, false)}
+}
+
+// SetVerbose attaches a verbose sink so the client can emit [verbose] HTTP
+// lines. Pass a no-op sink (NewVerbose(nil, false)) to silence it.
+func (c *Client) SetVerbose(v sthlog.Verbose) {
+	if v == nil {
+		v = sthlog.NewVerbose(nil, false)
+	}
+	c.verbose = v
+}
+
+// emitHTTP is a small helper so callers in client.go and cloud.go don't have
+// to nil-guard on every call.
+func (c *Client) emitHTTP(method, url string, status int) {
+	if c.verbose == nil {
+		return
+	}
+	c.verbose.HTTP(method, url, status)
 }
 
 // CheckProjectAccess verifies that the remote catalog is reachable.
@@ -365,14 +384,16 @@ func (c *Client) downloadURL(ctx context.Context, rawURL string, headers map[str
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
+		c.emitHTTP(stdhttp.MethodGet, rawURL, 0)
 		return nil, fmt.Errorf("échec de la requête vers %s : %w", rawURL, err)
 	}
 	defer resp.Body.Close()
+	c.emitHTTP(stdhttp.MethodGet, rawURL, resp.StatusCode)
 
 	switch resp.StatusCode {
 	case stdhttp.StatusOK:
 	case stdhttp.StatusUnauthorized, stdhttp.StatusForbidden:
-		return nil, fmt.Errorf("accès refusé (HTTP %d) pour %s", resp.StatusCode, rawURL)
+		return nil, &AuthError{StatusCode: resp.StatusCode, URL: rawURL}
 	case stdhttp.StatusNotFound:
 		return nil, fmt.Errorf("ressource distante introuvable (HTTP 404) : %s", rawURL)
 	default:
@@ -428,46 +449,23 @@ func providerResourceURL(profile fs.ProjectProfile, resourcePath string) (string
 	}
 }
 
+// resolveCredentialHeaders preserves the legacy entry point (no prompter).
+// All the spec-007 logic — including the OIDC leg — lives in
+// resolveCredentialHeadersWithPrompter (auth.go).
 func resolveCredentialHeaders(ctx context.Context, profile fs.ProjectProfile) (credentialHeaders, error) {
-	// Session-only token entered during init (not persisted to disk).
-	if profile.APIToken != "" {
-		return providerAPITokenHeaders(profile.APIToken, profile.Provider), nil
-	}
-
-	// STH Cloud: keychain lookup with env fallback. No git-credential leg.
-	if strings.EqualFold(strings.TrimSpace(profile.Provider), "sth-cloud") {
-		key, err := auth.LoadAPIKey()
-		if err != nil {
-			return credentialHeaders{
-				source: AccessSource{Kind: "none", Hint: "sth-cloud", Resolved: false},
-			}, err
-		}
-		return credentialHeaders{
-			headers: map[string]string{"Authorization": "Bearer " + key},
-			source:  AccessSource{Kind: "keychain", Hint: auth.KeyringService, Resolved: true},
-		}, nil
-	}
-
-	if headers, ok := resolveEnvironmentHeaders(profile); ok {
-		return headers, nil
-	}
-
-	host, credentialPath, err := providerCredentialTarget(profile)
+	headers, err := resolveCredentialHeadersWithPrompter(ctx, profile, nil)
 	if err != nil {
-		return credentialHeaders{}, err
+		// Preserve the pre-spec-007 behaviour for the no-credential case:
+		// callers (e.g. anonymous public repo download) must still receive
+		// a soft "no creds, continue" instead of an AuthError. We only
+		// surface AuthError when credential resolution actively failed
+		// (e.g. OIDC exchange error or sth-cloud keychain miss).
+		if ae, ok := IsAuthError(err); ok && ae.StatusCode == 0 && strings.Contains(ae.Reason, "no credential available") {
+			return headers, nil
+		}
+		return headers, err
 	}
-
-	username, password, err := gitCredentialFill(ctx, host, credentialPath)
-	if err == nil && (strings.TrimSpace(username) != "" || strings.TrimSpace(password) != "") {
-		return credentialHeaders{
-			headers: map[string]string{
-				"Authorization": basicAuthorization(username, password),
-			},
-			source: AccessSource{Kind: "git-credential", Hint: host, Resolved: true},
-		}, nil
-	}
-
-	return credentialHeaders{source: AccessSource{Kind: "none", Hint: host, Resolved: false}}, nil
+	return headers, nil
 }
 
 // providerAPITokenHeaders builds provider-appropriate credential headers for a session token.

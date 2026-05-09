@@ -7,6 +7,7 @@ import (
 	"os"
 	sthfs "sth/internal/fs"
 	sthhttp "sth/internal/http"
+	sthlog "sth/internal/log"
 	"strings"
 	"time"
 )
@@ -21,6 +22,8 @@ type commandSpec struct {
 	summary  string
 	details  []string
 	examples []string
+	flags    []string
+	hidden   bool
 }
 
 var commandCatalog = []commandSpec{
@@ -40,15 +43,18 @@ var commandCatalog = []commandSpec{
 	},
 	{
 		name:    "list",
-		usage:   "sth list",
+		usage:   "sth list [--json]",
 		summary: "Lit SKILLS.md ou détecte les bundles category/folder/SKILL.md du dépôt courant",
 		details: []string{
 			"SKILLS.md garde toujours la priorité quand il existe et se parse correctement.",
 			"Si SKILLS.md est absent, STH scanne les bundles compatibles et affiche leurs références canoniques category/folder.",
+			"Avec --json, retourne l'état des ressources installées (resource_name, provider_id, status, resolved_version, pinned_version) — sémantique différente du mode texte.",
 		},
 		examples: []string{
 			"sth list",
+			"sth list --json",
 		},
+		flags: []string{"--json"},
 	},
 	{
 		name:    "install",
@@ -63,16 +69,22 @@ var commandCatalog = []commandSpec{
 			"sth install skills/analyse-risque",
 			"sth install skills/analyse-risque --dry-run",
 		},
+		flags: []string{"--dry-run", "--force", "--json"},
 	},
 	{
 		name:    "update",
-		usage:   "sth update [self] [--dry-run]",
+		usage:   "sth update [self] [--dry-run] [--fail-on-changes] [--json]",
 		summary: "Met à jour les ressources suivies ou le binaire STH lui-même",
+		details: []string{
+			"--fail-on-changes : si une ressource gérée a été modifiée localement (SHA256 ne correspond plus), exit 1 sans appliquer la mise à jour.",
+		},
 		examples: []string{
 			"sth update",
 			"sth update --dry-run",
+			"sth update --fail-on-changes",
 			"sth update self",
 		},
+		flags: []string{"--dry-run", "--fail-on-changes", "--json"},
 	},
 	{
 		name:    "status",
@@ -82,6 +94,7 @@ var commandCatalog = []commandSpec{
 			"sth status",
 			"sth status --json",
 		},
+		flags: []string{"--json"},
 	},
 	{
 		name:    "remove",
@@ -91,6 +104,7 @@ var commandCatalog = []commandSpec{
 			"sth remove skills/analyse-risque",
 			"sth remove skills/analyse-risque --yes",
 		},
+		flags: []string{"--yes"},
 	},
 	{
 		name:    "buddy",
@@ -117,10 +131,37 @@ var commandCatalog = []commandSpec{
 	},
 	{
 		name:    "version",
-		usage:   "sth version",
+		usage:   "sth version [--json]",
 		summary: "Affiche la signature de version minimale du CLI",
 		examples: []string{
 			"sth version",
+			"sth version --json",
+		},
+		flags: []string{"--json"},
+	},
+	{
+		name:    "doctor",
+		usage:   "sth doctor",
+		summary: "Diagnostique la configuration STH du projet courant (token, config, état, accès provider)",
+		details: []string{
+			"Liste pass/fail pour chaque vérification avec une étape de remédiation en cas d'échec.",
+			"Si aucun project.json n'existe, les vérifications provider et état sont marquées [SKIP].",
+		},
+		examples: []string{
+			"sth doctor",
+		},
+	},
+	{
+		name:    "completion",
+		usage:   "sth completion <bash|zsh|powershell>",
+		summary: "Génère un script de complétion shell pour STH",
+		details: []string{
+			"Source la sortie dans votre shell pour activer la complétion : bash, zsh ou powershell.",
+		},
+		examples: []string{
+			"sth completion bash",
+			"sth completion zsh",
+			"sth completion powershell",
 		},
 	},
 }
@@ -131,6 +172,7 @@ type app struct {
 	stderr      io.Writer
 	client      *sthhttp.Client
 	interactive func() bool
+	verbose     sthlog.Verbose
 }
 
 func newApp(stdin io.Reader, stdout, stderr io.Writer, client *sthhttp.Client) *app {
@@ -147,11 +189,14 @@ func newApp(stdin io.Reader, stdout, stderr io.Writer, client *sthhttp.Client) *
 		client = sthhttp.NewClient(nil)
 	}
 
+	v := sthlog.NewVerbose(stderr, false)
+	client.SetVerbose(v)
 	return &app{
-		stdin:  stdin,
-		stdout: stdout,
-		stderr: stderr,
-		client: client,
+		stdin:   stdin,
+		stdout:  stdout,
+		stderr:  stderr,
+		client:  client,
+		verbose: v,
 	}
 }
 
@@ -181,6 +226,8 @@ func Run(args []string) error {
 }
 
 func (a *app) run(args []string) error {
+	args = a.applyGlobalFlags(args)
+
 	if err := a.enforceAlphaGate(context.Background(), args); err != nil {
 		a.writeStderr(fmt.Sprintf("Erreur : %v", err))
 		return err
@@ -211,15 +258,11 @@ func (a *app) run(args []string) error {
 		}
 		err = a.runInit()
 	case "list":
-		if len(args) == 2 && isHelpFlag(args[1]) {
+		if len(args) >= 2 && isHelpFlag(args[1]) {
 			a.writeStdout(commandHelpText("list"))
 			return nil
 		}
-		if len(args) != 1 {
-			err = fmt.Errorf("usage : sth list")
-			break
-		}
-		err = a.runList()
+		err = a.runListWithArgs(args[1:])
 	case "install":
 		if len(args) >= 2 && isHelpFlag(args[1]) {
 			a.writeStdout(commandHelpText("install"))
@@ -272,15 +315,11 @@ func (a *app) run(args []string) error {
 			err = fmt.Errorf("usage : sth help [commande]")
 		}
 	case "version":
-		if len(args) == 2 && isHelpFlag(args[1]) {
+		if len(args) >= 2 && isHelpFlag(args[1]) {
 			a.writeStdout(commandHelpText("version"))
 			return nil
 		}
-		if len(args) != 1 {
-			err = fmt.Errorf("usage : sth version")
-			break
-		}
-		err = a.runVersion()
+		err = a.runVersion(args[1:])
 	case "login":
 		if len(args) >= 2 && isHelpFlag(args[1]) {
 			a.writeStdout(loginHelpText())
@@ -301,6 +340,18 @@ func (a *app) run(args []string) error {
 			return nil
 		}
 		err = a.runBuddy(args[1:])
+	case "doctor":
+		if len(args) >= 2 && isHelpFlag(args[1]) {
+			a.writeStdout(commandHelpText("doctor"))
+			return nil
+		}
+		err = a.runDoctor(args[1:])
+	case "completion":
+		if len(args) >= 2 && isHelpFlag(args[1]) {
+			a.writeStdout(commandHelpText("completion"))
+			return nil
+		}
+		err = a.runCompletion(args[1:])
 	case "--help", "-h":
 		a.writeStdout(helpText())
 		return nil
@@ -395,6 +446,9 @@ func helpText() string {
 	builder.WriteString("Sans argument, `sth` ouvre le menu guidé en TTY et affiche la prochaine étape utile hors TTY.\n\n")
 	builder.WriteString("Commandes visibles :\n")
 	for _, spec := range commandCatalog {
+		if spec.hidden {
+			continue
+		}
 		builder.WriteString(fmt.Sprintf("  %-20s %s\n", commandDisplayName(spec), spec.summary))
 	}
 	builder.WriteString("\nExemples :\n")
@@ -408,7 +462,7 @@ func helpText() string {
 func usageExamples() []string {
 	examples := make([]string, 0, len(commandCatalog))
 	for _, spec := range commandCatalog {
-		if len(spec.examples) == 0 {
+		if spec.hidden || len(spec.examples) == 0 {
 			continue
 		}
 		examples = append(examples, spec.examples[0])
@@ -496,4 +550,30 @@ func parseFlags(args []string, knownFlags ...string) (flags map[string]bool, pos
 		}
 	}
 	return
+}
+
+// applyGlobalFlags strips --verbose / --debug from args and wires up the
+// verbose sink so it routes to stderr. Returns the args without the global
+// flags so per-command parsing isn't disturbed.
+func (a *app) applyGlobalFlags(args []string) []string {
+	if len(args) == 0 {
+		return args
+	}
+	enabled := false
+	filtered := make([]string, 0, len(args))
+	for _, arg := range args {
+		if arg == "--verbose" || arg == "--debug" {
+			enabled = true
+			continue
+		}
+		filtered = append(filtered, arg)
+	}
+	if enabled {
+		v := sthlog.NewVerbose(a.stderr, true)
+		a.verbose = v
+		if a.client != nil {
+			a.client.SetVerbose(v)
+		}
+	}
+	return filtered
 }
