@@ -1,9 +1,10 @@
 package cmd
 
 import (
+	"encoding/json"
 	"fmt"
-	sthhttp "sth/internal/http"
 	"runtime"
+	sthhttp "sth/internal/http"
 	"strings"
 )
 
@@ -26,7 +27,23 @@ func formatVersionSignature() string {
 	}, "\n")
 }
 
-func (a *app) runVersion() error {
+func (a *app) runVersion(args []string) error {
+	flags, _ := parseFlags(args, "--json")
+	if flags["--json"] {
+		payload := struct {
+			Version string `json:"version"`
+			Commit  string `json:"commit"`
+		}{
+			Version: valueOrDefault(version, "dev"),
+			Commit:  valueOrDefault(commit, "unknown"),
+		}
+		b, err := json.Marshal(payload)
+		if err != nil {
+			return err
+		}
+		a.writeStdout(string(b))
+		return nil
+	}
 	a.writeStdout(formatVersionSignature())
 	return nil
 }

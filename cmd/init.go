@@ -205,6 +205,7 @@ func (a *app) runInit() error {
 		fmt.Sprintf("Catalogue: %s @ %s", profile.CatalogPath, refValue),
 		fmt.Sprintf("Dossier cible: %s", profile.TargetDir),
 		"Accès au dépôt validé.",
+		"Astuce : exécutez `sth completion <bash|zsh|powershell>` pour activer la complétion.",
 		"Prochaine étape : utilisez `sth list`.",
 	}
 	if profile.APIToken != "" {

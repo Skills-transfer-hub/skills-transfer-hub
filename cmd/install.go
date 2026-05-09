@@ -29,8 +29,12 @@ func (a *app) runInstall(args []string) error {
 		providerID = cfg.Providers[0].ID
 	}
 
-	entries, err := a.client.ListCatalog(context.Background(), *profile)
-	if err != nil {
+	var entries []fs.CatalogEntry
+	if err := a.withAuthRecovery(context.Background(), func() error {
+		var listErr error
+		entries, listErr = a.client.ListCatalog(context.Background(), *profile)
+		return listErr
+	}); err != nil {
 		return err
 	}
 

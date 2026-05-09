@@ -14,6 +14,19 @@ func (a *app) runStatus(args []string) error {
 	flags, _ := parseFlags(args, "--json")
 	jsonOut := flags["--json"]
 
+	statusErr := a.runStatusInner(jsonOut)
+	if statusErr != nil && jsonOut {
+		emitJSONError(a.stdout, statusErr, 1)
+	}
+	return statusErr
+}
+
+func (a *app) runStatusInner(jsonOut bool) error {
+	if cfgPath, err := fs.ProjectProfilePath(); err == nil {
+		if abs, absErr := filepath.Abs(cfgPath); absErr == nil {
+			a.verbose.Path("project.json", abs)
+		}
+	}
 	config, err := fs.ReadProjectConfigV2()
 	if err != nil {
 		return err
@@ -47,20 +60,25 @@ func (a *app) runStatus(args []string) error {
 	// configured projects. Only genuine network/HTTP failures are fatal.
 	latestSHAs := make(map[string]string)
 	seen := make(map[string]bool)
-	for _, rec := range state.Entries {
-		if seen[rec.ProviderID] {
-			continue
-		}
-		seen[rec.ProviderID] = true
-		sha, fetchErr := a.client.GetLatestCommitSHA(context.Background(), config, rec.ProviderID)
-		if fetchErr != nil {
-			if isProviderConfigError(fetchErr) {
-				// Non-fatal: leave latest SHA empty for this provider.
+	if err := a.withAuthRecovery(context.Background(), func() error {
+		for _, rec := range state.Entries {
+			if seen[rec.ProviderID] {
 				continue
 			}
-			return fmt.Errorf("network error fetching SHA for provider %q: %w", rec.ProviderID, fetchErr)
+			seen[rec.ProviderID] = true
+			sha, fetchErr := a.client.GetLatestCommitSHA(context.Background(), config, rec.ProviderID)
+			if fetchErr != nil {
+				if isProviderConfigError(fetchErr) {
+					// Non-fatal: leave latest SHA empty for this provider.
+					continue
+				}
+				return fmt.Errorf("network error fetching SHA for provider %q: %w", rec.ProviderID, fetchErr)
+			}
+			latestSHAs[rec.ProviderID] = sha
 		}
-		latestSHAs[rec.ProviderID] = sha
+		return nil
+	}); err != nil {
+		return err
 	}
 
 	projectRoot, _ := filepath.Abs(".")

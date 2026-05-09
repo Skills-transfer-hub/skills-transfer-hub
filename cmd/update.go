@@ -12,9 +12,10 @@ import (
 )
 
 func (a *app) runUpdate(args []string) error {
-	flags, _ := parseFlags(args, "--dry-run", "--json")
+	flags, _ := parseFlags(args, "--dry-run", "--json", "--fail-on-changes")
 	dryRun := flags["--dry-run"]
 	jsonOut := flags["--json"]
+	failOnChanges := flags["--fail-on-changes"]
 
 	profile, release, err := a.prepareStateAccess()
 	if err != nil {
@@ -25,6 +26,31 @@ func (a *app) runUpdate(args []string) error {
 	cfg, err := fs.ReadProjectConfigV2()
 	if err != nil {
 		return err
+	}
+
+	// FR-017/FR-018/FR-019: --fail-on-changes is a CI gate. Detect any
+	// locally-modified managed file and exit 1 BEFORE doing anything else
+	// (network calls, writes, etc.). Combines correctly with --dry-run.
+	if failOnChanges {
+		if state, stateErr := fs.ReadInstalledStateV2(profile.TargetDir); stateErr == nil {
+			projectRoot, _ := filepath.Abs(".")
+			results := fs.ComputeAllStatuses(state, cfg, nil, projectRoot)
+			modified := []fs.StatusResult{}
+			for _, r := range results {
+				if r.Status == fs.ResourceStatusModifiedLocally {
+					modified = append(modified, r)
+				}
+			}
+			if len(modified) > 0 {
+				a.writeStdout("Modified files detected (--fail-on-changes):")
+				for _, r := range modified {
+					for _, f := range r.ModifiedFiles {
+						a.writeStdout(fmt.Sprintf("  %s — %s", r.ResourceName, f))
+					}
+				}
+				return fmt.Errorf("%d resource(s) have local modifications", len(modified))
+			}
+		}
 	}
 
 	if dryRun {
@@ -113,6 +139,10 @@ func (a *app) runUpdate(args []string) error {
 	ignorePats, _ := fs.ReadSTHIgnore(workingDir)
 
 	// T018/T025: pre-fetch latest commit SHA once per unique providerID.
+	// This is best-effort — every error (auth, transient, config) is
+	// silenced and the SHA is left empty for that provider, matching
+	// pre-spec-007 behaviour. The auth recovery path triggers later on
+	// the actual DownloadCatalogEntry call below if a token is invalid.
 	latestSHAs := make(map[string]string)
 	if v2StateErr == nil {
 		seen := make(map[string]bool)

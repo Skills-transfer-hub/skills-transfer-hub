@@ -1,8 +1,9 @@
 package cmd
 
 import (
-	"sth/internal/fs"
 	"os"
+	"path/filepath"
+	"sth/internal/fs"
 )
 
 // prepareStateAccess migrates project config, reads the project profile,
@@ -13,6 +14,9 @@ func (a *app) prepareStateAccess() (*fs.ProjectProfile, func(), error) {
 	if err != nil {
 		return nil, nil, err
 	}
+	if abs, absErr := filepath.Abs(cfgPath); absErr == nil {
+		a.verbose.Path("project.json", abs)
+	}
 	if _, err := os.Stat(cfgPath); err == nil {
 		if _, err := fs.MigrateProjectConfig(cfgPath, a.stderr); err != nil {
 			return nil, nil, err
@@ -22,6 +26,10 @@ func (a *app) prepareStateAccess() (*fs.ProjectProfile, func(), error) {
 	profile, err := fs.ReadProjectProfile()
 	if err != nil {
 		return nil, nil, err
+	}
+
+	if abs, absErr := filepath.Abs(filepath.Join(profile.TargetDir, "sth-state-v2.json")); absErr == nil {
+		a.verbose.Path("sth-state-v2.json", abs)
 	}
 
 	release, err := fs.AcquireStateLock(profile.TargetDir)

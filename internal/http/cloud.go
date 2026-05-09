@@ -52,9 +52,11 @@ func (c *Client) AccessCheck(ctx context.Context, key string) (AccessCheckResult
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
+		c.emitHTTP(stdhttp.MethodPost, CloudBaseURL()+"/v1/access-check", 0)
 		return AccessCheckResult{}, err
 	}
 	defer resp.Body.Close()
+	c.emitHTTP(stdhttp.MethodPost, CloudBaseURL()+"/v1/access-check", resp.StatusCode)
 
 	if resp.StatusCode == stdhttp.StatusUnauthorized {
 		return AccessCheckResult{}, fmt.Errorf("clé refusée (HTTP 401)")
@@ -197,10 +199,13 @@ func (c *Client) reportCloudUsage(ctx context.Context, profile fs.ProjectProfile
 	}
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := c.httpClient.Do(req)
+	usageURL := CloudBaseURL() + "/v1/usage"
 	if err != nil {
+		c.emitHTTP(stdhttp.MethodPost, usageURL, 0)
 		return err
 	}
 	defer resp.Body.Close()
+	c.emitHTTP(stdhttp.MethodPost, usageURL, resp.StatusCode)
 	if resp.StatusCode >= 400 {
 		return fmt.Errorf("usage ingest failed: HTTP %d", resp.StatusCode)
 	}
