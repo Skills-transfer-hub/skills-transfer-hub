@@ -34,11 +34,18 @@ func exchangeGitHubActionsOIDC(ctx context.Context, audience string) (string, er
 		return "", fmt.Errorf("ACTIONS_ID_TOKEN_REQUEST_TOKEN is empty")
 	}
 
+	// Split off any fragment so the audience query param goes BEFORE it.
+	// strings.Cut returns the original input + false when no '#' is present,
+	// so the no-fragment case keeps working unchanged.
+	base, fragment, hasFragment := strings.Cut(requestURL, "#")
 	separator := "?"
-	if strings.Contains(requestURL, "?") {
+	if strings.Contains(base, "?") {
 		separator = "&"
 	}
-	url := fmt.Sprintf("%s%saudience=%s", requestURL, separator, audience)
+	url := fmt.Sprintf("%s%saudience=%s", base, separator, audience)
+	if hasFragment {
+		url = url + "#" + fragment
+	}
 
 	cctx, cancel := context.WithTimeout(ctx, oidcExchangeTimeout)
 	defer cancel()

@@ -100,29 +100,62 @@ func (a *app) doctorCheckStateFile(cfg fs.ProjectConfigV2, cfgErr error) doctorC
 	if cfgErr != nil || len(cfg.Providers) == 0 {
 		return doctorCheck{name: "State file integrity", status: "skip", detail: "no project configured"}
 	}
-	targetDir := cfg.Providers[0].TargetDir
-	if targetDir == "" {
-		profile, profileErr := fs.ReadProjectProfile()
-		if profileErr != nil {
-			return doctorCheck{name: "State file integrity", status: "skip", detail: "target_dir empty"}
+
+	// Resolve a global fallback target_dir once, in case some providers
+	// omit their own. Reading the profile per-provider would be wasteful.
+	var globalFallback string
+	for _, p := range cfg.Providers {
+		if p.TargetDir == "" {
+			if profile, err := fs.ReadProjectProfile(); err == nil {
+				globalFallback = profile.TargetDir
+			}
+			break
 		}
-		targetDir = profile.TargetDir
 	}
-	abs, _ := filepath.Abs(filepath.Join(targetDir, "sth-state-v2.json"))
-	a.verbose.Path("sth-state-v2.json", abs)
-	state, err := fs.ReadInstalledStateV2(targetDir)
-	if err != nil {
+
+	// Collect unique target dirs across all configured providers.
+	seen := map[string]bool{}
+	var targetDirs []string
+	for _, p := range cfg.Providers {
+		td := p.TargetDir
+		if td == "" {
+			td = globalFallback
+		}
+		if td == "" || seen[td] {
+			continue
+		}
+		seen[td] = true
+		targetDirs = append(targetDirs, td)
+	}
+	if len(targetDirs) == 0 {
+		return doctorCheck{name: "State file integrity", status: "skip", detail: "target_dir empty"}
+	}
+
+	var totalEntries int
+	var failures []string
+	for _, targetDir := range targetDirs {
+		abs, _ := filepath.Abs(filepath.Join(targetDir, "sth-state-v2.json"))
+		a.verbose.Path("sth-state-v2.json", abs)
+		state, err := fs.ReadInstalledStateV2(targetDir)
+		if err != nil {
+			failures = append(failures, fmt.Sprintf("%s: %s", abs, err.Error()))
+			continue
+		}
+		totalEntries += len(state.Entries)
+	}
+
+	if len(failures) > 0 {
 		return doctorCheck{
 			name:        "State file integrity",
 			status:      "fail",
-			detail:      err.Error(),
-			remediation: fmt.Sprintf("Delete %s and re-install your resources.", abs),
+			detail:      strings.Join(failures, "; "),
+			remediation: "Delete the corrupted sth-state-v2.json file(s) and re-install your resources.",
 		}
 	}
 	return doctorCheck{
 		name:   "State file integrity",
 		status: "pass",
-		detail: fmt.Sprintf("%d resource(s) tracked", len(state.Entries)),
+		detail: fmt.Sprintf("%d resource(s) tracked across %d target dir(s)", totalEntries, len(targetDirs)),
 	}
 }
 

@@ -129,7 +129,10 @@ func renderPowerShellCompletion(cmds []commandSpec) string {
 func joinSingleQuoted(values []string) string {
 	parts := make([]string, 0, len(values))
 	for _, v := range values {
-		parts = append(parts, "'"+v+"'")
+		// In a shell single-quoted string, a literal "'" must be written as
+		// "'\''": close the quote, emit an escaped quote, reopen the quote.
+		escaped := strings.ReplaceAll(v, "'", `'\''`)
+		parts = append(parts, "'"+escaped+"'")
 	}
 	return strings.Join(parts, " ")
 }
