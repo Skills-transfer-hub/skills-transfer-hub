@@ -61,7 +61,11 @@ builds:
 archives:
   - id: default
     name_template: "sth-{{ .Os }}-{{ .Arch }}"
-    wrap_in_directory: true
+    # No wrap_in_directory: keep the binary at the archive root.
+    # Reason: the winget portable installer fails with a nested
+    # RelativeFilePath like "sth-windows-amd64\sth.exe" — winget
+    # expects the binary at the zip root (matches what every other
+    # GoReleaser-published Go CLI does on winget-pkgs).
     format: tar.gz
     format_overrides:
       - goos: windows

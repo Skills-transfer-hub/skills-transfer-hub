@@ -132,16 +132,16 @@ Sous macOS ou Linux :
 
 ```bash
 tar -xzf sth-linux-amd64.tar.gz
-sudo install sth-linux-amd64/sth /usr/local/bin/sth
+sudo install sth /usr/local/bin/sth
 sth version
 ```
 
 Sous Windows PowerShell :
 
 ```powershell
-Expand-Archive .\sth-windows-amd64.zip -DestinationPath .\sth-windows-amd64 -Force
+Expand-Archive .\sth-windows-amd64.zip -DestinationPath . -Force
 New-Item -ItemType Directory -Path "$env:USERPROFILE\bin" -Force | Out-Null
-Copy-Item .\sth-windows-amd64\sth.exe "$env:USERPROFILE\bin\sth.exe" -Force
+Copy-Item .\sth.exe "$env:USERPROFILE\bin\sth.exe" -Force
 sth.exe version
 ```
 
