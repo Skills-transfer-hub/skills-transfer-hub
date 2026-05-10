@@ -610,6 +610,55 @@ func TestRun_initRecapDecline(t *testing.T) {
 	}
 }
 
+// Recap-edit must NOT let the user smuggle in an alias that collides with an
+// existing provider — askAlias enforces uniqueness up front, the edit path
+// has to do the same or the final WriteProjectConfigV2 corrupts state.
+func TestRun_initRecapEditRejectsDuplicateAlias(t *testing.T) {
+	homeDir := t.TempDir()
+	projectDir := t.TempDir()
+	server := httptest.NewServer(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		_, _ = w.Write([]byte(testCatalogMarkdown("| skill | alpha | skills | skills/alpha.md | Alpha |")))
+	}))
+	defer server.Close()
+	t.Setenv("STH_GITHUB_RAW_BASE_URL", server.URL)
+
+	writeProjectConfigV2ForTest(t, projectDir, fs.ProjectConfigV2{
+		SchemaVersion: 2,
+		Providers: []fs.ProviderEntry{
+			{ID: "default", Provider: "github", RepositoryID: "org/first", CatalogRef: "main", CatalogPath: "SKILLS.md", TargetDir: ".claude/skills"},
+		},
+		Resources: []fs.ResourceEntry{},
+	})
+
+	// add=y, alias=second, provider, repo, ref/cat/target, access=public,
+	// recap=edit, field=alias, newAlias=default (duplicate!), recap=Y
+	input := "y\nsecond\ngithub\norg/second\n\n\n\nn\nedit\nalias\ndefault\n\n"
+	result := runCLIWithInput(t, projectDir, homeDir, input, "init")
+
+	if result.err != nil {
+		t.Fatalf("Run() error = %v\nstdout=%s\nstderr=%s", result.err, result.stdout, result.stderr)
+	}
+	assertContains(t, result.stdout, "déjà utilisé")
+
+	// Final config must keep alias "second" (the original choice), NOT "default".
+	configPath := filepath.Join(projectDir, ".sth", "project.json")
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	var cfg fs.ProjectConfigV2
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		t.Fatalf("json.Unmarshal: %v", err)
+	}
+	if len(cfg.Providers) != 2 {
+		t.Fatalf("providers = %d, want 2", len(cfg.Providers))
+	}
+	ids := []string{cfg.Providers[0].ID, cfg.Providers[1].ID}
+	if ids[0] != "default" || ids[1] != "second" {
+		t.Fatalf("provider IDs = %v, want [default second] (duplicate edit should be rejected)", ids)
+	}
+}
+
 // The repo prompt accepts a full URL; NormalizeRepositoryID strips the
 // scheme/host and stores the canonical owner/repo.
 func TestRun_initAcceptsRepositoryURL(t *testing.T) {

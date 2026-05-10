@@ -177,11 +177,11 @@ func (a *app) runInitWizard(reader *bufio.Reader, existingCfg fs.ProjectConfigV2
 		a.writeStdout(
 			"",
 			"STH Cloud n'est pas encore disponible en Alpha.",
-			"Inscris-toi a la liste d'attente : https://sth-dashboard.vercel.app/pricing",
+			"Inscris-toi à la liste d'attente : https://sth-dashboard.vercel.app/pricing",
 			"",
 			"En attendant, choisis un provider Git (github, gitlab, azure-devops, bitbucket).",
 		)
-		return fmt.Errorf("sth-cloud sera disponible apres l'Alpha")
+		return fmt.Errorf("sth-cloud sera disponible après l'Alpha")
 	}
 
 	if err := a.askRepository(reader, &draft); err != nil {
@@ -196,7 +196,7 @@ func (a *app) runInitWizard(reader *bufio.Reader, existingCfg fs.ProjectConfigV2
 		return err
 	}
 
-	confirmed, err := a.recapAndConfirm(reader, &draft)
+	confirmed, err := a.recapAndConfirm(reader, &draft, existingCfg)
 	if err != nil {
 		return err
 	}
@@ -206,6 +206,18 @@ func (a *app) runInitWizard(reader *bufio.Reader, existingCfg fs.ProjectConfigV2
 	}
 
 	return a.writeAndValidate(existingCfg, draft)
+}
+
+// aliasIsDuplicate reports whether `alias` collides with an existing
+// provider entry. Used by both the initial alias prompt and the recap-edit
+// loop so a recap-time edit can't sneak a duplicate past validation.
+func aliasIsDuplicate(alias string, existingCfg fs.ProjectConfigV2) bool {
+	for _, p := range existingCfg.Providers {
+		if p.ID == alias {
+			return true
+		}
+	}
+	return false
 }
 
 func (a *app) askAlias(reader *bufio.Reader, existingCfg fs.ProjectConfigV2) (string, error) {
@@ -222,14 +234,7 @@ func (a *app) askAlias(reader *bufio.Reader, existingCfg fs.ProjectConfigV2) (st
 			a.narrate(wizardWorried, "Alias invalide : "+validateErr.Error())
 			continue
 		}
-		duplicate := false
-		for _, p := range existingCfg.Providers {
-			if p.ID == alias {
-				duplicate = true
-				break
-			}
-		}
-		if duplicate {
+		if aliasIsDuplicate(alias, existingCfg) {
 			a.narrate(wizardWorried, fmt.Sprintf("L'alias %q est déjà utilisé. Choisis-en un autre.", alias))
 			continue
 		}
@@ -372,6 +377,8 @@ func promptAccessType(reader *bufio.Reader, stdout io.Writer) (bool, error) {
 // promptChoice reads a value and re-prompts until the trimmed input matches
 // (case-insensitively) one of the allowed values. Empty input returns the
 // default (which must itself be in the allowed list, otherwise empty is rejected).
+// Returns io.EOF immediately when stdin is closed without input, mirroring
+// promptValue, so callers can unwind cleanly instead of looping forever.
 func promptChoice(reader *bufio.Reader, stdout io.Writer, label, defaultValue string, allowed []string) (string, error) {
 	allowedLower := make(map[string]string, len(allowed))
 	for _, v := range allowed {
@@ -382,8 +389,13 @@ func promptChoice(reader *bufio.Reader, stdout io.Writer, label, defaultValue st
 			return "", err
 		}
 		line, err := reader.ReadString('\n')
-		if err != nil && err != io.EOF {
-			return "", fmt.Errorf("lecture de l'entrée utilisateur échouée : %w", err)
+		if err != nil {
+			if err == io.EOF && strings.TrimSpace(line) == "" {
+				return "", io.EOF
+			}
+			if err != io.EOF {
+				return "", fmt.Errorf("lecture de l'entrée utilisateur échouée : %w", err)
+			}
 		}
 		trimmed := strings.TrimSpace(line)
 		if trimmed == "" {
@@ -415,7 +427,7 @@ func detectProviderToken(provider string) (string, string) {
 	return "", ""
 }
 
-func (a *app) recapAndConfirm(reader *bufio.Reader, draft *wizardProfile) (bool, error) {
+func (a *app) recapAndConfirm(reader *bufio.Reader, draft *wizardProfile, existingCfg fs.ProjectConfigV2) (bool, error) {
 	for {
 		a.narrate(wizardHello,
 			"Voici ce que je vais enregistrer.",
@@ -440,7 +452,7 @@ func (a *app) recapAndConfirm(reader *bufio.Reader, draft *wizardProfile) (bool,
 		case "n", "no", "non":
 			return false, nil
 		case "edit", "e":
-			if err := a.editDraftField(reader, draft); err != nil {
+			if err := a.editDraftField(reader, draft, existingCfg); err != nil {
 				return false, err
 			}
 			continue
@@ -450,7 +462,7 @@ func (a *app) recapAndConfirm(reader *bufio.Reader, draft *wizardProfile) (bool,
 	}
 }
 
-func (a *app) editDraftField(reader *bufio.Reader, draft *wizardProfile) error {
+func (a *app) editDraftField(reader *bufio.Reader, draft *wizardProfile, existingCfg fs.ProjectConfigV2) error {
 	a.narrate(wizardThinking, "Quelle entrée veux-tu corriger ?")
 	field, err := promptChoice(reader, a.stdout,
 		"Champ [alias|provider|dépôt|ref|catalogue|dossier|accès|token]",
@@ -468,6 +480,12 @@ func (a *app) editDraftField(reader *bufio.Reader, draft *wizardProfile) error {
 		}
 		if v := fs.ValidateProviderID(newAlias); v != nil {
 			a.narrate(wizardWorried, "Alias invalide : "+v.Error())
+			return nil
+		}
+		// Mirror the duplicate-check from askAlias so a recap-edit can't smuggle
+		// in a colliding alias and corrupt project.json.
+		if newAlias != draft.Alias && aliasIsDuplicate(newAlias, existingCfg) {
+			a.narrate(wizardWorried, fmt.Sprintf("L'alias %q est déjà utilisé. Alias inchangé.", newAlias))
 			return nil
 		}
 		draft.Alias = newAlias
