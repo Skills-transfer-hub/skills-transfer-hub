@@ -551,7 +551,10 @@ func (a *app) writeAndValidate(existingCfg fs.ProjectConfigV2, draft wizardProfi
 	}
 	if err := a.client.CheckProjectAccess(context.Background(), profile); err != nil {
 		a.renderValidationFailure(draft, err)
-		return nil
+		// Return the error so CI/scripting wrappers see a non-zero exit. The
+		// config file is still on disk (written above) — the user can iterate
+		// without losing input. Diagnostic + remediation are already printed.
+		return err
 	}
 	a.renderValidationSuccess(draft)
 	return nil
@@ -627,7 +630,7 @@ func classifyValidationError(err error, draft wizardProfile) validationDiagnosis
 			Summary: "Le dépôt est accessible mais ne contient ni catalogue ni bundle reconnaissable.",
 			Remediation: []string{
 				fmt.Sprintf("Vérifie que `%s` existe au ref `%s`, ou qu'un dossier suit la convention category/folder/SKILL.md.", draft.CatalogPath, draft.Ref),
-				"Astuce : si le catalogue est ailleurs, modifie « catalogue » via `sth init` (option edit).",
+				"Astuce : si le catalogue est ailleurs, modifie le champ `catalog_path` dans `.sth/project.json`.",
 			},
 		}
 	case strings.Contains(msg, "HTTP 404"):

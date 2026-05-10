@@ -517,8 +517,10 @@ func TestRun_initWritesConfigEvenWhenValidationFails(t *testing.T) {
 	input := "\nowner/repo\n\n\n\nn\n\n"
 	result := runCLIWithInput(t, projectDir, homeDir, input, "init")
 
-	if result.err != nil {
-		t.Fatalf("Run() error = %v (want nil even on validation failure)\nstdout=%s", result.err, result.stdout)
+	// Exit non-zero so CI scripts see the failure, BUT the config file must
+	// still exist so the user can iterate without re-running the whole wizard.
+	if result.err == nil {
+		t.Fatalf("Run() error = nil, want non-nil on validation failure\nstdout=%s", result.stdout)
 	}
 	assertContains(t, result.stdout, "✓ Configuration enregistrée")
 	assertContains(t, result.stdout, "Configuration écrite mais non validée")
@@ -546,8 +548,9 @@ func TestRun_initClassifiesAuthFailure(t *testing.T) {
 	input := "\nowner/repo\n\n\n\n\n\n"
 	result := runCLIWithInput(t, projectDir, homeDir, input, "init")
 
-	if result.err != nil {
-		t.Fatalf("Run() error = %v (want nil)\nstdout=%s", result.err, result.stdout)
+	// Auth failure → non-zero exit so wrappers detect it. Config still written.
+	if result.err == nil {
+		t.Fatalf("Run() error = nil, want non-nil on auth failure\nstdout=%s", result.stdout)
 	}
 	assertContains(t, result.stdout, "auth_failed")
 	assertContains(t, result.stdout, "Contents: Read")
