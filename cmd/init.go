@@ -2,13 +2,16 @@ package cmd
 
 import (
 	"bufio"
-	"context"
 	"fmt"
 	"io"
-	"sth/internal/fs"
 	"strings"
+
+	"sth/internal/fs"
 )
 
+// runInit is the dispatcher: handles the existing-config branch and the
+// optional legacy ~/.sthrc import, then hands off to runInitWizard for the
+// narrated step-by-step flow. The bulk of the UX lives in cmd/init_wizard.go.
 func (a *app) runInit() error {
 	reader := bufio.NewReader(a.stdin)
 
@@ -55,172 +58,20 @@ func (a *app) runInit() error {
 		}
 	}
 
-	a.writeStdout(
-		"Assistant de configuration STH",
-		"Ce wizard vous guide pas a pas pour connecter le projet courant a un catalogue distant.",
-	)
-	a.writeStdout("Etape 0/5 - Identifiant du provider")
-
-	var providerID string
-	for {
-		id, promptErr := promptValue(reader, a.stdout, "Provider ID (identifiant unique)", "default")
-		if promptErr != nil {
-			return promptErr
-		}
-		if validateErr := fs.ValidateProviderID(id); validateErr != nil {
-			fmt.Fprintln(a.stdout, validateErr.Error())
-			continue
-		}
-		isDuplicate := false
-		for _, p := range existingCfg.Providers {
-			if p.ID == id {
-				isDuplicate = true
-				break
-			}
-		}
-		if isDuplicate {
-			fmt.Fprintf(a.stdout, "L'identifiant %q est déjà utilisé. Veuillez en choisir un autre.\n", id)
-			continue
-		}
-		providerID = id
-		break
+	// First provider gets "default" silently. For the 2nd+ provider we'll ask
+	// inside the wizard (passing "" signals "ask").
+	assignedAlias := "default"
+	if len(existingCfg.Providers) > 0 {
+		assignedAlias = ""
 	}
 
-	a.writeStdout(
-		"Etape 1/5 - Choisir le provider",
-		"Providers pris en charge : github, gitlab, azure-devops, bitbucket.",
-		"sth-cloud (SaaS) est annonce mais pas encore disponible en Alpha.",
-	)
-
-	provider, err := promptProvider(reader, a.stdout, defaults.Provider)
-	if err != nil {
-		return err
-	}
-
-	if IsCloudProvider(provider) {
-		a.writeStdout(
-			"",
-			"STH Cloud n'est pas encore disponible en Alpha.",
-			"Inscris-toi a la liste d'attente : https://sth-dashboard.vercel.app/pricing",
-			"",
-			"En attendant, choisis un provider Git (github, gitlab, azure-devops, bitbucket).",
-		)
-		return fmt.Errorf("sth-cloud sera disponible apres l'Alpha")
-	}
-
-	a.writeStdout(
-		"Etape 2/5 - Type d'acces au depot",
-	)
-	isPrivate, err := promptYesNo(reader, a.stdout, "Le depot distant est-il prive ?", true)
-	if err != nil {
-		return err
-	}
-	for {
-		a.writeStdout(providerAccessGuidance(provider, isPrivate)...)
-		reviewAgain, promptErr := promptYesNo(reader, a.stdout, "Relire la guidance provider avant de continuer ?", false)
-		if promptErr != nil {
-			return promptErr
-		}
-		if !reviewAgain {
-			break
-		}
-	}
-
-	var apiToken string
-	if isPrivate {
-		var tokenErr error
-		apiToken, tokenErr = promptOptionalToken(reader, a.stdout)
-		if tokenErr != nil {
-			return tokenErr
-		}
-	}
-
-	a.writeStdout(
-		"Etape 3/5 - Identifier le depot",
-		fmt.Sprintf("Format attendu pour repository_id : %s", providerRepositoryIDFormat(provider)),
-		fmt.Sprintf("Exemple : %s", providerRepositoryIDExample(provider)),
-	)
-
-	repositoryID, err := promptRepositoryID(reader, a.stdout, provider, defaults.RepositoryID)
-	if err != nil {
-		return err
-	}
-
-	a.writeStdout(
-		"Etape 4/5 - Reference Git et catalogue",
-		"Choisissez la reference distante, le fichier SKILLS.md, puis le dossier cible local.",
-	)
-	refValue, err := promptValue(reader, a.stdout, "Référence Git", defaults.Ref)
-	if err != nil {
-		return err
-	}
-	catalogPath, err := promptValue(reader, a.stdout, "Chemin du catalogue", defaults.CatalogPath)
-	if err != nil {
-		return err
-	}
-	targetDir, err := promptValue(reader, a.stdout, "Dossier cible du projet", defaults.TargetDir)
-	if err != nil {
-		return err
-	}
-
-	profile := fs.ProjectProfile{
-		Provider:           provider,
-		RepositoryID:       repositoryID,
-		Ref:                refValue,
-		CatalogPath:        catalogPath,
-		TargetDir:          targetDir,
-		MigratedFromLegacy: defaults.MigratedFromLegacy,
-		APIToken:           apiToken,
-	}
-
-	a.writeStdout(
-		"Etape 5/5 - Validation de l'acces distant",
-		"Validation en cours du depot et du catalogue...",
-	)
-
-	if err := a.client.CheckProjectAccess(context.Background(), profile); err != nil {
-		return err
-	}
-
-	entry := fs.ProviderEntry{
-		ID:           providerID,
-		Provider:     provider,
-		RepositoryID: repositoryID,
-		CatalogRef:   refValue,
-		CatalogPath:  catalogPath,
-		TargetDir:    targetDir,
-	}
-	existingCfg.Providers = append(existingCfg.Providers, entry)
-
-	path, err := fs.WriteProjectConfigV2(existingCfg)
-	if err != nil {
-		return err
-	}
-
-	successLines := []string{
-		fmt.Sprintf("Configuration projet enregistrée : %s", path),
-		fmt.Sprintf("Provider ID: %s", providerID),
-		fmt.Sprintf("Provider: %s", profile.Provider),
-		fmt.Sprintf("Dépôt: %s", profile.RepositoryID),
-		fmt.Sprintf("Catalogue: %s @ %s", profile.CatalogPath, refValue),
-		fmt.Sprintf("Dossier cible: %s", profile.TargetDir),
-		"Accès au dépôt validé.",
-		"Astuce : exécutez `sth completion <bash|zsh|powershell>` pour activer la complétion.",
-		"Prochaine étape : utilisez `sth list`.",
-	}
-	if profile.APIToken != "" {
-		successLines = append(successLines,
-			"",
-			"Le token saisi a ete utilise pour la validation mais n'est pas sauvegarde.",
-			"Pour les prochaines utilisations, definissez la variable d'environnement :",
-			fmt.Sprintf("  export %s=<votre-token>", providerTokenEnvVar(profile.Provider)),
-		)
-	}
-	a.writeStdout(successLines...)
-	return nil
+	return a.runInitWizard(reader, existingCfg, defaults, assignedAlias)
 }
 
-
+// providerAccessGuidance returns the public-or-private access guidance for a
+// provider. Kept here (not in init_wizard.go) because the per-provider wall
+// of text is shared with the "Détails complets ?" gate and any future
+// command that needs to show provider help.
 func providerAccessGuidance(provider string, isPrivate bool) []string {
 	if !isPrivate {
 		return providerPublicAccessGuidance(provider)
@@ -337,19 +188,6 @@ func providerTokenEnvVar(provider string) string {
 	}
 
 	return guide.EnvVars[0]
-}
-
-// promptOptionalToken prompts the user to optionally enter an API token for immediate access validation.
-// Returns the entered token or an empty string if the user skips.
-func promptOptionalToken(reader *bufio.Reader, stdout io.Writer) (string, error) {
-	if _, err := fmt.Fprintf(stdout, "Token d'acces pour valider maintenant (optionnel, Entree pour ignorer): "); err != nil {
-		return "", err
-	}
-	line, err := reader.ReadString('\n')
-	if err != nil && err != io.EOF {
-		return "", fmt.Errorf("lecture de l'entree utilisateur echouee : %w", err)
-	}
-	return strings.TrimSpace(line), nil
 }
 
 func promptRepositoryID(reader *bufio.Reader, stdout io.Writer, provider, defaultValue string) (string, error) {
