@@ -32,7 +32,10 @@ func promptSecret(a *app, reader *bufio.Reader, label string) (string, error) {
 			if err != nil {
 				return "", fmt.Errorf("lecture de la saisie échouée : %w", err)
 			}
-			return strings.TrimSpace(string(b)), nil
+			// Don't TrimSpace a secret: ReadPassword already excludes the
+			// trailing newline, and silently dropping legitimate whitespace
+			// from a token would produce baffling auth failures.
+			return string(b), nil
 		}
 	}
 
@@ -40,5 +43,7 @@ func promptSecret(a *app, reader *bufio.Reader, label string) (string, error) {
 	if err != nil && err != io.EOF {
 		return "", fmt.Errorf("lecture de la saisie échouée : %w", err)
 	}
-	return strings.TrimSpace(line), nil
+	// Strip only the line terminator (\n on POSIX, \r\n on Windows). Same
+	// rationale as the TTY branch — preserve the secret byte-for-byte.
+	return strings.TrimRight(line, "\r\n"), nil
 }
