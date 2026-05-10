@@ -12,6 +12,17 @@ import (
 	"sth/internal/fs"
 )
 
+// Wizard input layout (first provider, no env-var token):
+//   1. provider   (Enter = github)
+//   2. repo       (owner/repo)
+//   3. ref        (Enter = main)
+//   4. catalog    (Enter = SKILLS.md)
+//   5. target     (Enter = .claude/skills)
+//   6. access     (Enter = privé / "n" = public)
+//   7. details?   (only if private + no env token)
+//   8. token      (only if private + no env token)
+//   9. recap      (Enter = Y / "n" = abandon / "edit" = field edit loop)
+
 func TestRun_initCreatesProjectProfile(t *testing.T) {
 	homeDir := t.TempDir()
 	projectDir := t.TempDir()
@@ -25,18 +36,15 @@ func TestRun_initCreatesProjectProfile(t *testing.T) {
 	defer server.Close()
 	t.Setenv("STH_GITHUB_RAW_BASE_URL", server.URL)
 
-	// providerID(default), provider(default=github), private(default=yes), reviewAgain(no), skip token, repoID, ref, catalogPath, targetDir
-	result := runCLIWithInput(t, projectDir, homeDir, "\n\n\n\n\nowner/repo\n\n\n\n", "init")
+	// provider, repo, ref, catalog, target, access(privé), details=N, token(skip), recap(Y)
+	input := "\nowner/repo\n\n\n\n\n\n\n\n"
+	result := runCLIWithInput(t, projectDir, homeDir, input, "init")
 
 	if result.err != nil {
-		t.Fatalf("Run() error = %v", result.err)
+		t.Fatalf("Run() error = %v\nstdout=%s\nstderr=%s", result.err, result.stdout, result.stderr)
 	}
-	if !strings.Contains(result.stdout, "Configuration projet enregistrée") {
-		t.Fatalf("stdout %q does not contain success message", result.stdout)
-	}
-	if !strings.Contains(result.stdout, "Accès au dépôt validé") {
-		t.Fatalf("stdout %q does not contain reachability confirmation", result.stdout)
-	}
+	assertContains(t, result.stdout, "✓ Configuration enregistrée")
+	assertContains(t, result.stdout, "Tout est bon")
 
 	configPath := filepath.Join(projectDir, ".sth", "project.json")
 	data, err := os.ReadFile(configPath)
@@ -53,6 +61,9 @@ func TestRun_initCreatesProjectProfile(t *testing.T) {
 	}
 	if len(cfg.Providers) != 1 {
 		t.Fatalf("providers count = %d, want 1", len(cfg.Providers))
+	}
+	if cfg.Providers[0].ID != "default" {
+		t.Fatalf("provider ID = %q, want default (auto-assigned)", cfg.Providers[0].ID)
 	}
 	if cfg.Providers[0].Provider != "github" {
 		t.Fatalf("provider = %q, want github", cfg.Providers[0].Provider)
@@ -84,14 +95,14 @@ func TestRun_initImportsLegacyConfigWhenAccepted(t *testing.T) {
 		t.Fatalf("WriteFile(%s): %v", configPath, err)
 	}
 
-	// import legacy=y, then providerID(default), provider(default), private(default=yes), reviewAgain(no), skip token,
-	// repositoryID(default=owner/repo), ref(default), catalogPath(default), targetDir(default)
-	result := runCLIWithInput(t, projectDir, homeDir, "y\n\n\n\n\n\n\n\n\n\n", "init")
+	// import=y, provider, repo(default=owner/repo), ref, cat, target, access(privé), details=N, token(skip), recap
+	input := "y\n\n\n\n\n\n\n\n\n\n"
+	result := runCLIWithInput(t, projectDir, homeDir, input, "init")
 
 	if result.err != nil {
 		t.Fatalf("Run() error = %v\nstdout=%s\nstderr=%s", result.err, result.stdout, result.stderr)
 	}
-	assertContains(t, result.stdout, "Configuration projet enregistrée")
+	assertContains(t, result.stdout, "✓ Configuration enregistrée")
 
 	data, err := os.ReadFile(filepath.Join(projectDir, ".sth", "project.json"))
 	if err != nil {
@@ -154,21 +165,19 @@ func TestRun_initGuidesUserThroughPublicGitHubSetup(t *testing.T) {
 	defer server.Close()
 	t.Setenv("STH_GITHUB_RAW_BASE_URL", server.URL)
 
-	result := runCLIWithInput(t, projectDir, homeDir, "\ngithub\nn\n\nowner-only\nowner/repo\n\n\n\n", "init")
+	// provider=github, bad-repo-then-good, ref/cat/target defaults, access=public(n), recap(Y)
+	input := "github\nowner-only\nowner/repo\n\n\n\nn\n\n"
+	result := runCLIWithInput(t, projectDir, homeDir, input, "init")
 
 	if result.err != nil {
 		t.Fatalf("Run() error = %v\nstdout=%s\nstderr=%s", result.err, result.stdout, result.stderr)
 	}
-	assertContains(t, result.stdout, "Assistant de configuration STH")
-	assertContains(t, result.stdout, "Etape 1/5 - Choisir le provider")
-	assertContains(t, result.stdout, "Etape 2/5 - Type d'acces au depot")
-	assertContains(t, result.stdout, "Depot public")
+	assertContains(t, result.stdout, "Quel hébergeur héberge ton catalogue")
+	assertContains(t, result.stdout, "identifiant du dépôt")
 	assertContains(t, result.stdout, "Format attendu pour repository_id : owner/repo")
 	assertContains(t, result.stdout, "Repository ID invalide")
-	assertContains(t, result.stdout, "Etape 5/5 - Validation de l'acces distant")
-	assertContains(t, result.stdout, "Configuration projet enregistrée")
-	assertContains(t, result.stdout, "Prochaine étape : utilisez `sth list`.")
-	assertEmpty(t, result.stderr)
+	assertContains(t, result.stdout, "✓ Configuration enregistrée")
+	assertContains(t, result.stdout, "Prochaine étape")
 }
 
 func TestValidateRepositoryIDRejectsEmptySegments(t *testing.T) {
@@ -191,85 +200,54 @@ func TestValidateRepositoryIDRejectsEmptySegments(t *testing.T) {
 	}
 }
 
-func TestRun_initShowsTokenGuidanceForPrivateRepo(t *testing.T) {
-	providers := []struct {
-		name           string
-		wantURL        string
-		wantEnvVar     string
-		repoID         string
-		serverPathFmt  string
-		rawBaseURLEnv  string
-	}{
-		{
-			name:          "github",
-			wantURL:       "https://github.com/settings/personal-access-tokens/new",
-			wantEnvVar:    "GITHUB_TOKEN",
-			repoID:        "owner/repo",
-			serverPathFmt: "/owner/repo/main/SKILLS.md",
-			rawBaseURLEnv: "STH_GITHUB_RAW_BASE_URL",
-		},
-		{
-			name:          "gitlab",
-			wantURL:       "https://gitlab.com/-/user_settings/personal_access_tokens",
-			wantEnvVar:    "GITLAB_TOKEN",
-			repoID:        "owner/repo",
-			serverPathFmt: "/api/v4/projects/owner%2Frepo/repository/files/SKILLS.md/raw",
-			rawBaseURLEnv: "STH_GITLAB_API_BASE_URL",
-		},
-		{
-			name:          "bitbucket",
-			wantURL:       "https://support.atlassian.com/bitbucket-cloud/docs/create-an-api-token/",
-			wantEnvVar:    "BITBUCKET_TOKEN",
-			repoID:        "owner/repo",
-			serverPathFmt: "/2.0/repositories/owner/repo/src/main/SKILLS.md",
-			rawBaseURLEnv: "STH_BITBUCKET_API_BASE_URL",
-		},
+// When a provider env var is already set, the wizard skips the token prompt
+// AND the "Détails complets ?" gate — the buddy just announces it found a
+// token and continues. This test exercises that env-var fast path.
+func TestRun_initSkipsTokenPromptWhenEnvVarSet(t *testing.T) {
+	homeDir := t.TempDir()
+	projectDir := t.TempDir()
+	server := httptest.NewServer(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		_, _ = w.Write([]byte(testCatalogMarkdown("| skill | alpha | skills | skills/alpha.md | Alpha |")))
+	}))
+	defer server.Close()
+	t.Setenv("STH_GITHUB_RAW_BASE_URL", server.URL)
+	t.Setenv("GITHUB_TOKEN", "ghp_test_env_token")
+
+	// provider, repo, ref, cat, target, access(privé), recap (no token prompt!)
+	input := "\nowner/repo\n\n\n\n\n\n"
+	result := runCLIWithInput(t, projectDir, homeDir, input, "init")
+
+	if result.err != nil {
+		t.Fatalf("Run() error = %v\nstdout=%s\nstderr=%s", result.err, result.stdout, result.stderr)
 	}
+	assertContains(t, result.stdout, "trouvé un token dans $GITHUB_TOKEN")
+	assertNotContains(t, result.stdout, "Token (optionnel)")
+	assertNotContains(t, result.stdout, "La saisie sera masquée")
+	assertContains(t, result.stdout, "✓ Configuration enregistrée")
+}
 
-	for _, p := range providers {
-		t.Run(p.name, func(t *testing.T) {
-			homeDir := t.TempDir()
-			projectDir := t.TempDir()
-			server := stdhttp.NewServeMux()
-			server.HandleFunc("/", func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
-				_, _ = w.Write([]byte(testCatalogMarkdown("| skill | alpha | skills | skills/alpha.md | Alpha |")))
-			})
-			ts := httptest.NewServer(server)
-			defer ts.Close()
+// On user request, the wizard re-shows the full provider guidance via the
+// "Détails complets ?" gate. This replaces the old re-read loop.
+func TestRun_initShowsExpandedGuidanceOnRequest(t *testing.T) {
+	homeDir := t.TempDir()
+	projectDir := t.TempDir()
+	server := httptest.NewServer(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		_, _ = w.Write([]byte(testCatalogMarkdown("| skill | alpha | react | react/alpha/SKILL.md | Alpha |")))
+	}))
+	defer server.Close()
+	t.Setenv("STH_GITHUB_RAW_BASE_URL", server.URL)
 
-			baseURL := ts.URL
-			if p.name == "gitlab" {
-				baseURL = ts.URL + "/api/v4"
-			} else if p.name == "bitbucket" {
-				baseURL = ts.URL + "/2.0"
-			}
-			t.Setenv(p.rawBaseURLEnv, baseURL)
-			// Set a dummy token so the credential fallback does not block waiting for git credentials.
-			t.Setenv("STH_TOKEN", "dummy-test-token")
+	// provider, repo, ref/cat/target, access(privé), details=Y, token(skip), recap
+	input := "github\nowner/repo\n\n\n\n\ny\n\n\n"
+	result := runCLIWithInput(t, projectDir, homeDir, input, "init")
 
-			// Input: providerID(default), provider, private=y, reviewAgain(no), skip token, repoID, ref, catalogPath, targetDir
-			input := "\n" + p.name + "\ny\n\n\n" + p.repoID + "\n\n\n\n"
-			result := runCLIWithInput(t, projectDir, homeDir, input, "init")
-
-			if result.err != nil {
-				t.Fatalf("Run() error = %v\nstdout=%s\nstderr=%s", result.err, result.stdout, result.stderr)
-			}
-			assertContains(t, result.stdout, "Depot prive - Authentification requise")
-			assertContains(t, result.stdout, p.wantURL)
-			assertContains(t, result.stdout, p.wantEnvVar)
-			assertContains(t, result.stdout, "STH_TOKEN")
-			switch p.name {
-			case "github":
-				assertContains(t, result.stdout, "Contents: Read")
-			case "gitlab":
-				assertContains(t, result.stdout, "read_repository")
-			case "bitbucket":
-				assertContains(t, result.stdout, "Repositories: Read")
-			}
-			assertContains(t, result.stdout, "Token d'acces pour valider maintenant")
-			assertContains(t, result.stdout, "Configuration projet enregistrée")
-		})
+	if result.err != nil {
+		t.Fatalf("Run() error = %v\nstdout=%s\nstderr=%s", result.err, result.stdout, result.stderr)
 	}
+	// First the short teaser, then the full guidance after "y" is typed.
+	assertContains(t, result.stdout, "https://github.com/settings/personal-access-tokens/new")
+	assertContains(t, result.stdout, "Fine-grained token")
+	assertContains(t, result.stdout, "✓ Configuration enregistrée")
 }
 
 func TestRun_initRejectsUnsupportedProviderThenContinues(t *testing.T) {
@@ -281,14 +259,16 @@ func TestRun_initRejectsUnsupportedProviderThenContinues(t *testing.T) {
 	defer server.Close()
 	t.Setenv("STH_GITHUB_RAW_BASE_URL", server.URL)
 
-	result := runCLIWithInput(t, projectDir, homeDir, "\ngitea\ngithub\nn\nn\nowner/repo\n\n\n\n", "init")
+	// bad-provider, good-provider, repo, ref/cat/target, access=public(n), recap
+	input := "gitea\ngithub\nowner/repo\n\n\n\nn\n\n"
+	result := runCLIWithInput(t, projectDir, homeDir, input, "init")
 
 	if result.err != nil {
 		t.Fatalf("Run() error = %v\nstdout=%s\nstderr=%s", result.err, result.stdout, result.stderr)
 	}
 	assertContains(t, result.stdout, "Provider invalide")
 	assertContains(t, result.stdout, "Choisissez azure-devops, bitbucket, github, gitlab")
-	assertContains(t, result.stdout, "Configuration projet enregistrée")
+	assertContains(t, result.stdout, "✓ Configuration enregistrée")
 }
 
 func TestRun_initRejectsSelfHostedRepositoryURLThenAcceptsHostedIdentifier(t *testing.T) {
@@ -301,7 +281,8 @@ func TestRun_initRejectsSelfHostedRepositoryURLThenAcceptsHostedIdentifier(t *te
 	t.Setenv("STH_GITLAB_API_BASE_URL", server.URL+"/api/v4")
 	t.Setenv("STH_TOKEN", "dummy-test-token")
 
-	input := "\ngitlab\nn\nn\nhttps://git.example.com/group/project\ngroup/project\n\n\n\n"
+	// provider=gitlab, bad-url, good-id, ref/cat/target, access=public, recap
+	input := "gitlab\nhttps://git.example.com/group/project\ngroup/project\n\n\n\nn\n\n"
 	result := runCLIWithInput(t, projectDir, homeDir, input, "init")
 
 	if result.err != nil {
@@ -309,29 +290,7 @@ func TestRun_initRejectsSelfHostedRepositoryURLThenAcceptsHostedIdentifier(t *te
 	}
 	assertContains(t, result.stdout, "Repository ID invalide")
 	assertContains(t, result.stdout, "gitlab.com")
-	assertContains(t, result.stdout, "Configuration projet enregistrée")
-}
-
-func TestRun_initAllowsReviewingProviderGuidanceAgain(t *testing.T) {
-	homeDir := t.TempDir()
-	projectDir := t.TempDir()
-	server := httptest.NewServer(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
-		_, _ = w.Write([]byte(testCatalogMarkdown("| skill | alpha | react | react/alpha/SKILL.md | Alpha |")))
-	}))
-	defer server.Close()
-	t.Setenv("STH_GITHUB_RAW_BASE_URL", server.URL)
-	t.Setenv("STH_TOKEN", "dummy-test-token")
-
-	input := "\ngithub\ny\ny\nn\n\nowner/repo\n\n\n\n"
-	result := runCLIWithInput(t, projectDir, homeDir, input, "init")
-
-	if result.err != nil {
-		t.Fatalf("Run() error = %v\nstdout=%s\nstderr=%s", result.err, result.stdout, result.stderr)
-	}
-	if strings.Count(result.stdout, "https://github.com/settings/personal-access-tokens/new") < 2 {
-		t.Fatalf("stdout %q does not show the provider guidance twice", result.stdout)
-	}
-	assertContains(t, result.stdout, "Configuration projet enregistrée")
+	assertContains(t, result.stdout, "✓ Configuration enregistrée")
 }
 
 func TestRun_initPrivateGitHubWithTokenPassesValidation(t *testing.T) {
@@ -349,15 +308,15 @@ func TestRun_initPrivateGitHubWithTokenPassesValidation(t *testing.T) {
 	defer server.Close()
 	t.Setenv("STH_GITHUB_RAW_BASE_URL", server.URL)
 
-	// Input: providerID(default), provider=github, private=y, reviewAgain(no), enter token, repoID, ref, catalogPath, targetDir
-	input := "\ngithub\ny\n\n" + testToken + "\nowner/repo\n\n\n\n"
+	// provider=github, repo, ref/cat/target, access(privé), details=N, manual token, recap
+	input := "github\nowner/repo\n\n\n\n\nn\n" + testToken + "\n\n"
 	result := runCLIWithInput(t, projectDir, homeDir, input, "init")
 
 	if result.err != nil {
 		t.Fatalf("Run() error = %v\nstdout=%s\nstderr=%s", result.err, result.stdout, result.stderr)
 	}
-	assertContains(t, result.stdout, "Accès au dépôt validé")
-	assertContains(t, result.stdout, "Le token saisi a ete utilise pour la validation mais n'est pas sauvegarde")
+	assertContains(t, result.stdout, "Tout est bon")
+	assertContains(t, result.stdout, "Le token saisi a servi à valider")
 	assertContains(t, result.stdout, "export GITHUB_TOKEN=<votre-token>")
 }
 
@@ -370,11 +329,10 @@ func TestRun_initAzureDevOpsShowsTokenGuidance(t *testing.T) {
 	}))
 	defer server.Close()
 	t.Setenv("STH_AZURE_DEVOPS_BASE_URL", server.URL)
-	// Set a dummy token so the credential fallback does not block waiting for git credentials.
-	t.Setenv("STH_TOKEN", "dummy-test-token")
+	// Note: do NOT set STH_TOKEN — we want the wizard to show guidance and prompt.
 
-	// Input: providerID(default), azure-devops, private=y, reviewAgain(no), skip token, org/project/repo, ref, catalogPath, targetDir
-	input := "\nazure-devops\ny\n\n\norg/project/repo\n\n\n\n"
+	// provider=azure-devops, repo, ref/cat/target, access(privé), details=Y, token(skip), recap
+	input := "azure-devops\norg/project/repo\n\n\n\n\ny\n\n\n"
 	result := runCLIWithInput(t, projectDir, homeDir, input, "init")
 
 	if result.err != nil {
@@ -405,7 +363,7 @@ func TestProviderTokenEnvVar(t *testing.T) {
 	}
 }
 
-// T020 — fresh project creates a v2 config with one provider.
+// First-provider flow auto-assigns alias "default" — no prompt.
 func TestRunInit_EmptyProject_CreatesV2WithOneProvider(t *testing.T) {
 	homeDir := t.TempDir()
 	projectDir := t.TempDir()
@@ -415,14 +373,14 @@ func TestRunInit_EmptyProject_CreatesV2WithOneProvider(t *testing.T) {
 	defer server.Close()
 	t.Setenv("STH_GITHUB_RAW_BASE_URL", server.URL)
 
-	// providerID=default, provider=github, private=no, reviewAgain(no), repoID=org/repo, ref=main, catalogPath=SKILLS.md, targetDir=.claude/skills
-	input := "default\ngithub\nn\n\norg/repo\nmain\nSKILLS.md\n.claude/skills\n"
+	// provider, repo, ref, cat, target, access=public(n), recap
+	input := "github\norg/repo\nmain\nSKILLS.md\n.claude/skills\nn\n\n"
 	result := runCLIWithInput(t, projectDir, homeDir, input, "init")
 
 	if result.err != nil {
 		t.Fatalf("Run() error = %v\nstdout=%s\nstderr=%s", result.err, result.stdout, result.stderr)
 	}
-	assertContains(t, result.stdout, "Configuration projet enregistrée")
+	assertContains(t, result.stdout, "✓ Configuration enregistrée")
 
 	configPath := filepath.Join(projectDir, ".sth", "project.json")
 	data, err := os.ReadFile(configPath)
@@ -455,8 +413,8 @@ func TestRunInit_EmptyProject_CreatesV2WithOneProvider(t *testing.T) {
 	}
 }
 
-// T021 — existing v2 config: a second provider is appended, first unchanged.
-func TestRunInit_ExistingV2_AppendsSecondProvider(t *testing.T) {
+// Adding a 2nd provider DOES prompt for an alias (progressive disclosure).
+func TestRunInit_ExistingV2_AppendsSecondProviderWithAliasPrompt(t *testing.T) {
 	homeDir := t.TempDir()
 	projectDir := t.TempDir()
 	server := httptest.NewServer(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
@@ -468,18 +426,19 @@ func TestRunInit_ExistingV2_AppendsSecondProvider(t *testing.T) {
 	writeProjectConfigV2ForTest(t, projectDir, fs.ProjectConfigV2{
 		SchemaVersion: 2,
 		Providers: []fs.ProviderEntry{
-			{ID: "first", Provider: "github", RepositoryID: "org/first", CatalogRef: "main", CatalogPath: "SKILLS.md", TargetDir: ".claude/skills"},
+			{ID: "default", Provider: "github", RepositoryID: "org/first", CatalogRef: "main", CatalogPath: "SKILLS.md", TargetDir: ".claude/skills"},
 		},
 		Resources: []fs.ResourceEntry{},
 	})
 
-	// yes to add provider, providerID=second, provider=github, private=no, reviewAgain(no), repoID, ref, catalogPath, targetDir
-	input := "y\nsecond\ngithub\nn\n\norg/second\nmain\nSKILLS.md\n.claude/skills\n"
+	// add new=y, alias=second, provider=github, repo, ref/cat/target, access=public, recap
+	input := "y\nsecond\ngithub\norg/second\nmain\nSKILLS.md\n.claude/skills\nn\n\n"
 	result := runCLIWithInput(t, projectDir, homeDir, input, "init")
 
 	if result.err != nil {
 		t.Fatalf("Run() error = %v\nstdout=%s\nstderr=%s", result.err, result.stdout, result.stderr)
 	}
+	assertContains(t, result.stdout, "Donne un alias")
 
 	configPath := filepath.Join(projectDir, ".sth", "project.json")
 	data, err := os.ReadFile(configPath)
@@ -493,8 +452,8 @@ func TestRunInit_ExistingV2_AppendsSecondProvider(t *testing.T) {
 	if len(cfg.Providers) != 2 {
 		t.Fatalf("providers count = %d, want 2", len(cfg.Providers))
 	}
-	if cfg.Providers[0].ID != "first" {
-		t.Fatalf("first provider ID = %q, want first", cfg.Providers[0].ID)
+	if cfg.Providers[0].ID != "default" {
+		t.Fatalf("first provider ID = %q, want default", cfg.Providers[0].ID)
 	}
 	if cfg.Providers[0].RepositoryID != "org/first" {
 		t.Fatalf("first provider repository_id = %q, want org/first (should be unchanged)", cfg.Providers[0].RepositoryID)
@@ -504,8 +463,9 @@ func TestRunInit_ExistingV2_AppendsSecondProvider(t *testing.T) {
 	}
 }
 
-// T022 — duplicate provider ID shows a warning and loops; file is untouched.
-func TestRunInit_DuplicateProviderID_ReturnsError(t *testing.T) {
+// When the user picks an alias already used by an existing provider, the
+// wizard re-prompts (does not abort, does not write a duplicate).
+func TestRunInit_DuplicateAlias_RepromptsAndKeepsConfig(t *testing.T) {
 	homeDir := t.TempDir()
 	projectDir := t.TempDir()
 
@@ -517,16 +477,14 @@ func TestRunInit_DuplicateProviderID_ReturnsError(t *testing.T) {
 		Resources: []fs.ResourceEntry{},
 	})
 
-	// yes to add provider, then duplicate providerID; input exhausted → wizard terminates with io.EOF
+	// add=y, alias=default (duplicate) → re-prompt; input exhausts → io.EOF
 	input := "y\ndefault\n"
 	result := runCLIWithInput(t, projectDir, homeDir, input, "init")
 
 	if result.err == nil {
-		t.Fatal("Run() error = nil, want error when input exhausted after duplicate provider ID")
+		t.Fatal("Run() error = nil, want error when input exhausted after duplicate alias")
 	}
-	if !strings.Contains(result.stdout, "default") {
-		t.Fatalf("expected stdout to mention 'default', got: stdout=%s", result.stdout)
-	}
+	assertContains(t, result.stdout, "déjà utilisé")
 
 	configPath := filepath.Join(projectDir, ".sth", "project.json")
 	data, err := os.ReadFile(configPath)
@@ -542,8 +500,67 @@ func TestRunInit_DuplicateProviderID_ReturnsError(t *testing.T) {
 	}
 }
 
-// T023 — written v2 config has all correct provider fields and empty resources array.
-func TestRunInit_V2WrittenCorrectly_ProvidersArray(t *testing.T) {
+// When validation fails (server 404), the config is STILL written so the
+// user can iterate. Diagnostic + remediation block appears, exit code is nil.
+func TestRun_initWritesConfigEvenWhenValidationFails(t *testing.T) {
+	homeDir := t.TempDir()
+	projectDir := t.TempDir()
+	server := httptest.NewServer(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		stdhttp.NotFound(w, r)
+	}))
+	defer server.Close()
+	t.Setenv("STH_GITHUB_RAW_BASE_URL", server.URL)
+	// API base too, otherwise ListRepositoryTree (404 fallback path) would hit real github.com.
+	t.Setenv("STH_GITHUB_API_BASE_URL", server.URL)
+
+	// provider, repo, ref/cat/target, access=public, recap
+	input := "\nowner/repo\n\n\n\nn\n\n"
+	result := runCLIWithInput(t, projectDir, homeDir, input, "init")
+
+	// Exit non-zero so CI scripts see the failure, BUT the config file must
+	// still exist so the user can iterate without re-running the whole wizard.
+	if result.err == nil {
+		t.Fatalf("Run() error = nil, want non-nil on validation failure\nstdout=%s", result.stdout)
+	}
+	assertContains(t, result.stdout, "✓ Configuration enregistrée")
+	assertContains(t, result.stdout, "Configuration écrite mais non validée")
+	assertContains(t, result.stdout, "sth doctor")
+
+	configPath := filepath.Join(projectDir, ".sth", "project.json")
+	if _, err := os.Stat(configPath); err != nil {
+		t.Fatalf("expected %s to exist after failed validation, got %v", configPath, err)
+	}
+}
+
+// Server 401 → diagnostic categorises as auth_failed and references the
+// provider-specific minimum permission.
+func TestRun_initClassifiesAuthFailure(t *testing.T) {
+	homeDir := t.TempDir()
+	projectDir := t.TempDir()
+	server := httptest.NewServer(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		stdhttp.Error(w, "unauthorized", stdhttp.StatusUnauthorized)
+	}))
+	defer server.Close()
+	t.Setenv("STH_GITHUB_RAW_BASE_URL", server.URL)
+	t.Setenv("STH_TOKEN", "wrong-token")
+
+	// provider, repo, ref/cat/target, access=privé, recap (env token detected, no token prompt)
+	input := "\nowner/repo\n\n\n\n\n\n"
+	result := runCLIWithInput(t, projectDir, homeDir, input, "init")
+
+	// Auth failure → non-zero exit so wrappers detect it. Config still written.
+	if result.err == nil {
+		t.Fatalf("Run() error = nil, want non-nil on auth failure\nstdout=%s", result.stdout)
+	}
+	assertContains(t, result.stdout, "auth_failed")
+	assertContains(t, result.stdout, "Contents: Read")
+	assertContains(t, result.stdout, "✓ Configuration enregistrée")
+}
+
+// User confirms the recap → config is written. User selects "edit" → loops
+// back, can change one field, then confirm. Validates the recap-edit-recap
+// loop end-to-end.
+func TestRun_initRecapAllowsEdit(t *testing.T) {
 	homeDir := t.TempDir()
 	projectDir := t.TempDir()
 	server := httptest.NewServer(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
@@ -552,13 +569,13 @@ func TestRunInit_V2WrittenCorrectly_ProvidersArray(t *testing.T) {
 	defer server.Close()
 	t.Setenv("STH_GITHUB_RAW_BASE_URL", server.URL)
 
-	input := "myprovider\ngithub\nn\n\norg/repo\nmain\nSKILLS.md\n.claude/skills\n"
+	// provider, repo=wrong/repo, ref/cat/target, access=public, recap=edit, field=depot (no accent variant), new repo, recap=Y
+	input := "github\nwrong/repo\n\n\n\nn\nedit\ndepot\ngood/repo\n\n"
 	result := runCLIWithInput(t, projectDir, homeDir, input, "init")
 
 	if result.err != nil {
-		t.Fatalf("Run() error = %v\nstdout=%s", result.err, result.stdout)
+		t.Fatalf("Run() error = %v\nstdout=%s\nstderr=%s", result.err, result.stdout, result.stderr)
 	}
-
 	configPath := filepath.Join(projectDir, ".sth", "project.json")
 	data, err := os.ReadFile(configPath)
 	if err != nil {
@@ -566,31 +583,113 @@ func TestRunInit_V2WrittenCorrectly_ProvidersArray(t *testing.T) {
 	}
 	var cfg fs.ProjectConfigV2
 	if err := json.Unmarshal(data, &cfg); err != nil {
-		t.Fatalf("json.Unmarshal(): %v", err)
+		t.Fatalf("json.Unmarshal: %v", err)
 	}
 	if len(cfg.Providers) != 1 {
-		t.Fatalf("providers count = %d, want 1", len(cfg.Providers))
+		t.Fatalf("providers = %d, want 1", len(cfg.Providers))
 	}
-	p := cfg.Providers[0]
-	if p.ID != "myprovider" {
-		t.Fatalf("id = %q, want myprovider", p.ID)
+	if cfg.Providers[0].RepositoryID != "good/repo" {
+		t.Fatalf("repo = %q, want good/repo (after edit)", cfg.Providers[0].RepositoryID)
 	}
-	if p.Provider != "github" {
-		t.Fatalf("provider = %q, want github", p.Provider)
+}
+
+// User declines the recap → no config is written, exit code is nil.
+func TestRun_initRecapDecline(t *testing.T) {
+	homeDir := t.TempDir()
+	projectDir := t.TempDir()
+
+	// provider, repo, ref/cat/target, access=public, recap=n
+	input := "github\nowner/repo\n\n\n\nn\nn\n"
+	result := runCLIWithInput(t, projectDir, homeDir, input, "init")
+
+	if result.err != nil {
+		t.Fatalf("Run() error = %v", result.err)
 	}
-	if p.RepositoryID != "org/repo" {
-		t.Fatalf("repository_id = %q, want org/repo", p.RepositoryID)
+	assertContains(t, result.stdout, "Aucun fichier modifié")
+
+	configPath := filepath.Join(projectDir, ".sth", "project.json")
+	if _, err := os.Stat(configPath); !os.IsNotExist(err) {
+		t.Fatalf("expected %s to NOT exist after recap decline, got err=%v", configPath, err)
 	}
-	if p.CatalogRef != "main" {
-		t.Fatalf("catalog_ref = %q, want main", p.CatalogRef)
+}
+
+// Recap-edit must NOT let the user smuggle in an alias that collides with an
+// existing provider — askAlias enforces uniqueness up front, the edit path
+// has to do the same or the final WriteProjectConfigV2 corrupts state.
+func TestRun_initRecapEditRejectsDuplicateAlias(t *testing.T) {
+	homeDir := t.TempDir()
+	projectDir := t.TempDir()
+	server := httptest.NewServer(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		_, _ = w.Write([]byte(testCatalogMarkdown("| skill | alpha | skills | skills/alpha.md | Alpha |")))
+	}))
+	defer server.Close()
+	t.Setenv("STH_GITHUB_RAW_BASE_URL", server.URL)
+
+	writeProjectConfigV2ForTest(t, projectDir, fs.ProjectConfigV2{
+		SchemaVersion: 2,
+		Providers: []fs.ProviderEntry{
+			{ID: "default", Provider: "github", RepositoryID: "org/first", CatalogRef: "main", CatalogPath: "SKILLS.md", TargetDir: ".claude/skills"},
+		},
+		Resources: []fs.ResourceEntry{},
+	})
+
+	// add=y, alias=second, provider, repo, ref/cat/target, access=public,
+	// recap=edit, field=alias, newAlias=default (duplicate!), recap=Y
+	input := "y\nsecond\ngithub\norg/second\n\n\n\nn\nedit\nalias\ndefault\n\n"
+	result := runCLIWithInput(t, projectDir, homeDir, input, "init")
+
+	if result.err != nil {
+		t.Fatalf("Run() error = %v\nstdout=%s\nstderr=%s", result.err, result.stdout, result.stderr)
 	}
-	if p.CatalogPath != "SKILLS.md" {
-		t.Fatalf("catalog_path = %q, want SKILLS.md", p.CatalogPath)
+	assertContains(t, result.stdout, "déjà utilisé")
+
+	// Final config must keep alias "second" (the original choice), NOT "default".
+	configPath := filepath.Join(projectDir, ".sth", "project.json")
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
 	}
-	if p.TargetDir != ".claude/skills" {
-		t.Fatalf("target_dir = %q, want .claude/skills", p.TargetDir)
+	var cfg fs.ProjectConfigV2
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		t.Fatalf("json.Unmarshal: %v", err)
 	}
-	if len(cfg.Resources) != 0 {
-		t.Fatalf("resources = %v, want empty array", cfg.Resources)
+	if len(cfg.Providers) != 2 {
+		t.Fatalf("providers = %d, want 2", len(cfg.Providers))
+	}
+	ids := []string{cfg.Providers[0].ID, cfg.Providers[1].ID}
+	if ids[0] != "default" || ids[1] != "second" {
+		t.Fatalf("provider IDs = %v, want [default second] (duplicate edit should be rejected)", ids)
+	}
+}
+
+// The repo prompt accepts a full URL; NormalizeRepositoryID strips the
+// scheme/host and stores the canonical owner/repo.
+func TestRun_initAcceptsRepositoryURL(t *testing.T) {
+	homeDir := t.TempDir()
+	projectDir := t.TempDir()
+	server := httptest.NewServer(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		_, _ = w.Write([]byte(testCatalogMarkdown("| skill | alpha | skills | skills/alpha.md | Alpha |")))
+	}))
+	defer server.Close()
+	t.Setenv("STH_GITHUB_RAW_BASE_URL", server.URL)
+
+	// provider, repo=URL, ref/cat/target, access=public, recap
+	input := "github\nhttps://github.com/Grandpied33/sth-dashboard\n\n\n\nn\n\n"
+	result := runCLIWithInput(t, projectDir, homeDir, input, "init")
+
+	if result.err != nil {
+		t.Fatalf("Run() error = %v\nstdout=%s", result.err, result.stdout)
+	}
+	configPath := filepath.Join(projectDir, ".sth", "project.json")
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	var cfg fs.ProjectConfigV2
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		t.Fatalf("json.Unmarshal: %v", err)
+	}
+	if cfg.Providers[0].RepositoryID != "Grandpied33/sth-dashboard" {
+		t.Fatalf("repo = %q, want Grandpied33/sth-dashboard", cfg.Providers[0].RepositoryID)
 	}
 }
