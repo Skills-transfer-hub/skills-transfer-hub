@@ -26,6 +26,14 @@ type cliOptions struct {
 	client       *sthhttp.Client
 	interactive  func() bool
 	userCacheDir string
+	// userConfigDir overrides STH_USER_CONFIG_DIR. When empty, a per-test
+	// tempdir is used automatically so tests never touch the real user config.
+	userConfigDir string
+	// skipTelemetrySeed leaves the telemetry decision unrecorded so the test
+	// exercises the first-init consent prompt. Default false: the helper
+	// pre-records a refusal so existing tests don't have to feed an extra
+	// "n" into the prompt sequence.
+	skipTelemetrySeed bool
 }
 
 func assertContains(t *testing.T, got, want string) {
@@ -84,6 +92,15 @@ func runCLIWithOptions(t *testing.T, options cliOptions) cliResult {
 	t.Setenv("HOMEPATH", strings.TrimPrefix(options.homeDir, filepath.VolumeName(options.homeDir)))
 	if options.userCacheDir != "" {
 		t.Setenv("STH_USER_CACHE_DIR", options.userCacheDir)
+	}
+	if options.userConfigDir == "" {
+		options.userConfigDir = t.TempDir()
+	}
+	t.Setenv("STH_USER_CONFIG_DIR", options.userConfigDir)
+	if !options.skipTelemetrySeed {
+		if _, err := fs.SetTelemetryConsent(false, "test"); err != nil {
+			t.Fatalf("seed telemetry decision: %v", err)
+		}
 	}
 
 	oldWD, err := os.Getwd()

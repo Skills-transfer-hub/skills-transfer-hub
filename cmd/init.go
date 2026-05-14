@@ -4,16 +4,29 @@ import (
 	"bufio"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 
 	"sth/internal/fs"
 )
+
+// alphaProviderGateSkipValue must match cmd/alpha_gate.go — the same env var
+// disables every Alpha-period restriction (version check + provider cap).
+const alphaProviderGateSkipValue = "0"
 
 // runInit is the dispatcher: handles the existing-config branch and the
 // optional legacy ~/.sthrc import, then hands off to runInitWizard for the
 // narrated step-by-step flow. The bulk of the UX lives in cmd/init_wizard.go.
 func (a *app) runInit() error {
 	reader := bufio.NewReader(a.stdin)
+
+	// First init asks for telemetry consent before anything else. Re-running
+	// init never re-prompts: the consent decision is user-scoped and durable.
+	if !fs.HasTelemetryDecision() {
+		if err := a.promptFirstInitWelcome(reader); err != nil {
+			return err
+		}
+	}
 
 	existingCfg, err := fs.ReadProjectConfigV2()
 	if err != nil {
@@ -36,6 +49,18 @@ func (a *app) runInit() error {
 		if !addNew {
 			a.writeStdout("Configuration projet conservée.", "Prochaine étape : utilisez `sth list`.")
 			return nil
+		}
+		// Alpha period: a project may hold a single Git provider. sth-cloud is
+		// exempted (added via `sth login`, independent infra). Refuse early so
+		// the user doesn't go through the whole wizard for nothing.
+		if alphaProviderGateActive() && countGitProviders(existingCfg) >= 1 {
+			a.writeStdout(
+				"",
+				"Pendant l'Alpha, un projet ne peut référencer qu'un seul dépôt Git.",
+				fmt.Sprintf("Détails : %s", AlphaLimitsDocsURL()),
+				"Pour contourner (à vos risques) : exporte STH_ALPHA_GATE=0.",
+			)
+			return fmt.Errorf("limite Alpha : 1 provider Git max par projet")
 		}
 	}
 
@@ -275,6 +300,69 @@ func promptValue(reader *bufio.Reader, stdout io.Writer, label, defaultValue str
 	}
 
 	return trimmed, nil
+}
+
+// promptFirstInitWelcome runs on the user's very first `sth init` only.
+// It shows a buddy frame, the link to the docs (so the user knows where to
+// read up later), and asks for explicit telemetry consent. Default is "no":
+// the Alpha is opt-in by design, not opt-out.
+//
+// The decision is persisted in the user-scoped settings file regardless of
+// the answer — recording a refusal still counts as "the user has been asked",
+// which is what keeps `runInit` from re-prompting on subsequent runs.
+func (a *app) promptFirstInitWelcome(reader *bufio.Reader) error {
+	a.writeStdout(
+		renderBuddy(fs.BuddyAllGood),
+		"",
+		"Bienvenue dans STH (Alpha).",
+		fmt.Sprintf("Docs : %s", DocsURL()),
+		"",
+		"Pour piloter l'Alpha on aimerait collecter une télémétrie minimale :",
+		"  • horodatage de chaque commande",
+		"  • version du CLI",
+		"  • nom de la commande (init, list, install…)",
+		"Aucun argument, aucun chemin, aucun contenu de fichier n'est envoyé.",
+		fmt.Sprintf("Détails complets et opt-out : %s", TelemetryDocsURL()),
+		"",
+	)
+	consent, err := promptYesNo(reader, a.stdout, "Activer la télémétrie ?", false)
+	if err != nil {
+		return err
+	}
+	cliVersion := valueOrDefault(version, "dev")
+	if _, err := fs.SetTelemetryConsent(consent, cliVersion); err != nil {
+		// Persisting the decision is critical — we don't want to silently
+		// re-prompt on every init. Bubble up.
+		return fmt.Errorf("enregistrement du consentement télémétrie échoué : %w", err)
+	}
+	if consent {
+		a.writeStdout("Télémétrie activée. Bascule à tout moment via `sth telemetry off`.")
+	} else {
+		a.writeStdout("Télémétrie désactivée. Réactivable via `sth telemetry on`.")
+	}
+	a.writeStdout("")
+	return nil
+}
+
+// countGitProviders returns the number of non-cloud providers in the project.
+// sth-cloud is exempted from the Alpha "1 provider" rule because it represents
+// authenticated SaaS access, not a self-hosted Git remote.
+func countGitProviders(cfg fs.ProjectConfigV2) int {
+	n := 0
+	for _, p := range cfg.Providers {
+		if !strings.EqualFold(strings.TrimSpace(p.Provider), loginProviderName) {
+			n++
+		}
+	}
+	return n
+}
+
+// alphaProviderGateActive reports whether the Alpha-period provider cap is
+// currently enforced. The same escape hatch as the version gate (STH_ALPHA_GATE=0)
+// disables it — keeping the two gates aligned avoids users having to remember
+// two env vars.
+func alphaProviderGateActive() bool {
+	return strings.TrimSpace(os.Getenv(alphaGateSkipEnvVar)) != alphaProviderGateSkipValue
 }
 
 func promptYesNo(reader *bufio.Reader, stdout io.Writer, label string, defaultYes bool) (bool, error) {
