@@ -159,7 +159,7 @@ func parseTelemetryLimit(args []string) (int, error) {
 // volumes involved (capped at MAX_LIMIT=500 server-side).
 func formatTelemetryTable(records []sthhttp.UsageMineRecord) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "%-25s  %-12s  %s\n", "Timestamp", "CLI", "Commande")
+	fmt.Fprintf(&b, "%-25s  %-12s  %s\n", "Horodatage", "CLI", "Commande")
 	fmt.Fprintf(&b, "%-25s  %-12s  %s\n", strings.Repeat("-", 25), strings.Repeat("-", 12), strings.Repeat("-", 12))
 	for _, r := range records {
 		cmd := strings.TrimSpace(r.CommandName)

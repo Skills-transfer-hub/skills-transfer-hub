@@ -622,6 +622,9 @@ func TestRun_initRecapDecline(t *testing.T) {
 // existing provider — askAlias enforces uniqueness up front, the edit path
 // has to do the same or the final WriteProjectConfigV2 corrupts state.
 func TestRun_initRecapEditRejectsDuplicateAlias(t *testing.T) {
+	// Bypass the Alpha 1-Git-provider cap — this test asserts the alias
+	// uniqueness check during the recap edit, orthogonal to the cap.
+	t.Setenv("STH_ALPHA_GATE", "0")
 	homeDir := t.TempDir()
 	projectDir := t.TempDir()
 	server := httptest.NewServer(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
@@ -714,7 +717,10 @@ func TestRunInit_FirstInit_PromptsTelemetryConsent_AcceptedY(t *testing.T) {
 
 	// First input is the telemetry answer; the rest are the regular wizard
 	// defaults followed by owner/repo and four empty lines.
-	input := "y\n\n\n\n\n\nowner/repo\n\n\n\n"
+	// First input is the telemetry answer; the rest match the new wizard flow
+	// (see TestRun_initCreatesProjectProfile): provider, repo, ref, catalog,
+	// target, access, details, token, recap.
+	input := "y\n\nowner/repo\n\n\n\n\n\n\n\n"
 	result := runCLIWithOptions(t, cliOptions{
 		workDir:           projectDir,
 		homeDir:           homeDir,
@@ -745,7 +751,7 @@ func TestRunInit_FirstInit_PromptsTelemetryConsent_RefusedN(t *testing.T) {
 	defer server.Close()
 	t.Setenv("STH_GITHUB_RAW_BASE_URL", server.URL)
 
-	input := "n\n\n\n\n\n\nowner/repo\n\n\n\n"
+	input := "n\n\nowner/repo\n\n\n\n\n\n\n\n"
 	result := runCLIWithOptions(t, cliOptions{
 		workDir:           projectDir,
 		homeDir:           homeDir,
@@ -776,8 +782,8 @@ func TestRunInit_FirstInit_DefaultIsRefuse(t *testing.T) {
 	defer server.Close()
 	t.Setenv("STH_GITHUB_RAW_BASE_URL", server.URL)
 
-	// Empty answer at the prompt → default. Default must be "no" (opt-in only).
-	input := "\n\n\n\n\n\nowner/repo\n\n\n\n"
+	// Empty answer at the telemetry prompt → default. Default must be "no" (opt-in only).
+	input := "\n\nowner/repo\n\n\n\n\n\n\n\n"
 	result := runCLIWithOptions(t, cliOptions{
 		workDir:           projectDir,
 		homeDir:           homeDir,
@@ -804,7 +810,7 @@ func TestRunInit_SecondInit_DoesNotRePromptTelemetry(t *testing.T) {
 
 	// Pre-seeded decision (default behavior of runCLIWithOptions) → no prompt.
 	// Input feeds only the wizard, not a telemetry answer.
-	input := "\n\n\n\n\nowner/repo\n\n\n\n"
+	input := "\nowner/repo\n\n\n\n\n\n\n\n"
 	result := runCLIWithInput(t, projectDir, homeDir, input, "init")
 	if result.err != nil {
 		t.Fatalf("Run() error = %v\nstdout=%s", result.err, result.stdout)
@@ -859,7 +865,9 @@ func TestRunInit_AlphaGate_AllowsGitProviderAlongsideSthCloud(t *testing.T) {
 		Resources: []fs.ResourceEntry{},
 	})
 
-	input := "y\nfirst\ngithub\nn\n\norg/first\nmain\nSKILLS.md\n.claude/skills\n"
+	// New wizard flow: addNew, alias, provider, repo, ref, catalog, target,
+	// access=n (public), recap accept, recap accept.
+	input := "y\nfirst\ngithub\norg/first\nmain\nSKILLS.md\n.claude/skills\nn\n\n"
 	result := runCLIWithInput(t, projectDir, homeDir, input, "init")
 	if result.err != nil {
 		t.Fatalf("expected success — sth-cloud does not count, got: %v\nstdout=%s", result.err, result.stdout)
@@ -896,7 +904,9 @@ func TestRunInit_AlphaGate_Bypassed(t *testing.T) {
 		Resources: []fs.ResourceEntry{},
 	})
 
-	input := "y\nsecond\ngithub\nn\n\norg/second\nmain\nSKILLS.md\n.claude/skills\n"
+	// New wizard flow (same as the alias-prompt test above): addNew, alias,
+	// provider, repo, ref, catalog, target, access=n, recap accept, recap accept.
+	input := "y\nsecond\ngithub\norg/second\nmain\nSKILLS.md\n.claude/skills\nn\n\n"
 	result := runCLIWithInput(t, projectDir, homeDir, input, "init")
 	if result.err != nil {
 		t.Fatalf("expected bypass to allow second Git provider, got: %v", result.err)
