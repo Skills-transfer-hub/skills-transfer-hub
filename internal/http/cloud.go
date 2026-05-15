@@ -97,6 +97,10 @@ type cloudSkillResponse struct {
 type usageReportRecord struct {
 	Ts         string `json:"ts"`
 	CLIVersion string `json:"cli_version"`
+	// CommandName carries only the top-level command (e.g. "init", "install").
+	// Never the args, never a path. Omitted when empty so older back versions
+	// that don't know the field still accept the payload.
+	CommandName string `json:"command_name,omitempty"`
 }
 
 type usageReportPayload struct {
@@ -176,7 +180,7 @@ func (c *Client) downloadCloudResource(ctx context.Context, profile fs.ProjectPr
 
 // reportCloudUsage POSTs /v1/usage in fire-and-forget mode. Errors are returned
 // but callers typically ignore them (best-effort telemetry).
-func (c *Client) reportCloudUsage(ctx context.Context, profile fs.ProjectProfile, cliVersion string) error {
+func (c *Client) reportCloudUsage(ctx context.Context, profile fs.ProjectProfile, cliVersion, commandName string) error {
 	if !strings.EqualFold(strings.TrimSpace(profile.Provider), "sth-cloud") {
 		return nil
 	}
@@ -185,7 +189,11 @@ func (c *Client) reportCloudUsage(ctx context.Context, profile fs.ProjectProfile
 		return err
 	}
 	payload, err := json.Marshal(usageReportPayload{
-		Commands: []usageReportRecord{{Ts: nowRFC3339(), CLIVersion: cliVersion}},
+		Commands: []usageReportRecord{{
+			Ts:          nowRFC3339(),
+			CLIVersion:  cliVersion,
+			CommandName: strings.TrimSpace(commandName),
+		}},
 	})
 	if err != nil {
 		return fmt.Errorf("encodage usage : %w", err)
@@ -214,6 +222,61 @@ func (c *Client) reportCloudUsage(ctx context.Context, profile fs.ProjectProfile
 
 // ReportCloudUsage is the public entry-point used by cmd to fire-and-forget the
 // usage record after a successful CLI command.
-func (c *Client) ReportCloudUsage(ctx context.Context, profile fs.ProjectProfile, cliVersion string) error {
-	return c.reportCloudUsage(ctx, profile, cliVersion)
+func (c *Client) ReportCloudUsage(ctx context.Context, profile fs.ProjectProfile, cliVersion, commandName string) error {
+	return c.reportCloudUsage(ctx, profile, cliVersion, commandName)
+}
+
+// UsageMineRecord mirrors the payload returned by GET /v1/usage/mine. The
+// CLI's `sth telemetry output` command renders these to the terminal.
+type UsageMineRecord struct {
+	Ts          string `json:"ts"`
+	CLIVersion  string `json:"cli_version"`
+	CommandName string `json:"command_name"`
+}
+
+type usageMineResponse struct {
+	Records []UsageMineRecord `json:"records"`
+}
+
+// FetchOwnUsage calls GET /v1/usage/mine with the active sth-cloud credentials
+// and returns the records the server has on file for the caller's key. Used
+// by `sth telemetry output` for transparency — the user can see exactly what
+// the back has stored about their CLI activity.
+func (c *Client) FetchOwnUsage(ctx context.Context, profile fs.ProjectProfile, limit int) ([]UsageMineRecord, error) {
+	if !strings.EqualFold(strings.TrimSpace(profile.Provider), "sth-cloud") {
+		return nil, fmt.Errorf("`sth telemetry output` nécessite un provider sth-cloud")
+	}
+	headers, err := resolveCredentialHeaders(ctx, profile)
+	if err != nil {
+		return nil, err
+	}
+	url := CloudBaseURL() + "/v1/usage/mine"
+	if limit > 0 {
+		url += fmt.Sprintf("?limit=%d", limit)
+	}
+	req, err := stdhttp.NewRequestWithContext(ctx, stdhttp.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+	for k, v := range headers.headers {
+		req.Header.Set(k, v)
+	}
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		c.emitHTTP(stdhttp.MethodGet, url, 0)
+		return nil, err
+	}
+	defer resp.Body.Close()
+	c.emitHTTP(stdhttp.MethodGet, url, resp.StatusCode)
+	if resp.StatusCode == stdhttp.StatusUnauthorized {
+		return nil, fmt.Errorf("clé refusée (HTTP 401) — vérifie `sth login`")
+	}
+	if resp.StatusCode != stdhttp.StatusOK {
+		return nil, fmt.Errorf("réponse inattendue (HTTP %d)", resp.StatusCode)
+	}
+	var out usageMineResponse
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&out); err != nil {
+		return nil, fmt.Errorf("réponse usage/mine invalide : %w", err)
+	}
+	return out.Records, nil
 }

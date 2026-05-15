@@ -37,6 +37,11 @@ func shouldBypassAlphaGate(args []string) bool {
 	switch args[0] {
 	case "version", "help", "--help", "-h", "logout":
 		return true
+	case "telemetry":
+		// Toggling telemetry is a privacy action — must keep working even when
+		// the binary is otherwise blocked, otherwise we'd force users into a
+		// state where they can't opt out without upgrading first.
+		return true
 	case "update":
 		return len(args) >= 2 && args[1] == "self"
 	}

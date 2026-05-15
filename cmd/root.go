@@ -152,6 +152,22 @@ var commandCatalog = []commandSpec{
 		},
 	},
 	{
+		name:    "telemetry",
+		usage:   "sth telemetry <status|on|off|output>",
+		summary: "Gère le consentement et inspecte la télémétrie Alpha",
+		details: []string{
+			"status : affiche l'état du consentement local (`consented`, `consented_at`, version au moment du consentement).",
+			"on / off : active ou désactive l'envoi de télémétrie (consent persisté dans le fichier de settings utilisateur).",
+			"output [--limit=N] : récupère depuis le cloud les derniers enregistrements liés à la clé courante (provider sth-cloud requis).",
+		},
+		examples: []string{
+			"sth telemetry status",
+			"sth telemetry on",
+			"sth telemetry output --limit=20",
+		},
+		flags: []string{"--limit"},
+	},
+	{
 		name:    "completion",
 		usage:   "sth completion <bash|zsh|powershell>",
 		summary: "Génère un script de complétion shell pour STH",
@@ -328,6 +344,12 @@ func (a *app) run(args []string) error {
 		err = a.runLogin(args[1:])
 	case "logout":
 		err = a.runLogout(args[1:])
+	case "telemetry":
+		if len(args) >= 2 && isHelpFlag(args[1]) {
+			a.writeStdout(telemetryHelpText())
+			return nil
+		}
+		err = a.runTelemetry(args[1:])
 	case "stockholm":
 		if len(args) != 1 {
 			err = fmt.Errorf("usage : sth stockholm")
@@ -385,29 +407,22 @@ func (a *app) reportCloudUsageBestEffort(command string) {
 	if command == "login" || command == "logout" || command == "version" || command == "help" {
 		return
 	}
+	// Opt-in: only send anything when the user has explicitly accepted at
+	// `sth init`. Fail-closed — missing settings file means no telemetry.
+	if !sthfs.TelemetryConsented() {
+		return
+	}
 	cfg, err := sthfs.ReadProjectConfigV2()
 	if err != nil || len(cfg.Providers) == 0 {
 		return
 	}
-	var profile sthfs.ProjectProfile
-	found := false
-	for _, p := range cfg.Providers {
-		if strings.EqualFold(p.Provider, "sth-cloud") {
-			profile = sthfs.ProjectProfile{
-				Provider:    p.Provider,
-				TargetDir:   p.TargetDir,
-				CatalogPath: p.CatalogPath,
-			}
-			found = true
-			break
-		}
-	}
+	profile, found := findCloudProviderProfile(cfg)
 	if !found {
 		return
 	}
 	ctx, cancel := contextWithTimeout(500)
 	defer cancel()
-	_ = a.client.ReportCloudUsage(ctx, profile, valueOrDefault(version, "dev"))
+	_ = a.client.ReportCloudUsage(ctx, profile, valueOrDefault(version, "dev"), command)
 }
 
 func findCommandSpec(name string) (commandSpec, bool) {

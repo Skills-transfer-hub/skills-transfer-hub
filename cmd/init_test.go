@@ -414,7 +414,10 @@ func TestRunInit_EmptyProject_CreatesV2WithOneProvider(t *testing.T) {
 }
 
 // Adding a 2nd provider DOES prompt for an alias (progressive disclosure).
+// STH_ALPHA_GATE=0 bypasses the Alpha-period 1-Git-provider cap so this test
+// asserts the alias-prompt behaviour independently of the cap.
 func TestRunInit_ExistingV2_AppendsSecondProviderWithAliasPrompt(t *testing.T) {
+	t.Setenv("STH_ALPHA_GATE", "0")
 	homeDir := t.TempDir()
 	projectDir := t.TempDir()
 	server := httptest.NewServer(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
@@ -465,7 +468,9 @@ func TestRunInit_ExistingV2_AppendsSecondProviderWithAliasPrompt(t *testing.T) {
 
 // When the user picks an alias already used by an existing provider, the
 // wizard re-prompts (does not abort, does not write a duplicate).
+// STH_ALPHA_GATE=0 keeps the Alpha provider cap out of the way for this test.
 func TestRunInit_DuplicateAlias_RepromptsAndKeepsConfig(t *testing.T) {
+	t.Setenv("STH_ALPHA_GATE", "0")
 	homeDir := t.TempDir()
 	projectDir := t.TempDir()
 
@@ -617,6 +622,9 @@ func TestRun_initRecapDecline(t *testing.T) {
 // existing provider — askAlias enforces uniqueness up front, the edit path
 // has to do the same or the final WriteProjectConfigV2 corrupts state.
 func TestRun_initRecapEditRejectsDuplicateAlias(t *testing.T) {
+	// Bypass the Alpha 1-Git-provider cap — this test asserts the alias
+	// uniqueness check during the recap edit, orthogonal to the cap.
+	t.Setenv("STH_ALPHA_GATE", "0")
 	homeDir := t.TempDir()
 	projectDir := t.TempDir()
 	server := httptest.NewServer(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
@@ -691,5 +699,216 @@ func TestRun_initAcceptsRepositoryURL(t *testing.T) {
 	}
 	if cfg.Providers[0].RepositoryID != "Grandpied33/sth-dashboard" {
 		t.Fatalf("repo = %q, want Grandpied33/sth-dashboard", cfg.Providers[0].RepositoryID)
+	}
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Telemetry consent + Alpha provider gate
+// ─────────────────────────────────────────────────────────────────────────────
+
+func TestRunInit_FirstInit_PromptsTelemetryConsent_AcceptedY(t *testing.T) {
+	homeDir := t.TempDir()
+	projectDir := t.TempDir()
+	server := httptest.NewServer(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		_, _ = w.Write([]byte(testCatalogMarkdown("| skill | alpha | skills | skills/alpha.md | Alpha |")))
+	}))
+	defer server.Close()
+	t.Setenv("STH_GITHUB_RAW_BASE_URL", server.URL)
+
+	// First input is the telemetry answer; the rest are the regular wizard
+	// defaults followed by owner/repo and four empty lines.
+	// First input is the telemetry answer; the rest match the new wizard flow
+	// (see TestRun_initCreatesProjectProfile): provider, repo, ref, catalog,
+	// target, access, details, token, recap.
+	input := "y\n\nowner/repo\n\n\n\n\n\n\n\n"
+	result := runCLIWithOptions(t, cliOptions{
+		workDir:           projectDir,
+		homeDir:           homeDir,
+		input:             input,
+		args:              []string{"init"},
+		skipTelemetrySeed: true,
+	})
+	if result.err != nil {
+		t.Fatalf("Run() error = %v\nstdout=%s\nstderr=%s", result.err, result.stdout, result.stderr)
+	}
+	if !strings.Contains(result.stdout, "Activer la télémétrie") {
+		t.Fatalf("expected telemetry prompt in stdout, got: %s", result.stdout)
+	}
+	if !strings.Contains(result.stdout, "Télémétrie activée") {
+		t.Fatalf("expected enabled-confirmation in stdout, got: %s", result.stdout)
+	}
+	if !fs.TelemetryConsented() {
+		t.Fatal("TelemetryConsented should be true after answering 'y'")
+	}
+}
+
+func TestRunInit_FirstInit_PromptsTelemetryConsent_RefusedN(t *testing.T) {
+	homeDir := t.TempDir()
+	projectDir := t.TempDir()
+	server := httptest.NewServer(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		_, _ = w.Write([]byte(testCatalogMarkdown("| skill | alpha | skills | skills/alpha.md | Alpha |")))
+	}))
+	defer server.Close()
+	t.Setenv("STH_GITHUB_RAW_BASE_URL", server.URL)
+
+	input := "n\n\nowner/repo\n\n\n\n\n\n\n\n"
+	result := runCLIWithOptions(t, cliOptions{
+		workDir:           projectDir,
+		homeDir:           homeDir,
+		input:             input,
+		args:              []string{"init"},
+		skipTelemetrySeed: true,
+	})
+	if result.err != nil {
+		t.Fatalf("Run() error = %v\nstdout=%s\nstderr=%s", result.err, result.stdout, result.stderr)
+	}
+	if !strings.Contains(result.stdout, "Télémétrie désactivée") {
+		t.Fatalf("expected disabled-confirmation in stdout, got: %s", result.stdout)
+	}
+	if fs.TelemetryConsented() {
+		t.Fatal("TelemetryConsented should be false after answering 'n'")
+	}
+	if !fs.HasTelemetryDecision() {
+		t.Fatal("HasTelemetryDecision should be true after the prompt — refusal still counts as a decision")
+	}
+}
+
+func TestRunInit_FirstInit_DefaultIsRefuse(t *testing.T) {
+	homeDir := t.TempDir()
+	projectDir := t.TempDir()
+	server := httptest.NewServer(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		_, _ = w.Write([]byte(testCatalogMarkdown("| skill | alpha | skills | skills/alpha.md | Alpha |")))
+	}))
+	defer server.Close()
+	t.Setenv("STH_GITHUB_RAW_BASE_URL", server.URL)
+
+	// Empty answer at the telemetry prompt → default. Default must be "no" (opt-in only).
+	input := "\n\nowner/repo\n\n\n\n\n\n\n\n"
+	result := runCLIWithOptions(t, cliOptions{
+		workDir:           projectDir,
+		homeDir:           homeDir,
+		input:             input,
+		args:              []string{"init"},
+		skipTelemetrySeed: true,
+	})
+	if result.err != nil {
+		t.Fatalf("Run() error = %v", result.err)
+	}
+	if fs.TelemetryConsented() {
+		t.Fatal("Default answer should be refuse; got consented=true")
+	}
+}
+
+func TestRunInit_SecondInit_DoesNotRePromptTelemetry(t *testing.T) {
+	homeDir := t.TempDir()
+	projectDir := t.TempDir()
+	server := httptest.NewServer(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		_, _ = w.Write([]byte(testCatalogMarkdown("| skill | alpha | skills | skills/alpha.md | Alpha |")))
+	}))
+	defer server.Close()
+	t.Setenv("STH_GITHUB_RAW_BASE_URL", server.URL)
+
+	// Pre-seeded decision (default behavior of runCLIWithOptions) → no prompt.
+	// Input feeds only the wizard, not a telemetry answer.
+	input := "\nowner/repo\n\n\n\n\n\n\n\n"
+	result := runCLIWithInput(t, projectDir, homeDir, input, "init")
+	if result.err != nil {
+		t.Fatalf("Run() error = %v\nstdout=%s", result.err, result.stdout)
+	}
+	if strings.Contains(result.stdout, "Activer la télémétrie") {
+		t.Fatalf("telemetry prompt should not appear when decision exists; stdout=%s", result.stdout)
+	}
+}
+
+func TestRunInit_AlphaGate_RefusesSecondGitProvider(t *testing.T) {
+	homeDir := t.TempDir()
+	projectDir := t.TempDir()
+
+	// Existing project already has one Git provider.
+	writeProjectConfigV2ForTest(t, projectDir, fs.ProjectConfigV2{
+		SchemaVersion: 2,
+		Providers: []fs.ProviderEntry{
+			{ID: "first", Provider: "github", RepositoryID: "org/first", CatalogRef: "main", CatalogPath: "SKILLS.md", TargetDir: ".claude/skills"},
+		},
+		Resources: []fs.ResourceEntry{},
+	})
+
+	// y to "add new" — and the gate should fire immediately, no further prompts.
+	result := runCLIWithInput(t, projectDir, homeDir, "y\n", "init")
+	if result.err == nil {
+		t.Fatal("expected error from Alpha provider gate")
+	}
+	if !strings.Contains(result.err.Error(), "Alpha") {
+		t.Fatalf("expected Alpha-cap error, got: %v", result.err)
+	}
+	if !strings.Contains(result.stdout, "alphaLimits") {
+		t.Fatalf("expected docs link in stdout, got: %s", result.stdout)
+	}
+}
+
+func TestRunInit_AlphaGate_AllowsGitProviderAlongsideSthCloud(t *testing.T) {
+	homeDir := t.TempDir()
+	projectDir := t.TempDir()
+	server := httptest.NewServer(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		_, _ = w.Write([]byte(testCatalogMarkdown("| skill | alpha | skills | skills/alpha.md | Alpha |")))
+	}))
+	defer server.Close()
+	t.Setenv("STH_GITHUB_RAW_BASE_URL", server.URL)
+
+	// Existing project has sth-cloud (added by `sth login`). Alpha rule must
+	// still let the user add their first Git provider.
+	writeProjectConfigV2ForTest(t, projectDir, fs.ProjectConfigV2{
+		SchemaVersion: 2,
+		Providers: []fs.ProviderEntry{
+			{ID: "cloud", Provider: "sth-cloud", TargetDir: ".claude/skills"},
+		},
+		Resources: []fs.ResourceEntry{},
+	})
+
+	// New wizard flow: addNew, alias, provider, repo, ref, catalog, target,
+	// access=n (public), recap accept, recap accept.
+	input := "y\nfirst\ngithub\norg/first\nmain\nSKILLS.md\n.claude/skills\nn\n\n"
+	result := runCLIWithInput(t, projectDir, homeDir, input, "init")
+	if result.err != nil {
+		t.Fatalf("expected success — sth-cloud does not count, got: %v\nstdout=%s", result.err, result.stdout)
+	}
+	configPath := filepath.Join(projectDir, ".sth", "project.json")
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	var cfg fs.ProjectConfigV2
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		t.Fatalf("json.Unmarshal: %v", err)
+	}
+	if len(cfg.Providers) != 2 {
+		t.Fatalf("expected 2 providers (sth-cloud + first), got %d", len(cfg.Providers))
+	}
+}
+
+func TestRunInit_AlphaGate_Bypassed(t *testing.T) {
+	t.Setenv("STH_ALPHA_GATE", "0")
+	homeDir := t.TempDir()
+	projectDir := t.TempDir()
+	server := httptest.NewServer(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		_, _ = w.Write([]byte(testCatalogMarkdown("| skill | alpha | skills | skills/alpha.md | Alpha |")))
+	}))
+	defer server.Close()
+	t.Setenv("STH_GITHUB_RAW_BASE_URL", server.URL)
+
+	writeProjectConfigV2ForTest(t, projectDir, fs.ProjectConfigV2{
+		SchemaVersion: 2,
+		Providers: []fs.ProviderEntry{
+			{ID: "first", Provider: "github", RepositoryID: "org/first", CatalogRef: "main", CatalogPath: "SKILLS.md", TargetDir: ".claude/skills"},
+		},
+		Resources: []fs.ResourceEntry{},
+	})
+
+	// New wizard flow (same as the alias-prompt test above): addNew, alias,
+	// provider, repo, ref, catalog, target, access=n, recap accept, recap accept.
+	input := "y\nsecond\ngithub\norg/second\nmain\nSKILLS.md\n.claude/skills\nn\n\n"
+	result := runCLIWithInput(t, projectDir, homeDir, input, "init")
+	if result.err != nil {
+		t.Fatalf("expected bypass to allow second Git provider, got: %v", result.err)
 	}
 }
