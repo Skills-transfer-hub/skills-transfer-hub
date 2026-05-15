@@ -45,8 +45,15 @@ func UserSettingsPath() (string, error) {
 	return filepath.Join(filepath.Clean(baseDir), userSettingsDirName, userSettingsFileName), nil
 }
 
-// ReadUserSettings returns nil (without error) when the file does not exist —
-// the absence of settings is a valid state on a fresh install.
+// ReadUserSettings returns nil (without error) for absent, empty or malformed
+// files — every one of those states is treated as "no decision yet" by the
+// callers (HasTelemetryDecision, TelemetryConsented) so they can fall back to
+// the safe default (no telemetry, re-prompt at next sth init). Without this
+// tolerance a corrupt settings file would block sth init entirely.
+//
+// Real I/O errors (permission denied, etc.) still surface — those signal a
+// configuration problem the user needs to see, not a content issue we can
+// safely ignore.
 func ReadUserSettings() (*UserSettings, error) {
 	settingsPath, err := UserSettingsPath()
 	if err != nil {
@@ -59,9 +66,14 @@ func ReadUserSettings() (*UserSettings, error) {
 	if err != nil {
 		return nil, fmt.Errorf("lecture de %s échouée : %w", settingsPath, err)
 	}
+	if len(strings.TrimSpace(string(data))) == 0 {
+		return nil, nil
+	}
 	var s UserSettings
 	if err := json.Unmarshal(data, &s); err != nil {
-		return nil, fmt.Errorf("fichier de settings malformé (%s) : %w", settingsPath, err)
+		// Treat a malformed file as "no decision yet" — the wizard will simply
+		// re-prompt at next init and overwrite the file with a fresh, valid one.
+		return nil, nil
 	}
 	return &s, nil
 }

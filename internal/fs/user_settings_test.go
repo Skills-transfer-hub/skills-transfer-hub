@@ -112,7 +112,7 @@ func TestUserSettings_RoundTripPreservesUnknownFields(t *testing.T) {
 	}
 }
 
-func TestReadUserSettings_MalformedJSON(t *testing.T) {
+func TestReadUserSettings_MalformedJSONIsTolerated(t *testing.T) {
 	dir := withTempUserConfig(t)
 	settingsPath := filepath.Join(dir, "sth", "settings.json")
 	if err := os.MkdirAll(filepath.Dir(settingsPath), 0o755); err != nil {
@@ -121,10 +121,32 @@ func TestReadUserSettings_MalformedJSON(t *testing.T) {
 	if err := os.WriteFile(settingsPath, []byte("{not json"), 0o644); err != nil {
 		t.Fatalf("write: %v", err)
 	}
-	if _, err := ReadUserSettings(); err == nil {
-		t.Fatal("expected error on malformed JSON")
+	// A corrupt settings file must NOT block sth init — ReadUserSettings
+	// returns nil-nil so the wizard treats it as "no decision yet" and
+	// re-prompts. TelemetryConsented stays false (fail-closed).
+	got, err := ReadUserSettings()
+	if err != nil {
+		t.Fatalf("expected nil, nil on malformed JSON; got err=%v", err)
+	}
+	if got != nil {
+		t.Fatalf("expected nil settings on malformed JSON, got %+v", got)
 	}
 	if TelemetryConsented() {
-		t.Fatal("TelemetryConsented must be false (fail-closed) on read error")
+		t.Fatal("TelemetryConsented must be false (fail-closed) on malformed JSON")
+	}
+}
+
+func TestReadUserSettings_EmptyFileIsTolerated(t *testing.T) {
+	dir := withTempUserConfig(t)
+	settingsPath := filepath.Join(dir, "sth", "settings.json")
+	if err := os.MkdirAll(filepath.Dir(settingsPath), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(settingsPath, []byte("   \n\t"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	got, err := ReadUserSettings()
+	if err != nil || got != nil {
+		t.Fatalf("expected nil, nil on empty file; got %v / %v", got, err)
 	}
 }
