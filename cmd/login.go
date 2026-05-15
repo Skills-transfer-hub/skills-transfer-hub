@@ -119,6 +119,24 @@ func (a *app) promptAPIKey() (string, error) {
 	return strings.TrimSpace(line), nil
 }
 
+// findCloudProviderProfile returns the sth-cloud provider profile from the
+// given project config, plus a bool indicating whether one was found. Shared
+// helper used by reportCloudUsageBestEffort (cmd/root.go) and
+// runTelemetryOutput (cmd/telemetry.go) — both need the same lookup with the
+// same field selection.
+func findCloudProviderProfile(cfg fs.ProjectConfigV2) (fs.ProjectProfile, bool) {
+	for _, p := range cfg.Providers {
+		if strings.EqualFold(p.Provider, loginProviderName) {
+			return fs.ProjectProfile{
+				Provider:    p.Provider,
+				TargetDir:   p.TargetDir,
+				CatalogPath: p.CatalogPath,
+			}, true
+		}
+	}
+	return fs.ProjectProfile{}, false
+}
+
 // ensureCloudProviderEntry guarantees .sth/project.json has a sth-cloud
 // provider entry. Idempotent: if one already exists, we leave it alone.
 func ensureCloudProviderEntry() error {

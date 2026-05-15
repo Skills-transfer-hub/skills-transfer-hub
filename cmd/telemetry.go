@@ -104,19 +104,7 @@ func (a *app) runTelemetryOutput(args []string) error {
 	if err != nil {
 		return err
 	}
-	var profile fs.ProjectProfile
-	found := false
-	for _, p := range cfg.Providers {
-		if strings.EqualFold(p.Provider, loginProviderName) {
-			profile = fs.ProjectProfile{
-				Provider:    p.Provider,
-				TargetDir:   p.TargetDir,
-				CatalogPath: p.CatalogPath,
-			}
-			found = true
-			break
-		}
-	}
+	profile, found := findCloudProviderProfile(cfg)
 	if !found {
 		return fmt.Errorf("aucun provider sth-cloud configuré — lance `sth login` d'abord")
 	}
@@ -138,27 +126,32 @@ func (a *app) runTelemetryOutput(args []string) error {
 
 // parseTelemetryLimit reads `--limit=N` from the args. Defaults to 50 — small
 // enough to fit a typical terminal window without paging, large enough to spot
-// a recent burst of activity.
+// a recent burst of activity. Iterates the full args list so unknown trailing
+// flags surface a clear error instead of being silently ignored.
 func parseTelemetryLimit(args []string) (int, error) {
 	const defaultLimit = 50
+	limit := defaultLimit
+	seen := false
 	for _, a := range args {
-		if !strings.HasPrefix(a, "--limit") {
+		switch {
+		case a == "--limit":
+			return 0, fmt.Errorf("usage : --limit=N")
+		case strings.HasPrefix(a, "--limit="):
+			if seen {
+				return 0, fmt.Errorf("--limit ne peut être passé qu'une fois")
+			}
+			raw := strings.TrimPrefix(a, "--limit=")
+			n, err := strconv.Atoi(raw)
+			if err != nil || n <= 0 {
+				return 0, fmt.Errorf("--limit=N requiert un entier positif (reçu %q)", raw)
+			}
+			limit = n
+			seen = true
+		default:
 			return 0, fmt.Errorf("argument inattendu : %q", a)
 		}
-		var raw string
-		if a == "--limit" {
-			return 0, fmt.Errorf("usage : --limit=N")
-		}
-		if strings.HasPrefix(a, "--limit=") {
-			raw = strings.TrimPrefix(a, "--limit=")
-		}
-		n, err := strconv.Atoi(raw)
-		if err != nil || n <= 0 {
-			return 0, fmt.Errorf("--limit=N requiert un entier positif (reçu %q)", raw)
-		}
-		return n, nil
 	}
-	return defaultLimit, nil
+	return limit, nil
 }
 
 // formatTelemetryTable produces a compact terminal-friendly table. We don't

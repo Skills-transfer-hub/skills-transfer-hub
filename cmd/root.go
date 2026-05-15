@@ -416,19 +416,7 @@ func (a *app) reportCloudUsageBestEffort(command string) {
 	if err != nil || len(cfg.Providers) == 0 {
 		return
 	}
-	var profile sthfs.ProjectProfile
-	found := false
-	for _, p := range cfg.Providers {
-		if strings.EqualFold(p.Provider, "sth-cloud") {
-			profile = sthfs.ProjectProfile{
-				Provider:    p.Provider,
-				TargetDir:   p.TargetDir,
-				CatalogPath: p.CatalogPath,
-			}
-			found = true
-			break
-		}
-	}
+	profile, found := findCloudProviderProfile(cfg)
 	if !found {
 		return
 	}
