@@ -130,7 +130,8 @@ func (MultiStackScanner) Scan(tree []TreeEntry) ([]Artifact, error) {
 		return nil, fmt.Errorf("aucun artefact détecté dans l'arborescence du dépôt")
 	}
 
-	sort.SliceStable(artifacts, func(left, right int) bool {
+	// Total ordering on (Kind, Category, Name) — sort.Slice suffices.
+	sort.Slice(artifacts, func(left, right int) bool {
 		if artifacts[left].Kind != artifacts[right].Kind {
 			return string(artifacts[left].Kind) < string(artifacts[right].Kind)
 		}

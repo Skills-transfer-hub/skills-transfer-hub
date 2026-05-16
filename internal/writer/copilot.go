@@ -78,7 +78,7 @@ const minimalManagedMarker = "<!-- managed by sth -->\n"
 // Idempotent: re-applying it on already-marked content is a no-op.
 func applyMinimalManagedMarker(_ string, content []byte) []byte {
 	marker := []byte(minimalManagedMarker)
-	if bodyStart := frontmatterBodyOffset(content); bodyStart >= 0 {
+	if bodyStart := FrontmatterBodyOffset(content); bodyStart >= 0 {
 		if bytes.HasPrefix(content[bodyStart:], marker) {
 			return content
 		}

@@ -18,21 +18,19 @@ type DetectedTarget struct {
 
 // DetectAvailableTargets walks projectRoot for the conventional markers of
 // the four supported tools and returns one DetectedTarget per match.
-// Returns an empty slice (never nil-on-error) when projectRoot is unreadable;
+// Returns an empty slice (never nil) when projectRoot is empty or unreadable;
 // callers should fall back to a Claude-only default in that case.
 func DetectAvailableTargets(projectRoot string) []DetectedTarget {
-	if projectRoot == "" {
-		return nil
-	}
 	out := make([]DetectedTarget, 0, 4)
+	if projectRoot == "" {
+		return out
+	}
 
 	// Claude: presence of .claude/ directory OR a root CLAUDE.md.
-	if exists(filepath.Join(projectRoot, ".claude")) || exists(filepath.Join(projectRoot, "CLAUDE.md")) {
-		evidence := ".claude"
-		if !exists(filepath.Join(projectRoot, ".claude")) {
-			evidence = "CLAUDE.md"
-		}
-		out = append(out, DetectedTarget{Kind: "claude", RootDir: ".claude", Evidence: evidence})
+	if exists(filepath.Join(projectRoot, ".claude")) {
+		out = append(out, DetectedTarget{Kind: "claude", RootDir: ".claude", Evidence: ".claude"})
+	} else if exists(filepath.Join(projectRoot, "CLAUDE.md")) {
+		out = append(out, DetectedTarget{Kind: "claude", RootDir: ".claude", Evidence: "CLAUDE.md"})
 	}
 
 	// Copilot: only the conventional file or instructions directory counts —
