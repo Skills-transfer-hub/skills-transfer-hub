@@ -41,14 +41,7 @@ func (ClaudeWriter) Plan(artifactKind, artifactName, _ string, sources []string)
 	}
 	switch artifactKind {
 	case "skill":
-		files := make([]PlannedFile, 0, len(sources))
-		for _, source := range sources {
-			files = append(files, PlannedFile{
-				SourcePath:   source,
-				RelativePath: relForClaudeSkill(artifactName, source),
-			})
-		}
-		return PlanResult{Files: files}
+		return PlanResult{Files: relForClaudeSkillBundle(artifactName, sources)}
 	case "agent":
 		return PlanResult{Files: []PlannedFile{{SourcePath: sources[0], RelativePath: ".claude/agents/" + artifactName + ".md"}}}
 	case "command":
@@ -59,21 +52,66 @@ func (ClaudeWriter) Plan(artifactKind, artifactName, _ string, sources []string)
 	return PlanResult{Skipped: true, Reason: "unknown artifact kind: " + artifactKind}
 }
 
-// relForClaudeSkill maps an upstream source path under a skill bundle to
-// its Claude-Code on-disk relative path under .claude/skills/<name>/.
-// The historical layout keeps the skill folder name as the leaf; any extra
-// assets are nested below it preserving the upstream structure.
-func relForClaudeSkill(name, source string) string {
+// relForClaudeSkillBundle maps the upstream source paths of a skill bundle
+// to their Claude-Code on-disk relative paths under .claude/skills/<name>/.
+//
+// The whole subtree below the skill's source folder is preserved so that
+// `<src>/references/component-patterns.md` lands as
+// `.claude/skills/<name>/references/component-patterns.md` (and not
+// flattened to `.claude/skills/<name>/component-patterns.md` which would
+// collide on assets sharing a basename and silently break relative links
+// inside SKILL.md).
+//
+// The skill root is the directory containing the source path that ends in
+// "/SKILL.md". When no SKILL.md is present in sources (defensive: should
+// not happen for kind=skill) the longest common directory prefix is used.
+func relForClaudeSkillBundle(name string, sources []string) []PlannedFile {
 	base := ".claude/skills/" + name
-	// Keep the leaf path component(s) after the skill folder if any.
-	if idx := strings.LastIndex(source, "/"); idx >= 0 {
-		leaf := source[idx+1:]
-		if leaf == "SKILL.md" {
-			return base + "/SKILL.md"
+	skillRoot := skillBundleRoot(sources)
+	files := make([]PlannedFile, 0, len(sources))
+	for _, source := range sources {
+		rel := source
+		if skillRoot != "" && strings.HasPrefix(source, skillRoot+"/") {
+			rel = source[len(skillRoot)+1:]
+		} else if idx := strings.LastIndex(source, "/"); idx >= 0 {
+			rel = source[idx+1:]
 		}
-		return base + "/" + leaf
+		files = append(files, PlannedFile{
+			SourcePath:   source,
+			RelativePath: base + "/" + rel,
+		})
 	}
-	return base + "/" + source
+	return files
+}
+
+// skillBundleRoot returns the directory holding SKILL.md among sources, or
+// the longest common directory prefix as a fallback.
+func skillBundleRoot(sources []string) string {
+	for _, source := range sources {
+		if strings.HasSuffix(source, "/SKILL.md") {
+			return strings.TrimSuffix(source, "/SKILL.md")
+		}
+	}
+	if len(sources) == 0 {
+		return ""
+	}
+	// Fallback: longest common directory prefix.
+	prefix := sources[0]
+	if idx := strings.LastIndex(prefix, "/"); idx >= 0 {
+		prefix = prefix[:idx]
+	} else {
+		prefix = ""
+	}
+	for _, source := range sources[1:] {
+		for !strings.HasPrefix(source, prefix+"/") && source != prefix {
+			if idx := strings.LastIndex(prefix, "/"); idx >= 0 {
+				prefix = prefix[:idx]
+			} else {
+				return ""
+			}
+		}
+	}
+	return prefix
 }
 
 // Write materializes req on disk and returns the on-disk SHA-256.

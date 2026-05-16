@@ -113,6 +113,36 @@ func TestValidatePack_PassesForFreshScaffold(t *testing.T) {
 	}
 }
 
+func TestScaffoldPack_RefusesNonEmptyTarget(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "existing")
+	if err := os.MkdirAll(target, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(target, "README.md"), []byte("user file"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := scaffoldPack(target, "my-pack", packLayoutFlat); err == nil {
+		t.Fatal("scaffoldPack must refuse to write into a non-empty existing directory")
+	}
+	data, _ := os.ReadFile(filepath.Join(target, "README.md"))
+	if string(data) != "user file" {
+		t.Fatalf("existing user file was overwritten, got %q", string(data))
+	}
+}
+
+func TestScaffoldPack_AcceptsEmptyExistingTarget(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "empty")
+	if err := os.MkdirAll(target, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := scaffoldPack(target, "my-pack", packLayoutFlat); err != nil {
+		t.Fatalf("scaffoldPack should accept an empty existing directory, got %v", err)
+	}
+	mustExist(t, filepath.Join(target, "manifest.json"))
+}
+
 func TestValidatePack_FailsWhenManifestMissing(t *testing.T) {
 	dir := t.TempDir()
 	if err := scaffoldPack(dir, "x", packLayoutFlat); err != nil {

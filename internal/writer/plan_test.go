@@ -92,13 +92,27 @@ func TestClaude_SkillKeepsAssetsUnderSkillDir(t *testing.T) {
 	got := ClaudeWriter{}.Plan("skill", "form-wizard", "", []string{
 		"react/form-wizard/SKILL.md",
 		"react/form-wizard/references/component-patterns.md",
+		"react/form-wizard/references/mcp-tools.md",
 	})
-	if len(got.Files) != 2 {
-		t.Fatalf("want 2 planned files, got %d", len(got.Files))
+	if len(got.Files) != 3 {
+		t.Fatalf("want 3 planned files, got %d", len(got.Files))
+	}
+	// The subtree under the skill folder (here: references/) MUST be
+	// preserved verbatim — flattening would collide assets sharing a
+	// basename and break relative links inside SKILL.md.
+	wantByRel := map[string]string{
+		"react/form-wizard/SKILL.md":                          ".claude/skills/form-wizard/SKILL.md",
+		"react/form-wizard/references/component-patterns.md":  ".claude/skills/form-wizard/references/component-patterns.md",
+		"react/form-wizard/references/mcp-tools.md":           ".claude/skills/form-wizard/references/mcp-tools.md",
 	}
 	for _, f := range got.Files {
-		if !startsWith(f.RelativePath, ".claude/skills/form-wizard/") {
-			t.Errorf("file %q not under .claude/skills/form-wizard/", f.RelativePath)
+		want, ok := wantByRel[f.SourcePath]
+		if !ok {
+			t.Errorf("unexpected source path %q", f.SourcePath)
+			continue
+		}
+		if f.RelativePath != want {
+			t.Errorf("source %q: got %q, want %q", f.SourcePath, f.RelativePath, want)
 		}
 	}
 }

@@ -106,7 +106,17 @@ func isValidPackName(name string) bool {
 }
 
 // scaffoldPack writes the seed file tree for the chosen layout.
+//
+// Refuses to write into a non-empty existing directory so an accidental
+// `sth pack init` inside a real project does not silently overwrite
+// SKILLS.md / README.md / sample-skill files. The caller can either
+// pick a fresh path or empty the directory first; we intentionally do
+// NOT offer a --force flag here — recovering from a destroyed README is
+// expensive and the user has time to delete one folder.
 func scaffoldPack(targetDir, name, layout string) error {
+	if entries, err := os.ReadDir(targetDir); err == nil && len(entries) > 0 {
+		return fmt.Errorf("le dossier cible %s existe déjà et n'est pas vide ; choisis un chemin neuf ou vide-le d'abord", targetDir)
+	}
 	if err := os.MkdirAll(targetDir, 0o755); err != nil {
 		return fmt.Errorf("création de %s échouée : %w", targetDir, err)
 	}
