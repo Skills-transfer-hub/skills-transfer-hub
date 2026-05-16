@@ -90,10 +90,13 @@ func splitSkillEntrypoint(resourcePath string) (string, string, error) {
 }
 
 // catalogEntriesFromRepositoryTree adapts a repository tree listing to the
-// historical CatalogEntry format by running the flat-skill scanner.
-// New scanners are wired in via runScannerOnTree in PR4.
+// historical CatalogEntry format. The scanner is chosen by PickScanner:
+// when an explicit hint is empty we autodetect (multi-stack repos win when
+// detected, flat is the fallback). Hint persistence lands in PR5/6 alongside
+// the init wizard rework.
 func catalogEntriesFromRepositoryTree(entries []repositoryTreeEntry) ([]fs.CatalogEntry, error) {
-	artifacts, err := scanner.FlatSkillScanner{}.Scan(toScannerTree(entries))
+	tree := toScannerTree(entries)
+	artifacts, err := scanner.PickScanner(tree, "").Scan(tree)
 	if err != nil {
 		return nil, err
 	}
@@ -111,16 +114,36 @@ func toScannerTree(entries []repositoryTreeEntry) []scanner.TreeEntry {
 func artifactsToCatalogEntries(artifacts []scanner.Artifact) []fs.CatalogEntry {
 	results := make([]fs.CatalogEntry, 0, len(artifacts))
 	for _, art := range artifacts {
+		resourceType := resourceTypeForKind(art.Kind)
 		results = append(results, fs.CatalogEntry{
-			CatalogID:    fs.CatalogID("bundle", art.Category, art.Name),
-			ResourceType: "bundle",
+			CatalogID:    fs.CatalogID(resourceType, art.Category, art.Name),
+			ResourceType: resourceType,
 			Name:         art.Name,
 			FolderName:   art.Category,
 			SourcePath:   art.Entrypoint,
 			Description:  "Découvert via la structure du dépôt",
+			ArtifactKind: string(art.Kind),
+			Lang:         art.Lang,
+			AppliesTo:    art.AppliesTo,
 		})
 	}
 	return results
+}
+
+// resourceTypeForKind maps a scanner ArtifactKind to the legacy ResourceType
+// used in catalog files. Skills keep the historical "bundle" value so any
+// already-installed flat skill stays addressable; the other kinds get their
+// own type, which keeps catalog IDs unique per kind.
+func resourceTypeForKind(kind scanner.ArtifactKind) string {
+	switch kind {
+	case scanner.KindAgent:
+		return "agent"
+	case scanner.KindCommand:
+		return "command"
+	case scanner.KindInstruction:
+		return "instruction"
+	}
+	return "bundle"
 }
 
 func isRepositoryFileEntry(entryType string) bool {
