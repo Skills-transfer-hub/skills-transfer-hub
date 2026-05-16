@@ -27,8 +27,14 @@ type TelemetrySettings struct {
 // UserSettings is the durable preferences blob stored at
 // os.UserConfigDir()/sth/settings.json. It is user-scoped (not project-scoped)
 // because consent travels with the human, not the repo.
+//
+// ProActive / ProCheckedAt cache the result of the Pro entitlement check
+// driven by `cmd/pro_gate.go`. Both are omitempty so legacy settings files
+// (telemetry-only) round-trip unchanged.
 type UserSettings struct {
-	Telemetry TelemetrySettings `json:"telemetry"`
+	Telemetry    TelemetrySettings `json:"telemetry"`
+	ProActive    bool              `json:"pro_active,omitempty"`
+	ProCheckedAt time.Time         `json:"pro_checked_at,omitempty"`
 }
 
 // UserSettingsPath returns the absolute path of the settings file, applying

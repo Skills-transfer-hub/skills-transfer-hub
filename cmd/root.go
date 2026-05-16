@@ -180,6 +180,19 @@ var commandCatalog = []commandSpec{
 			"sth completion powershell",
 		},
 	},
+	{
+		name:    "pack",
+		usage:   "sth pack init",
+		summary: "Scaffolde un repo de skills compatible STH (Pro)",
+		details: []string{
+			"Disponible sur l'offre Pro. STH_PRO_GATE=0 active la commande en local pour le développement.",
+			"Deux layouts proposés : flat (anthropics/skills) et multi-stack (skills + agents + commands + instructions, à la Lore.Skills).",
+			"Le manifest.json racine sert d'heuristique forte au MultiStackScanner pour les consommateurs.",
+		},
+		examples: []string{
+			"sth pack init",
+		},
+	},
 }
 
 type app struct {
@@ -374,6 +387,8 @@ func (a *app) run(args []string) error {
 			return nil
 		}
 		err = a.runCompletion(args[1:])
+	case "pack":
+		err = a.runPack(args[1:])
 	case "--help", "-h":
 		a.writeStdout(helpText())
 		return nil
