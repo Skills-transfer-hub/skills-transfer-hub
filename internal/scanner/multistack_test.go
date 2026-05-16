@@ -181,3 +181,46 @@ func TestExtractFrontmatter_BracketedGlobList(t *testing.T) {
 		t.Errorf("bracketed globs not parsed, got %v", fm.ApplyTo)
 	}
 }
+
+func TestExtractFrontmatter_CRLFLineEndings(t *testing.T) {
+	// Regression: bufio.Scanner strips CRLF and LF identically, so a fixed
+	// `+1` per line drifts the offset by one byte per CRLF line and
+	// truncates the extracted block (or misses the closing fence on small
+	// files). Manual bytes.IndexByte walk fixes both.
+	content := []byte("---\r\nname: crlf-skill\r\ndescription: Windows-edited file\r\n---\r\nbody\r\n")
+	fm, ok := ExtractFrontmatter(content)
+	if !ok {
+		t.Fatal("frontmatter must be detected even on CRLF-terminated files")
+	}
+	if fm.Name != "crlf-skill" {
+		t.Errorf("Name = %q, want crlf-skill", fm.Name)
+	}
+	if fm.Description != "Windows-edited file" {
+		t.Errorf("Description = %q", fm.Description)
+	}
+}
+
+func TestInferSkillLang_HeuristicCases(t *testing.T) {
+	cases := []struct {
+		path string
+		want string
+	}{
+		{"react/form-wizard/SKILL.md", ""},               // no lang container, category=react
+		{"skills/react/form-wizard/SKILL.md", "react"},   // skips "skills"
+		{"agents/react/code-reviewer/SKILL.md", "react"}, // skips "agents"
+		{"common/git-hooks/SKILL.md", ""},                // "common" is not a lang
+		{"skills/form-wizard/SKILL.md", ""},              // no lang under "skills"
+		{"angular/angular-component/SKILL.md", ""},       // category equals top, no lang
+	}
+	for _, tc := range cases {
+		t.Run(tc.path, func(t *testing.T) {
+			art, ok := skillFromPath(tc.path)
+			if !ok {
+				t.Fatalf("skillFromPath returned !ok for %q", tc.path)
+			}
+			if art.Lang != tc.want {
+				t.Errorf("Lang = %q, want %q", art.Lang, tc.want)
+			}
+		})
+	}
+}

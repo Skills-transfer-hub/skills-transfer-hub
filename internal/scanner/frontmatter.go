@@ -1,7 +1,6 @@
 package scanner
 
 import (
-	"bufio"
 	"bytes"
 	"strings"
 )
@@ -38,19 +37,31 @@ func ExtractFrontmatter(content []byte) (Frontmatter, bool) {
 		return Frontmatter{}, false
 	}
 
+	// Manual scan over body so the byte offset stays correct under both LF
+	// and CRLF (bufio.Scanner strips both terminators identically, which
+	// makes a fixed `+1` offset drift on CRLF files). Also avoids the 64KB
+	// line-length cap bufio.Scanner ships with by default.
 	body := rest[openLen:]
 	end := -1
-	scanner := bufio.NewScanner(bytes.NewReader(body))
-	scanner.Buffer(make([]byte, 0, 4096), 64*1024)
-	offset := 0
-	for scanner.Scan() {
-		line := scanner.Bytes()
-		trimmed := bytes.TrimRight(line, "\r")
-		if bytes.Equal(trimmed, []byte("---")) {
+	for offset := 0; offset < len(body); {
+		nl := bytes.IndexByte(body[offset:], '\n')
+		var line []byte
+		var nextOffset int
+		if nl == -1 {
+			line = body[offset:]
+			nextOffset = len(body)
+		} else {
+			line = body[offset : offset+nl]
+			nextOffset = offset + nl + 1
+		}
+		if bytes.Equal(bytes.TrimRight(line, "\r"), []byte("---")) {
 			end = offset
 			break
 		}
-		offset += len(line) + 1
+		if nl == -1 {
+			break
+		}
+		offset = nextOffset
 	}
 	if end < 0 {
 		return Frontmatter{}, false

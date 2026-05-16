@@ -62,7 +62,7 @@ func applyClaudeManagedHeader(installedPath string, content []byte) []byte {
 
 	header := []byte(ClaudeManagedHeader)
 
-	if bodyStart := frontmatterBodyOffset(content); bodyStart >= 0 {
+	if bodyStart := FrontmatterBodyOffset(content); bodyStart >= 0 {
 		if bytes.HasPrefix(content[bodyStart:], header) {
 			return content
 		}
@@ -79,11 +79,14 @@ func applyClaudeManagedHeader(installedPath string, content []byte) []byte {
 	return append(header, content...)
 }
 
-// frontmatterBodyOffset returns the byte offset of the body (i.e. the index
+// FrontmatterBodyOffset returns the byte offset of the body (i.e. the index
 // just past the closing `---` line and its terminating newline) when content
 // starts with a YAML frontmatter block. Returns -1 when there is no
 // frontmatter. Tolerates an optional UTF-8 BOM and both LF and CRLF.
-func frontmatterBodyOffset(content []byte) int {
+//
+// Exported so the fs package can drop its own private copy and route
+// through the single implementation.
+func FrontmatterBodyOffset(content []byte) int {
 	bomLen := 0
 	if bytes.HasPrefix(content, []byte{0xEF, 0xBB, 0xBF}) {
 		bomLen = 3

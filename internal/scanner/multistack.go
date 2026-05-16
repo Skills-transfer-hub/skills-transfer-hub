@@ -156,18 +156,55 @@ func skillFromPath(p string) (Artifact, bool) {
 	if name == "" || category == "" {
 		return Artifact{}, false
 	}
-	lang := parts[0]
-	if lang == name || lang == category {
-		lang = ""
-	}
 	return Artifact{
 		Kind:       KindSkill,
 		Name:       name,
 		Category:   category,
-		Lang:       lang,
+		Lang:       inferSkillLang(parts),
 		Files:      []string{p},
 		Entrypoint: p,
 	}, true
+}
+
+// inferSkillLang picks the language container for a skill path, skipping
+// conventional non-language containers ("skills", "agents", "commands",
+// "common") and never returning the skill's own name or category as a lang.
+//
+//	react/form-wizard/SKILL.md         -> ""        (no lang container, category="react")
+//	skills/react/form-wizard/SKILL.md  -> "react"   (skips "skills")
+//	common/git-hooks/SKILL.md          -> ""        ("common" is not a lang)
+//	skills/form-wizard/SKILL.md        -> ""        (no lang under "skills")
+func inferSkillLang(parts []string) string {
+	if len(parts) < 3 {
+		return ""
+	}
+	head := parts[0]
+	if isConventionalContainer(head) {
+		// Look one level deeper for the lang, but only if there is still a
+		// distinct skill folder beyond it.
+		if len(parts) >= 4 && !isConventionalContainer(parts[1]) {
+			candidate := parts[1]
+			if candidate == parts[len(parts)-2] {
+				return ""
+			}
+			return candidate
+		}
+		return ""
+	}
+	// head is the lang only when there are at least two segments between it
+	// and SKILL.md (i.e. head/<skillFolder>/SKILL.md has no lang container).
+	if len(parts) <= 3 {
+		return ""
+	}
+	return head
+}
+
+func isConventionalContainer(name string) bool {
+	switch name {
+	case "skills", "agents", "commands", "common":
+		return true
+	}
+	return false
 }
 
 // commandsWithSkillDir returns the set of <name> for which a

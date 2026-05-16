@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"strings"
 	"testing"
+
+	"sth/internal/writer"
 )
 
 func TestAddManagedHeader_NoFrontmatter_PrependsHeader(t *testing.T) {
@@ -147,7 +149,7 @@ func TestFrontmatterBodyOffset_NoMatch(t *testing.T) {
 		[]byte("---\nname: foo\n"), // unclosed
 	}
 	for i, c := range cases {
-		if got := frontmatterBodyOffset(c); got >= 0 {
+		if got := writer.FrontmatterBodyOffset(c); got >= 0 {
 			t.Errorf("case %d: expected -1, got %d", i, got)
 		}
 	}
@@ -158,7 +160,7 @@ func TestFrontmatterBodyOffset_MatchPositions(t *testing.T) {
 	//  0   4         13   17  22
 	// Closing "---\n" ends at offset 17+4=21
 	in := []byte("---\nname: foo\n---\nbody\n")
-	got := frontmatterBodyOffset(in)
+	got := writer.FrontmatterBodyOffset(in)
 	want := bytes.Index(in, []byte("body\n"))
 	if got != want {
 		t.Fatalf("frontmatterBodyOffset = %d, want %d (start of body)", got, want)

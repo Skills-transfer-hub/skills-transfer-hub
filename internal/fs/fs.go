@@ -919,7 +919,7 @@ func addManagedHeaderIfMarkdown(installedPath string, content []byte) []byte {
 
 	headerBytes := []byte(skillHeader)
 
-	if bodyStart := frontmatterBodyOffset(content); bodyStart >= 0 {
+	if bodyStart := writer.FrontmatterBodyOffset(content); bodyStart >= 0 {
 		// File has YAML frontmatter (e.g. SKILL.md). Claude requires the
 		// frontmatter on line 1, so we inject the STH warning *after* the
 		// closing `---` instead of prepending it.
@@ -939,50 +939,8 @@ func addManagedHeaderIfMarkdown(installedPath string, content []byte) []byte {
 	return append(headerBytes, content...)
 }
 
-// frontmatterBodyOffset returns the byte offset of the body (i.e. the index
-// just past the closing `---` line and its terminating newline) when content
-// starts with a YAML frontmatter block. It returns -1 when there is no
-// frontmatter. The detection tolerates an optional UTF-8 BOM and both LF and
-// CRLF line endings, but requires the closing `---` to appear on its own line.
-func frontmatterBodyOffset(content []byte) int {
-	bomLen := 0
-	if bytes.HasPrefix(content, []byte{0xEF, 0xBB, 0xBF}) {
-		bomLen = 3
-	}
-	rest := content[bomLen:]
-
-	var openLen int
-	switch {
-	case bytes.HasPrefix(rest, []byte("---\n")):
-		openLen = 4
-	case bytes.HasPrefix(rest, []byte("---\r\n")):
-		openLen = 5
-	default:
-		return -1
-	}
-
-	body := rest[openLen:]
-	for offset := 0; offset <= len(body); {
-		nl := bytes.IndexByte(body[offset:], '\n')
-		var line []byte
-		var nextOffset int
-		if nl == -1 {
-			line = body[offset:]
-			nextOffset = len(body)
-		} else {
-			line = body[offset : offset+nl]
-			nextOffset = offset + nl + 1
-		}
-		if bytes.Equal(bytes.TrimRight(line, "\r"), []byte("---")) {
-			return bomLen + openLen + nextOffset
-		}
-		if nl == -1 {
-			break
-		}
-		offset = nextOffset
-	}
-	return -1
-}
+// (frontmatterBodyOffset moved to internal/writer.FrontmatterBodyOffset
+// so the writer package owns the single source of truth.)
 
 func validateConfig(cfg Config) error {
 	if strings.TrimSpace(cfg.RepoRawURL) == "" {
