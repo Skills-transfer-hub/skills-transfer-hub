@@ -59,13 +59,22 @@ type ProjectProfile struct {
 }
 
 // CatalogEntry describes one installable resource from SKILLS.md.
+//
+// ArtifactKind, SourceKind, AppliesTo and Lang are PR3+ extensions for
+// multi-source / multi-target discovery. They are omitempty so legacy
+// catalog files stay untouched on round-trip; empty ArtifactKind is
+// interpreted as "skill" by downstream consumers.
 type CatalogEntry struct {
-	CatalogID    string `json:"catalog_id"`
-	ResourceType string `json:"resource_type"`
-	Name         string `json:"name"`
-	FolderName   string `json:"folder_name"`
-	SourcePath   string `json:"source_path"`
-	Description  string `json:"description,omitempty"`
+	CatalogID    string   `json:"catalog_id"`
+	ResourceType string   `json:"resource_type"`
+	Name         string   `json:"name"`
+	FolderName   string   `json:"folder_name"`
+	SourcePath   string   `json:"source_path"`
+	Description  string   `json:"description,omitempty"`
+	ArtifactKind string   `json:"artifact_kind,omitempty"`
+	SourceKind   string   `json:"source_kind,omitempty"`
+	AppliesTo    []string `json:"applies_to,omitempty"`
+	Lang         string   `json:"lang,omitempty"`
 }
 
 // ManagedFileRecord describes one file owned by a managed bundle installation.
