@@ -37,8 +37,10 @@ func TestRunTelemetry_Status_WhenConsented(t *testing.T) {
 	if result.err != nil {
 		t.Fatalf("Run() error = %v", result.err)
 	}
-	if !strings.Contains(result.stdout, "activée") {
-		t.Fatalf("expected 'activée' in stdout, got: %s", result.stdout)
+	// Legacy SetTelemetryConsent(true) maps to anonymous mode; status now
+	// reports the mode by name rather than the binary "activée".
+	if !strings.Contains(result.stdout, "mode anonymous") {
+		t.Fatalf("expected 'mode anonymous' in stdout, got: %s", result.stdout)
 	}
 	if !strings.Contains(result.stdout, "v9.9.9") {
 		t.Fatalf("expected CLI version in stdout, got: %s", result.stdout)
@@ -46,6 +48,8 @@ func TestRunTelemetry_Status_WhenConsented(t *testing.T) {
 }
 
 func TestRunTelemetry_On_PersistsConsent(t *testing.T) {
+	// `on` is the deprecated alias for `anon`; the new confirmation wording
+	// reflects the actual mode that gets persisted.
 	result := runCLIWithOptions(t, cliOptions{
 		args:              []string{"telemetry", "on"},
 		skipTelemetrySeed: true,
@@ -53,11 +57,14 @@ func TestRunTelemetry_On_PersistsConsent(t *testing.T) {
 	if result.err != nil {
 		t.Fatalf("Run() error = %v", result.err)
 	}
-	if !strings.Contains(result.stdout, "Télémétrie activée") {
-		t.Fatalf("expected confirmation in stdout, got: %s", result.stdout)
+	if !strings.Contains(result.stdout, "anonyme activée") {
+		t.Fatalf("expected 'anonyme activée' in stdout, got: %s", result.stdout)
 	}
-	if !fs.TelemetryConsented() {
-		t.Fatal("TelemetryConsented should be true after `sth telemetry on`")
+	if !strings.Contains(result.stderr, "déprécié") {
+		t.Fatalf("expected deprecation warning in stderr, got: %s", result.stderr)
+	}
+	if fs.TelemetryModeActive() != fs.TelemetryAnonymous {
+		t.Fatalf("mode = %q, want anonymous after `sth telemetry on`", fs.TelemetryModeActive())
 	}
 }
 

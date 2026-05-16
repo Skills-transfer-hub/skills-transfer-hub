@@ -706,7 +706,7 @@ func TestRun_initAcceptsRepositoryURL(t *testing.T) {
 // Telemetry consent + Alpha provider gate
 // ─────────────────────────────────────────────────────────────────────────────
 
-func TestRunInit_FirstInit_PromptsTelemetryConsent_AcceptedY(t *testing.T) {
+func TestRunInit_FirstInit_PromptsTelemetryConsent_AcceptedAnonymous(t *testing.T) {
 	homeDir := t.TempDir()
 	projectDir := t.TempDir()
 	server := httptest.NewServer(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
@@ -715,34 +715,33 @@ func TestRunInit_FirstInit_PromptsTelemetryConsent_AcceptedY(t *testing.T) {
 	defer server.Close()
 	t.Setenv("STH_GITHUB_RAW_BASE_URL", server.URL)
 
-	// First input is the telemetry answer; the rest are the regular wizard
-	// defaults followed by owner/repo and four empty lines.
-	// First input is the telemetry answer; the rest match the new wizard flow
-	// (see TestRun_initCreatesProjectProfile): provider, repo, ref, catalog,
-	// target, access, details, token, recap.
-	input := "y\n\nowner/repo\n\n\n\n\n\n\n\n"
+	// First input is the telemetry menu choice ("2" = anonymous). Mode 2 does
+	// not trigger the cloud-login sub-prompt, so the rest of the input goes
+	// straight into the wizard provider flow (defaults + owner/repo + ...).
+	input := "2\n\nowner/repo\n\n\n\n\n\n\n\n"
 	result := runCLIWithOptions(t, cliOptions{
 		workDir:           projectDir,
 		homeDir:           homeDir,
 		input:             input,
 		args:              []string{"init"},
 		skipTelemetrySeed: true,
+		interactive:       func() bool { return true },
 	})
 	if result.err != nil {
 		t.Fatalf("Run() error = %v\nstdout=%s\nstderr=%s", result.err, result.stdout, result.stderr)
 	}
-	if !strings.Contains(result.stdout, "Activer la télémétrie") {
-		t.Fatalf("expected telemetry prompt in stdout, got: %s", result.stdout)
+	if !strings.Contains(result.stdout, "Comment veux-tu contribuer") {
+		t.Fatalf("expected telemetry menu in stdout, got: %s", result.stdout)
 	}
-	if !strings.Contains(result.stdout, "Télémétrie activée") {
-		t.Fatalf("expected enabled-confirmation in stdout, got: %s", result.stdout)
+	if !strings.Contains(result.stdout, "anonyme activée") {
+		t.Fatalf("expected anonymous-confirmation in stdout, got: %s", result.stdout)
 	}
-	if !fs.TelemetryConsented() {
-		t.Fatal("TelemetryConsented should be true after answering 'y'")
+	if fs.TelemetryModeActive() != fs.TelemetryAnonymous {
+		t.Fatalf("mode = %q, want anonymous", fs.TelemetryModeActive())
 	}
 }
 
-func TestRunInit_FirstInit_PromptsTelemetryConsent_RefusedN(t *testing.T) {
+func TestRunInit_FirstInit_PromptsTelemetryConsent_RefusedOff(t *testing.T) {
 	homeDir := t.TempDir()
 	projectDir := t.TempDir()
 	server := httptest.NewServer(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
@@ -751,13 +750,15 @@ func TestRunInit_FirstInit_PromptsTelemetryConsent_RefusedN(t *testing.T) {
 	defer server.Close()
 	t.Setenv("STH_GITHUB_RAW_BASE_URL", server.URL)
 
-	input := "n\n\nowner/repo\n\n\n\n\n\n\n\n"
+	// "1" = off.
+	input := "1\n\nowner/repo\n\n\n\n\n\n\n\n"
 	result := runCLIWithOptions(t, cliOptions{
 		workDir:           projectDir,
 		homeDir:           homeDir,
 		input:             input,
 		args:              []string{"init"},
 		skipTelemetrySeed: true,
+		interactive:       func() bool { return true },
 	})
 	if result.err != nil {
 		t.Fatalf("Run() error = %v\nstdout=%s\nstderr=%s", result.err, result.stdout, result.stderr)
@@ -766,14 +767,17 @@ func TestRunInit_FirstInit_PromptsTelemetryConsent_RefusedN(t *testing.T) {
 		t.Fatalf("expected disabled-confirmation in stdout, got: %s", result.stdout)
 	}
 	if fs.TelemetryConsented() {
-		t.Fatal("TelemetryConsented should be false after answering 'n'")
+		t.Fatal("TelemetryConsented should be false after answering 1 (off)")
 	}
 	if !fs.HasTelemetryDecision() {
 		t.Fatal("HasTelemetryDecision should be true after the prompt — refusal still counts as a decision")
 	}
 }
 
-func TestRunInit_FirstInit_DefaultIsRefuse(t *testing.T) {
+// --no-cloud-prompt must skip the cloud-login sub-prompt even when the user
+// picks telemetry mode = connected. Mode stays "connected" — but no key is
+// requested (the user can run `sth login` later).
+func TestRunInit_NoCloudPromptFlag_SkipsLoginSubprompt(t *testing.T) {
 	homeDir := t.TempDir()
 	projectDir := t.TempDir()
 	server := httptest.NewServer(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
@@ -782,7 +786,39 @@ func TestRunInit_FirstInit_DefaultIsRefuse(t *testing.T) {
 	defer server.Close()
 	t.Setenv("STH_GITHUB_RAW_BASE_URL", server.URL)
 
-	// Empty answer at the telemetry prompt → default. Default must be "no" (opt-in only).
+	// "3\n" picks connected; without --no-cloud-prompt the next prompt would
+	// be the y/N cloud-login. With the flag, the wizard jumps straight to
+	// the provider questions.
+	input := "3\n\nowner/repo\n\n\n\n\n\n\n\n"
+	result := runCLIWithOptions(t, cliOptions{
+		workDir:           projectDir,
+		homeDir:           homeDir,
+		input:             input,
+		args:              []string{"init", "--no-cloud-prompt"},
+		skipTelemetrySeed: true,
+		interactive:       func() bool { return true },
+	})
+	if result.err != nil {
+		t.Fatalf("Run() error = %v\nSTDOUT:\n%s\nSTDERR:\n%s", result.err, result.stdout, result.stderr)
+	}
+	if strings.Contains(result.stdout, "Se connecter à STH Cloud") {
+		t.Fatalf("--no-cloud-prompt must skip the login sub-prompt; got:\n%s", result.stdout)
+	}
+	if fs.TelemetryModeActive() != fs.TelemetryConnected {
+		t.Fatalf("mode = %q, want connected", fs.TelemetryModeActive())
+	}
+}
+
+func TestRunInit_FirstInit_DefaultIsOff(t *testing.T) {
+	homeDir := t.TempDir()
+	projectDir := t.TempDir()
+	server := httptest.NewServer(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		_, _ = w.Write([]byte(testCatalogMarkdown("| skill | alpha | skills | skills/alpha.md | Alpha |")))
+	}))
+	defer server.Close()
+	t.Setenv("STH_GITHUB_RAW_BASE_URL", server.URL)
+
+	// Empty answer at the menu → default "1" (off). Alpha is opt-in.
 	input := "\n\nowner/repo\n\n\n\n\n\n\n\n"
 	result := runCLIWithOptions(t, cliOptions{
 		workDir:           projectDir,
@@ -790,12 +826,13 @@ func TestRunInit_FirstInit_DefaultIsRefuse(t *testing.T) {
 		input:             input,
 		args:              []string{"init"},
 		skipTelemetrySeed: true,
+		interactive:       func() bool { return true },
 	})
 	if result.err != nil {
-		t.Fatalf("Run() error = %v", result.err)
+		t.Fatalf("Run() error = %v\nSTDOUT:\n%s\nSTDERR:\n%s", result.err, result.stdout, result.stderr)
 	}
 	if fs.TelemetryConsented() {
-		t.Fatal("Default answer should be refuse; got consented=true")
+		t.Fatal("Default answer should be off; got consented=true")
 	}
 }
 

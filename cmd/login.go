@@ -21,8 +21,9 @@ const (
 )
 
 // runLogin prompts for an API key, validates it via /v1/access-check, persists
-// it in the OS keychain, and ensures a `sth-cloud` provider entry exists
-// in .sth/project.json.
+// it in the OS keychain, ensures a `sth-cloud` provider entry exists in
+// .sth/project.json, and switches telemetry to connected mode so the user's
+// dashboard starts filling on the next command.
 func (a *app) runLogin(args []string) error {
 	if len(args) > 0 && isHelpFlag(args[0]) {
 		a.writeStdout(loginHelpText())
@@ -32,11 +33,18 @@ func (a *app) runLogin(args []string) error {
 		return fmt.Errorf("usage : sth login [<api-key>]")
 	}
 
+	// Surface the mode transition up front when the user was running in
+	// anonymous mode — they should know `sth login` is what flips them to
+	// connected so their dashboard becomes populated.
+	if fs.TelemetryModeActive() == fs.TelemetryAnonymous {
+		a.writeStdout("Tu es actuellement en mode anonyme. `sth login` va passer en mode connecté.")
+	}
+
 	var key string
 	if len(args) == 1 {
 		key = strings.TrimSpace(args[0])
 	} else {
-		k, err := a.promptAPIKey()
+		k, err := a.promptAPIKey(nil)
 		if err != nil {
 			return err
 		}
@@ -68,6 +76,13 @@ func (a *app) runLogin(args []string) error {
 		a.writeStderr(fmt.Sprintf("Avertissement : configuration projet non écrite : %v", err))
 	}
 
+	// Auto-promote to connected mode: a successful login is a strong opt-in
+	// signal. If the user was anonymous they now get their dashboard; if they
+	// were off and still ran `sth login` they probably want telemetry on.
+	if _, modeErr := fs.SetTelemetryMode(fs.TelemetryConnected, valueOrDefault(version, "dev")); modeErr != nil {
+		a.writeStderr(fmt.Sprintf("Avertissement : mode télémétrie non basculé : %v", modeErr))
+	}
+
 	a.writeStdout(
 		fmt.Sprintf("Connecté à %s (plan %s, expire le %s).", resp.Org.Name, resp.Plan, resp.ExpiresAt),
 		"Clé stockée dans le keychain de l'OS.",
@@ -94,7 +109,12 @@ func (a *app) runLogout(args []string) error {
 // promptAPIKey reads the key from stdin. When stdin is a terminal we use
 // term.ReadPassword so the key isn't echoed (no shell history, no shoulder
 // surfing). Non-TTY stdin (CI, tests, piping) falls back to a line reader.
-func (a *app) promptAPIKey() (string, error) {
+//
+// Pass an already-buffered *bufio.Reader (from the enclosing wizard) so the
+// fallback path shares one buffer with the rest of the wizard and lines
+// stay in order. Pass nil to let promptAPIKey allocate its own reader (the
+// historical behavior for the stand-alone `sth login` command).
+func (a *app) promptAPIKey(reader *bufio.Reader) (string, error) {
 	a.writeStdout("Colle ta clé STH Cloud (lsk_live_…) puis Entrée :")
 
 	if f, ok := a.stdin.(*os.File); ok {
@@ -111,7 +131,9 @@ func (a *app) promptAPIKey() (string, error) {
 		}
 	}
 
-	reader := bufio.NewReader(a.stdin)
+	if reader == nil {
+		reader = bufio.NewReader(a.stdin)
+	}
 	line, err := reader.ReadString('\n')
 	if err != nil {
 		return "", fmt.Errorf("lecture clé échouée : %w", err)
