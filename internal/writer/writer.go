@@ -27,8 +27,35 @@ type WriteResult struct {
 	SHA256 string // hex digest of the bytes as they sit on disk
 }
 
+// PlannedFile is one file a writer wants to materialize for a given artifact.
+// SourcePath is the upstream path the orchestrator must fetch the content from;
+// RelativePath is where the file will live under projectRoot once written.
+type PlannedFile struct {
+	SourcePath   string
+	RelativePath string
+}
+
+// PlanResult is the outcome of TargetPlanner.Plan for one artifact.
+//
+// When Skipped is true the writer signals that the artifact's concept does
+// not exist for this target (e.g. a slash-command for Copilot, an agent for
+// Cursor). The orchestrator should NOT install anything, NOT record state,
+// and log Reason verbatim. Files is empty when Skipped is true.
+type PlanResult struct {
+	Skipped bool
+	Reason  string
+	Files   []PlannedFile
+}
+
 // TargetWriter writes artifacts for one target tool.
 type TargetWriter interface {
 	Kind() string
 	Write(req WriteRequest) (WriteResult, error)
+}
+
+// TargetPlanner is the extension every concrete writer implements so the
+// orchestrator (lands in PR6) can fan out one artifact onto N targets without
+// hardcoding tool-specific conventions.
+type TargetPlanner interface {
+	Plan(artifactKind, artifactName, lang string, sources []string) PlanResult
 }

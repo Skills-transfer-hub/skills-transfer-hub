@@ -29,6 +29,53 @@ func NewClaudeWriter() ClaudeWriter { return ClaudeWriter{} }
 // Kind implements TargetWriter.
 func (ClaudeWriter) Kind() string { return "claude" }
 
+// Plan implements TargetPlanner for Claude Code.
+//
+//   - skill       -> .claude/skills/<category>/<name>/<file>
+//   - agent       -> .claude/agents/<name>.md
+//   - command     -> .claude/commands/<name>.md
+//   - instruction -> .claude/skills/instructions/<name>.md (no native concept)
+func (ClaudeWriter) Plan(artifactKind, artifactName, _ string, sources []string) PlanResult {
+	if artifactName == "" || len(sources) == 0 {
+		return PlanResult{}
+	}
+	switch artifactKind {
+	case "skill":
+		files := make([]PlannedFile, 0, len(sources))
+		for _, source := range sources {
+			files = append(files, PlannedFile{
+				SourcePath:   source,
+				RelativePath: relForClaudeSkill(artifactName, source),
+			})
+		}
+		return PlanResult{Files: files}
+	case "agent":
+		return PlanResult{Files: []PlannedFile{{SourcePath: sources[0], RelativePath: ".claude/agents/" + artifactName + ".md"}}}
+	case "command":
+		return PlanResult{Files: []PlannedFile{{SourcePath: sources[0], RelativePath: ".claude/commands/" + artifactName + ".md"}}}
+	case "instruction":
+		return PlanResult{Files: []PlannedFile{{SourcePath: sources[0], RelativePath: ".claude/skills/instructions/" + artifactName + ".md"}}}
+	}
+	return PlanResult{Skipped: true, Reason: "unknown artifact kind: " + artifactKind}
+}
+
+// relForClaudeSkill maps an upstream source path under a skill bundle to
+// its Claude-Code on-disk relative path under .claude/skills/<name>/.
+// The historical layout keeps the skill folder name as the leaf; any extra
+// assets are nested below it preserving the upstream structure.
+func relForClaudeSkill(name, source string) string {
+	base := ".claude/skills/" + name
+	// Keep the leaf path component(s) after the skill folder if any.
+	if idx := strings.LastIndex(source, "/"); idx >= 0 {
+		leaf := source[idx+1:]
+		if leaf == "SKILL.md" {
+			return base + "/SKILL.md"
+		}
+		return base + "/" + leaf
+	}
+	return base + "/" + source
+}
+
 // Write materializes req on disk and returns the on-disk SHA-256.
 func (ClaudeWriter) Write(req WriteRequest) (WriteResult, error) {
 	if strings.TrimSpace(req.InstalledPath) == "" {
