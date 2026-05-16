@@ -5,9 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"sth/internal/fs"
+	"sth/internal/scanner"
 	neturl "net/url"
-	"path"
-	"sort"
 	"strings"
 )
 
@@ -79,76 +78,49 @@ func newScanDiscoverySource(scanRoot, detail string) discoverySource {
 }
 
 func normalizeDiscoveryPath(value string) string {
-	trimmed := strings.TrimSpace(value)
-	if trimmed == "" {
-		return ""
-	}
-
-	return path.Clean(strings.ReplaceAll(trimmed, "\\", "/"))
+	return scanner.NormalizePath(value)
 }
 
 func isSkillEntrypoint(resourcePath string) bool {
-	categoryName, folderName, err := splitSkillEntrypoint(resourcePath)
-	return err == nil && categoryName != "" && folderName != ""
+	return scanner.IsFlatSkillPath(resourcePath)
 }
 
 func splitSkillEntrypoint(resourcePath string) (string, string, error) {
-	normalized := normalizeDiscoveryPath(resourcePath)
-	if normalized == "" || path.IsAbs(normalized) || normalized == ".." || strings.HasPrefix(normalized, "../") {
-		return "", "", fmt.Errorf("resource path invalide : %q", resourcePath)
-	}
-
-	parts := strings.Split(normalized, "/")
-	if len(parts) != 3 || parts[2] != "SKILL.md" {
-		return "", "", fmt.Errorf("resource path incompatible : %q", resourcePath)
-	}
-	if strings.TrimSpace(parts[0]) == "" || strings.TrimSpace(parts[1]) == "" {
-		return "", "", fmt.Errorf("resource path incompatible : %q", resourcePath)
-	}
-
-	return parts[0], parts[1], nil
+	return scanner.SplitFlatSkillPath(resourcePath)
 }
 
+// catalogEntriesFromRepositoryTree adapts a repository tree listing to the
+// historical CatalogEntry format by running the flat-skill scanner.
+// New scanners are wired in via runScannerOnTree in PR4.
 func catalogEntriesFromRepositoryTree(entries []repositoryTreeEntry) ([]fs.CatalogEntry, error) {
-	discovered := make(map[string]fs.CatalogEntry)
+	artifacts, err := scanner.FlatSkillScanner{}.Scan(toScannerTree(entries))
+	if err != nil {
+		return nil, err
+	}
+	return artifactsToCatalogEntries(artifacts), nil
+}
+
+func toScannerTree(entries []repositoryTreeEntry) []scanner.TreeEntry {
+	tree := make([]scanner.TreeEntry, 0, len(entries))
 	for _, entry := range entries {
-		categoryName, folderName, err := splitSkillEntrypoint(entry.Path)
-		if err != nil {
-			continue
-		}
+		tree = append(tree, scanner.TreeEntry{Path: entry.Path, Type: entry.Type})
+	}
+	return tree
+}
 
-		catalogID := fs.CatalogID("bundle", categoryName, folderName)
-		if _, exists := discovered[catalogID]; exists {
-			continue
-		}
-
-		discovered[catalogID] = fs.CatalogEntry{
-			CatalogID:    catalogID,
+func artifactsToCatalogEntries(artifacts []scanner.Artifact) []fs.CatalogEntry {
+	results := make([]fs.CatalogEntry, 0, len(artifacts))
+	for _, art := range artifacts {
+		results = append(results, fs.CatalogEntry{
+			CatalogID:    fs.CatalogID("bundle", art.Category, art.Name),
 			ResourceType: "bundle",
-			Name:         folderName,
-			FolderName:   categoryName,
-			SourcePath:   path.Join(categoryName, folderName, "SKILL.md"),
+			Name:         art.Name,
+			FolderName:   art.Category,
+			SourcePath:   art.Entrypoint,
 			Description:  "Découvert via la structure du dépôt",
-		}
+		})
 	}
-
-	if len(discovered) == 0 {
-		return nil, fmt.Errorf("aucun bundle compatible détecté dans l'arborescence du dépôt")
-	}
-
-	results := make([]fs.CatalogEntry, 0, len(discovered))
-	for _, entry := range discovered {
-		results = append(results, entry)
-	}
-
-	sort.Slice(results, func(left, right int) bool {
-		if results[left].FolderName == results[right].FolderName {
-			return results[left].Name < results[right].Name
-		}
-		return results[left].FolderName < results[right].FolderName
-	})
-
-	return results, nil
+	return results
 }
 
 func isRepositoryFileEntry(entryType string) bool {
