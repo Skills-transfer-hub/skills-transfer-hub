@@ -84,6 +84,12 @@ func renderGuidedMenuLines(state guidedStartupState) []string {
 	}
 	if state.UpdateOffer != nil && strings.TrimSpace(state.UpdateOffer.Message) != "" {
 		lines = append(lines, state.UpdateOffer.Message)
+		for _, h := range state.UpdateOffer.Highlights {
+			lines = append(lines, "  • "+h)
+		}
+		if strings.TrimSpace(state.UpdateOffer.ReleaseNotesURL) != "" {
+			lines = append(lines, "  Détails : "+strings.TrimSpace(state.UpdateOffer.ReleaseNotesURL))
+		}
 	}
 	lines = append(lines, "Actions :")
 	for index, action := range state.AvailableActions {
@@ -240,6 +246,12 @@ func startupGuidanceLines(state guidedStartupState) []string {
 	}
 	if state.UpdateOffer != nil && strings.TrimSpace(state.UpdateOffer.Message) != "" {
 		lines = append(lines, state.UpdateOffer.Message)
+		for _, h := range state.UpdateOffer.Highlights {
+			lines = append(lines, "  • "+h)
+		}
+		if strings.TrimSpace(state.UpdateOffer.ReleaseNotesURL) != "" {
+			lines = append(lines, "  Détails : "+strings.TrimSpace(state.UpdateOffer.ReleaseNotesURL))
+		}
 	}
 
 	return lines

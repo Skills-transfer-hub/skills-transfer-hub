@@ -31,8 +31,12 @@ jobs:
       - name: Resolve merged pull request metadata
         id: pr
         uses: actions/github-script@v7
+        env:
+          RELEASE_BODY_PATH: ${{ runner.temp }}/release-body.md
         with:
           script: |
+            const fs = require('fs');
+
             const pulls = await github.rest.repos.listPullRequestsAssociatedWithCommit({
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -53,6 +57,32 @@ jobs:
             core.setOutput('number', mergedPullRequest ? String(mergedPullRequest.number) : '');
             core.setOutput('prerelease', String(isPrerelease));
             core.setOutput('labels', labelNames.join(', '));
+
+            // Compose a user-facing release body from the PR title + description.
+            // GoReleaser appends the auto-generated, categorised changelog below
+            // what we write here, so this section reads as a hand-written summary.
+            if (mergedPullRequest) {
+              const title = String(mergedPullRequest.title ?? '').trim();
+              const body = String(mergedPullRequest.body ?? '').trim();
+              const number = mergedPullRequest.number;
+
+              const lines = [];
+              if (title) {
+                lines.push(`## ${title}`);
+                lines.push('');
+              }
+              if (body) {
+                lines.push(body);
+                lines.push('');
+              }
+              lines.push('---');
+              lines.push('');
+              lines.push(`Merged via [#${number}](${mergedPullRequest.html_url}).`);
+              lines.push('');
+
+              fs.writeFileSync(process.env.RELEASE_BODY_PATH, lines.join('\n'));
+              core.setOutput('bodyPath', process.env.RELEASE_BODY_PATH);
+            }
 
       - name: Detect existing tag on merged commit
         id: existing
@@ -108,9 +138,11 @@ jobs:
           target_commitish: ${{ github.sha }}
           prerelease: ${{ steps.next.outputs.prerelease }}
           make_latest: ${{ steps.next.outputs.make_latest }}
+          # body_path holds the hand-written PR summary; generate_release_notes
+          # appends the categorised commit list (Added / Fixed / Breaking…)
+          # produced by GoReleaser below it.
           generate_release_notes: true
-          body: |
-            Automatic release created from merged pull request #${{ steps.pr.outputs.number }}.
+          body_path: ${{ steps.pr.outputs.bodyPath }}
 
       - name: Skip if merged commit is already released
         if: steps.existing.outputs.tag != ''

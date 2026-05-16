@@ -96,6 +96,116 @@ func TestParseCatalogEntries_rejectsMissingTable(t *testing.T) {
 	}
 }
 
+func TestExtractReleaseHighlights(t *testing.T) {
+	tests := []struct {
+		name     string
+		body     string
+		max      int
+		expected []string
+	}{
+		{
+			name: "first three bullets only",
+			body: "## What changed\n\n- First bullet\n- Second bullet\n- Third bullet\n- Fourth bullet\n",
+			max:  3,
+			expected: []string{"First bullet", "Second bullet", "Third bullet"},
+		},
+		{
+			name: "skips full changelog section",
+			body: "## Highlights\n\n- New telemetry command\n\n## Full Changelog\n\n- feat(x): noise\n- fix(y): more noise\n",
+			max:  3,
+			expected: []string{"New telemetry command"},
+		},
+		{
+			name: "ignores headings and empty lines",
+			body: "# Title\n\n## Sub\n\nSome prose paragraph.\n\n* Star bullet works too\n",
+			max:  3,
+			expected: []string{"Star bullet works too"},
+		},
+		{
+			name:     "empty body returns nil",
+			body:     "",
+			max:      3,
+			expected: nil,
+		},
+		{
+			name:     "no bullets returns nil",
+			body:     "Just prose, no list items.\nAnother line.\n",
+			max:      3,
+			expected: nil,
+		},
+		{
+			name:     "max zero returns nil",
+			body:     "- one\n- two\n",
+			max:      0,
+			expected: nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := extractReleaseHighlights(tt.body, tt.max)
+			if len(got) != len(tt.expected) {
+				t.Fatalf("extractReleaseHighlights() = %v, want %v", got, tt.expected)
+			}
+			for i, want := range tt.expected {
+				if got[i] != want {
+					t.Errorf("extractReleaseHighlights()[%d] = %q, want %q", i, got[i], want)
+				}
+			}
+		})
+	}
+}
+
+func TestClient_CheckForStableUpdate_attachesHighlightsAndReleaseNotesURL(t *testing.T) {
+	serverURL := ""
+	server := newCatalogServer(t, func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		if r.URL.Path != "/releases" {
+			stdhttp.NotFound(w, r)
+			return
+		}
+		_, _ = w.Write([]byte(`[
+  {
+    "tag_name": "v2.1.0",
+    "prerelease": false,
+    "html_url": "https://example.invalid/releases/v2.1.0",
+    "body": "## What changed\n\n- 3-tier telemetry consent\n- Copilot writer\n- MultiStackScanner\n\n## Full Changelog\n\n- feat(x): noise",
+    "assets": [
+      {"name": "sth-windows-amd64.zip", "browser_download_url": "` + serverURL + `/asset"},
+      {"name": "SHA256SUMS", "browser_download_url": "` + serverURL + `/checksum"}
+    ]
+  }
+]`))
+	})
+	defer server.Close()
+	serverURL = server.URL
+
+	client := NewClient(server.Client())
+	release, err := client.CheckForStableUpdate(context.Background(), ReleaseMetadata{
+		CurrentVersion: "v1.0.0",
+		ReleasesAPIURL: server.URL + "/releases",
+		AssetName:      "sth-windows-amd64.zip",
+		ChecksumName:   "SHA256SUMS",
+	})
+	if err != nil {
+		t.Fatalf("CheckForStableUpdate() error = %v", err)
+	}
+	if release == nil {
+		t.Fatal("CheckForStableUpdate() = nil, want stable release")
+	}
+	if release.ReleaseNotesURL != "https://example.invalid/releases/v2.1.0" {
+		t.Errorf("release.ReleaseNotesURL = %q, want https://example.invalid/releases/v2.1.0", release.ReleaseNotesURL)
+	}
+	wantHighlights := []string{"3-tier telemetry consent", "Copilot writer", "MultiStackScanner"}
+	if len(release.Highlights) != len(wantHighlights) {
+		t.Fatalf("release.Highlights = %v, want %v", release.Highlights, wantHighlights)
+	}
+	for i, want := range wantHighlights {
+		if release.Highlights[i] != want {
+			t.Errorf("release.Highlights[%d] = %q, want %q", i, release.Highlights[i], want)
+		}
+	}
+}
+
 func TestClient_CheckForStableUpdate_selectsLatestStableRelease(t *testing.T) {
 	serverURL := ""
 	server := newCatalogServer(t, func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
