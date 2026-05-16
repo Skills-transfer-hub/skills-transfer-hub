@@ -68,6 +68,23 @@ func TestFlatSkillScanner_ScanEmpty(t *testing.T) {
 	}
 }
 
+func TestFlatSkillScanner_ScanIgnoresDirectoryEntries(t *testing.T) {
+	// A directory literally named SKILL.md must never be mistaken for a skill
+	// entrypoint — different upstream providers report directories with
+	// different type strings ("tree", "directory"), so check both dialects.
+	cases := []string{"tree", "directory", "TREE", "Directory"}
+	for _, kind := range cases {
+		t.Run(kind, func(t *testing.T) {
+			_, err := FlatSkillScanner{}.Scan([]TreeEntry{
+				{Path: "react/form-wizard/SKILL.md", Type: kind},
+			})
+			if err == nil {
+				t.Fatalf("Scan should ignore directory entry of type %q (no skill should remain)", kind)
+			}
+		})
+	}
+}
+
 func TestFlatSkillScanner_ScanDeduplicates(t *testing.T) {
 	artifacts, err := FlatSkillScanner{}.Scan([]TreeEntry{
 		{Path: "react/form-wizard/SKILL.md", Type: "blob"},

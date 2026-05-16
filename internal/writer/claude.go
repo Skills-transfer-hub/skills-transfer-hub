@@ -10,10 +10,14 @@ import (
 	"strings"
 )
 
-// claudeManagedHeader is the visible STH banner prepended to Markdown files
+// ClaudeManagedHeader is the visible STH banner prepended to Markdown files
 // installed for Claude Code. The wording is intentionally loud — users that
 // edit a managed file should see it immediately.
-const claudeManagedHeader = "> ⚠️ ATTENTION : Skill géré par STH. Ne pas modifier manuellement.\n\n"
+//
+// Exported so the fs package (which still owns a few legacy write paths)
+// can share the single source of truth; previously fs.go duplicated this
+// constant under the name skillHeader.
+const ClaudeManagedHeader = "> ⚠️ ATTENTION : Skill géré par STH. Ne pas modifier manuellement.\n\n"
 
 // ClaudeWriter installs artifacts under a Claude Code project tree.
 // It is the historical (and currently only) writer; other tools land in PR5.
@@ -56,7 +60,7 @@ func applyClaudeManagedHeader(installedPath string, content []byte) []byte {
 		return content
 	}
 
-	header := []byte(claudeManagedHeader)
+	header := []byte(ClaudeManagedHeader)
 
 	if bodyStart := frontmatterBodyOffset(content); bodyStart >= 0 {
 		if bytes.HasPrefix(content[bodyStart:], header) {

@@ -33,11 +33,16 @@ func (FlatSkillScanner) Detect(tree []TreeEntry) bool {
 // Scan returns one Artifact per discovered `category/skill/SKILL.md` entry.
 // Entries are deduplicated and sorted by (category, name).
 // Same HasSuffix guard as Detect — keeps the per-entry cost flat on large
-// trees where the vast majority of paths aren't skills.
+// trees where the vast majority of paths aren't skills. Directory entries
+// (Type == "tree" / "directory") are also skipped so a folder literally
+// named SKILL.md never gets mistaken for a skill entrypoint.
 func (FlatSkillScanner) Scan(tree []TreeEntry) ([]Artifact, error) {
 	seen := make(map[string]Artifact)
 	for _, entry := range tree {
 		if !strings.HasSuffix(entry.Path, "SKILL.md") {
+			continue
+		}
+		if isDirEntry(entry.Type) {
 			continue
 		}
 		category, name, err := SplitFlatSkillPath(entry.Path)
@@ -107,4 +112,13 @@ func NormalizePath(value string) string {
 		return ""
 	}
 	return path.Clean(strings.ReplaceAll(trimmed, "\\", "/"))
+}
+
+// isDirEntry reports whether a TreeEntry.Type marks a directory rather than
+// a file. Upstream providers use different vocabularies ("tree" on GitHub,
+// "directory" on Bitbucket/Azure); the substring match catches all known
+// dialects without coupling the scanner to a specific provider.
+func isDirEntry(entryType string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(entryType))
+	return strings.Contains(normalized, "tree") || strings.Contains(normalized, "directory")
 }

@@ -7,7 +7,10 @@ package writer
 
 // WriteRequest is everything a target writer needs to materialize one file.
 type WriteRequest struct {
-	// InstalledPath is the absolute on-disk path the writer must produce.
+	// InstalledPath is the on-disk path the writer must produce — either an
+	// absolute path or a path resolved relative to the caller's working
+	// directory. STH callers (internal/fs) currently pass relative paths
+	// rooted in the project; external callers may pass either.
 	InstalledPath string
 	// Content is the raw file content as fetched from the source repository.
 	Content []byte

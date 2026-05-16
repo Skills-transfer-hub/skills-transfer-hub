@@ -31,10 +31,13 @@ const (
 	defaultRef            = "main"
 	defaultCatalogPath    = "SKILLS.md"
 	defaultTargetDir      = ".claude/skills"
-
-	// En-tête ajouté en début de chaque ressource Markdown gérée par STH.
-	skillHeader = "> ⚠️ ATTENTION : Skill géré par STH. Ne pas modifier manuellement.\n\n"
 )
+
+// skillHeader is the visible STH banner prepended to Markdown files installed
+// for Claude Code. Single source of truth lives in the writer package so the
+// fs legacy paths (SaveInstalledResource, SyncManagedBundle, RefreshManagedFileHashes)
+// can not drift from what ClaudeWriter actually writes.
+const skillHeader = writer.ClaudeManagedHeader
 
 // Config stores the legacy STH user configuration.
 type Config struct {
