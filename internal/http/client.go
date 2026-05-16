@@ -53,11 +53,13 @@ type ReleaseMetadata struct {
 
 // ReleaseAsset describes the stable release asset selected for self-update.
 type ReleaseAsset struct {
-	Version      string
-	DownloadURL  string
-	ChecksumURL  string
-	ChecksumName string
-	AssetName    string
+	Version         string
+	DownloadURL     string
+	ChecksumURL     string
+	ChecksumName    string
+	AssetName       string
+	Highlights      []string
+	ReleaseNotesURL string
 }
 
 type credentialHeaders struct {
@@ -67,6 +69,8 @@ type credentialHeaders struct {
 
 type githubRelease struct {
 	TagName    string               `json:"tag_name"`
+	HTMLURL    string               `json:"html_url"`
+	Body       string               `json:"body"`
 	PreRelease bool                 `json:"prerelease"`
 	Assets     []githubReleaseAsset `json:"assets"`
 }
@@ -281,15 +285,66 @@ func (c *Client) CheckForStableUpdate(ctx context.Context, metadata ReleaseMetad
 		}
 
 		return &ReleaseAsset{
-			Version:      strings.TrimSpace(release.TagName),
-			DownloadURL:  assetURL,
-			ChecksumURL:  checksumURL,
-			ChecksumName: metadata.ChecksumName,
-			AssetName:    metadata.AssetName,
+			Version:         strings.TrimSpace(release.TagName),
+			DownloadURL:     assetURL,
+			ChecksumURL:     checksumURL,
+			ChecksumName:    metadata.ChecksumName,
+			AssetName:       metadata.AssetName,
+			Highlights:      extractReleaseHighlights(release.Body, 3),
+			ReleaseNotesURL: strings.TrimSpace(release.HTMLURL),
 		}, nil
 	}
 
 	return nil, nil
+}
+
+// extractReleaseHighlights pulls up to maxItems markdown bullet items from a
+// release body, in order, stripping the bullet marker. Lines under a heading
+// like "Full changelog" or "Full Changelog" are ignored so the CLI doesn't
+// echo the raw commit list back to the user. An empty result is fine — the
+// caller falls back to a plain "update available" message.
+func extractReleaseHighlights(body string, maxItems int) []string {
+	if maxItems <= 0 || strings.TrimSpace(body) == "" {
+		return nil
+	}
+	out := make([]string, 0, maxItems)
+	skip := false
+	for _, raw := range strings.Split(body, "\n") {
+		line := strings.TrimSpace(raw)
+		if line == "" {
+			continue
+		}
+		if strings.HasPrefix(line, "#") {
+			lower := strings.ToLower(line)
+			skip = strings.Contains(lower, "full changelog") || strings.Contains(lower, "what's changed")
+			continue
+		}
+		if skip {
+			continue
+		}
+		marker := ""
+		switch {
+		case strings.HasPrefix(line, "- "):
+			marker = "- "
+		case strings.HasPrefix(line, "* "):
+			marker = "* "
+		}
+		if marker == "" {
+			continue
+		}
+		item := strings.TrimSpace(strings.TrimPrefix(line, marker))
+		if item == "" {
+			continue
+		}
+		out = append(out, item)
+		if len(out) >= maxItems {
+			break
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 // DownloadURL downloads a raw URL without provider-specific resolution.

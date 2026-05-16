@@ -368,7 +368,8 @@ func (a *app) resolveStableUpdate(ctx context.Context, force bool) (*sthhttp.Rel
 		return nil, &offer, nil
 	}
 
-	state := fs.NewAvailableUpdateCheckState(now, metadata.CurrentVersion, release.Version, release.DownloadURL, release.ChecksumURL, release.AssetName)
+	state := fs.NewAvailableUpdateCheckState(now, metadata.CurrentVersion, release.Version, release.DownloadURL, release.ChecksumURL, release.AssetName).
+		WithReleaseSummary(release.Highlights, release.ReleaseNotesURL)
 	_, _ = fs.WriteUpdateCheckState(state)
 	offer := fs.StableUpdateOfferFromState(state)
 

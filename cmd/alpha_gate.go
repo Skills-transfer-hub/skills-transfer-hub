@@ -89,7 +89,7 @@ func (a *app) enforceAlphaGate(ctx context.Context, args []string) error {
 		writeAlphaGateState(fs.NewAvailableUpdateCheckState(
 			now, metadata.CurrentVersion, release.Version,
 			release.DownloadURL, release.ChecksumURL, release.AssetName,
-		))
+		).WithReleaseSummary(release.Highlights, release.ReleaseNotesURL))
 		return alphaGateOutdatedError(metadata.CurrentVersion, release.Version)
 	}
 	writeAlphaGateState(fs.NewNoUpdateCheckState(now, metadata.CurrentVersion))

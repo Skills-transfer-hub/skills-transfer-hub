@@ -23,24 +23,28 @@ const (
 
 // StableUpdateOffer describes the startup update message rendered by the guided experience.
 type StableUpdateOffer struct {
-	CurrentVersion      string `json:"current_version"`
-	LatestStableVersion string `json:"latest_stable_version,omitempty"`
-	Status              string `json:"status"`
-	Message             string `json:"message"`
-	DownloadReady       bool   `json:"download_ready"`
+	CurrentVersion      string   `json:"current_version"`
+	LatestStableVersion string   `json:"latest_stable_version,omitempty"`
+	Status              string   `json:"status"`
+	Message             string   `json:"message"`
+	Highlights          []string `json:"highlights,omitempty"`
+	ReleaseNotesURL     string   `json:"release_notes_url,omitempty"`
+	DownloadReady       bool     `json:"download_ready"`
 }
 
 // UpdateCheckState stores the last automatic stable update check for the local machine.
 type UpdateCheckState struct {
-	LastCheckedAt       string `json:"last_checked_at"`
-	TTLHours            int    `json:"ttl_hours"`
-	CurrentVersion      string `json:"current_version"`
-	LatestStableVersion string `json:"latest_stable_version,omitempty"`
-	DownloadURL         string `json:"download_url,omitempty"`
-	ChecksumURL         string `json:"checksum_url,omitempty"`
-	AssetName           string `json:"asset_name,omitempty"`
-	Status              string `json:"status"`
-	ErrorMessage        string `json:"error_message,omitempty"`
+	LastCheckedAt       string   `json:"last_checked_at"`
+	TTLHours            int      `json:"ttl_hours"`
+	CurrentVersion      string   `json:"current_version"`
+	LatestStableVersion string   `json:"latest_stable_version,omitempty"`
+	DownloadURL         string   `json:"download_url,omitempty"`
+	ChecksumURL         string   `json:"checksum_url,omitempty"`
+	AssetName           string   `json:"asset_name,omitempty"`
+	Highlights          []string `json:"highlights,omitempty"`
+	ReleaseNotesURL     string   `json:"release_notes_url,omitempty"`
+	Status              string   `json:"status"`
+	ErrorMessage        string   `json:"error_message,omitempty"`
 }
 
 func NewNoUpdateCheckState(now time.Time, currentVersion string) UpdateCheckState {
@@ -63,6 +67,27 @@ func NewAvailableUpdateCheckState(now time.Time, currentVersion, latestStableVer
 		AssetName:           strings.TrimSpace(assetName),
 		Status:              updateCheckStatusAvailable,
 	}
+}
+
+// WithReleaseSummary attaches the user-facing release highlights and the
+// release notes URL to an existing update-available state. Returns the state
+// unchanged for non-available statuses so callers can chain it after any
+// constructor.
+func (state UpdateCheckState) WithReleaseSummary(highlights []string, releaseNotesURL string) UpdateCheckState {
+	if strings.TrimSpace(state.Status) != updateCheckStatusAvailable {
+		return state
+	}
+	trimmed := make([]string, 0, len(highlights))
+	for _, h := range highlights {
+		clean := strings.TrimSpace(h)
+		if clean == "" {
+			continue
+		}
+		trimmed = append(trimmed, clean)
+	}
+	state.Highlights = trimmed
+	state.ReleaseNotesURL = strings.TrimSpace(releaseNotesURL)
+	return state
 }
 
 func NewErrorUpdateCheckState(now time.Time, currentVersion, errorMessage string) UpdateCheckState {
@@ -104,6 +129,8 @@ func StableUpdateOfferFromState(state UpdateCheckState) StableUpdateOffer {
 	case updateCheckStatusAvailable:
 		offer.Status = "fresh-update-available"
 		offer.DownloadReady = strings.TrimSpace(state.DownloadURL) != "" && strings.TrimSpace(state.ChecksumURL) != "" && strings.TrimSpace(state.AssetName) != ""
+		offer.Highlights = append(offer.Highlights, state.Highlights...)
+		offer.ReleaseNotesURL = strings.TrimSpace(state.ReleaseNotesURL)
 		if offer.LatestStableVersion == "" {
 			offer.Message = "Mise à jour stable disponible. Utilisez `sth update self`."
 		} else {
