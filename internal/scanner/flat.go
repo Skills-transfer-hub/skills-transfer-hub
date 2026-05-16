@@ -16,8 +16,13 @@ type FlatSkillScanner struct{}
 func (FlatSkillScanner) Name() string { return "flat" }
 
 // Detect returns true when at least one entry matches the flat skill convention.
+// The cheap HasSuffix check avoids the path normalization cost of
+// IsFlatSkillPath for the typical case where most tree entries are not skills.
 func (FlatSkillScanner) Detect(tree []TreeEntry) bool {
 	for _, entry := range tree {
+		if !strings.HasSuffix(entry.Path, "SKILL.md") {
+			continue
+		}
 		if IsFlatSkillPath(entry.Path) {
 			return true
 		}
@@ -27,9 +32,14 @@ func (FlatSkillScanner) Detect(tree []TreeEntry) bool {
 
 // Scan returns one Artifact per discovered `category/skill/SKILL.md` entry.
 // Entries are deduplicated and sorted by (category, name).
+// Same HasSuffix guard as Detect — keeps the per-entry cost flat on large
+// trees where the vast majority of paths aren't skills.
 func (FlatSkillScanner) Scan(tree []TreeEntry) ([]Artifact, error) {
 	seen := make(map[string]Artifact)
 	for _, entry := range tree {
+		if !strings.HasSuffix(entry.Path, "SKILL.md") {
+			continue
+		}
 		category, name, err := SplitFlatSkillPath(entry.Path)
 		if err != nil {
 			continue
