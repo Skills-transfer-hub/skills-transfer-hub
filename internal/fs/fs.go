@@ -17,6 +17,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"sort"
+	"sth/internal/writer"
 	"strings"
 	"time"
 )
@@ -567,24 +568,25 @@ func InstallCatalogEntry(targetDir string, entry CatalogEntry, content []byte) (
 }
 
 // SaveCatalogEntry writes the resource content to disk and returns the tracked record and managed file.
+// The on-disk write is delegated to the Claude target writer; other targets are wired in PR5.
 func SaveCatalogEntry(targetDir string, entry CatalogEntry, content []byte) (InstalledResourceRecord, ManagedFile, error) {
 	installedPath, err := BuildInstalledPath(targetDir, entry)
 	if err != nil {
 		return InstalledResourceRecord{}, ManagedFile{}, err
 	}
 
-	if err := os.MkdirAll(filepath.Dir(installedPath), 0o755); err != nil {
-		return InstalledResourceRecord{}, ManagedFile{}, fmt.Errorf("création du dossier %s échouée : %w", filepath.Dir(installedPath), err)
-	}
-
-	fileContent := addManagedHeaderIfMarkdown(installedPath, content)
-	if err := os.WriteFile(installedPath, fileContent, 0o644); err != nil {
-		return InstalledResourceRecord{}, ManagedFile{}, fmt.Errorf("écriture de %s échouée : %w", installedPath, err)
+	result, err := writer.NewClaudeWriter().Write(writer.WriteRequest{
+		InstalledPath:    installedPath,
+		Content:          content,
+		AddManagedHeader: true,
+	})
+	if err != nil {
+		return InstalledResourceRecord{}, ManagedFile{}, err
 	}
 
 	managedFile := ManagedFile{
-		Path:   filepath.ToSlash(filepath.Clean(installedPath)),
-		SHA256: ComputeSHA256(fileContent),
+		Path:   result.Path,
+		SHA256: result.SHA256,
 	}
 
 	record := InstalledResourceRecord{
