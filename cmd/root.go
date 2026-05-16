@@ -29,17 +29,21 @@ type commandSpec struct {
 var commandCatalog = []commandSpec{
 	{
 		name:    "init",
-		usage:   "sth init",
+		usage:   "sth init [--no-cloud-prompt]",
 		summary: "Configure pas a pas un depot distant heberge supporte pour le projet courant",
 		details: []string{
 			"Providers heberges supportes : github.com, gitlab.com, dev.azure.com et bitbucket.org.",
 			"Le wizard affiche les URLs officielles pour creer le token/API token, la permission minimale attendue et les variables d'environnement reconnues.",
 			"Le repository_id accepte un identifiant canonique ou une URL hebergee supportee. Les hosts self-hosted sont rejetes.",
 			"La guidance provider peut etre relue pendant le wizard et aucun secret n'est persiste dans .sth/project.json.",
+			"Au premier init, le wizard propose un menu télémétrie (off / anonymous / connected). Mode connected enchaine sur un sub-prompt `sth login`.",
+			"--no-cloud-prompt : skippe le sub-prompt login même quand le mode connecté est choisi (CI, wrappers).",
 		},
 		examples: []string{
 			"sth init",
+			"sth init --no-cloud-prompt",
 		},
+		flags: []string{"--no-cloud-prompt"},
 	},
 	{
 		name:    "list",
@@ -153,16 +157,20 @@ var commandCatalog = []commandSpec{
 	},
 	{
 		name:    "telemetry",
-		usage:   "sth telemetry <status|on|off|output>",
-		summary: "Gère le consentement et inspecte la télémétrie Alpha",
+		usage:   "sth telemetry <status|off|anon|connect|output>",
+		summary: "Gère le mode de télémétrie (off / anonymous / connected) et lit les enregistrements",
 		details: []string{
-			"status : affiche l'état du consentement local (`consented`, `consented_at`, version au moment du consentement).",
-			"on / off : active ou désactive l'envoi de télémétrie (consent persisté dans le fichier de settings utilisateur).",
-			"output [--limit=N] : récupère depuis le cloud les derniers enregistrements liés à la clé courante (provider sth-cloud requis).",
+			"status : affiche le mode actif, la date de décision et — si connecté — le rattachement STH Cloud.",
+			"off : désactive tout envoi.",
+			"anon : envoie ts + version CLI + nom de commande sur /v1/usage/anon, sans clé. Pas de dashboard.",
+			"connect : passe en mode connecté et lance le sub-prompt `sth login` pour rattacher la clé.",
+			"on : alias déprécié de `anon` (warning stderr).",
+			"output [--limit=N] : récupère depuis le cloud les derniers enregistrements liés à la clé courante (mode connected requis).",
 		},
 		examples: []string{
 			"sth telemetry status",
-			"sth telemetry on",
+			"sth telemetry anon",
+			"sth telemetry connect",
 			"sth telemetry output --limit=20",
 		},
 		flags: []string{"--limit"},
@@ -281,11 +289,7 @@ func (a *app) run(args []string) error {
 			a.writeStdout(commandHelpText("init"))
 			return nil
 		}
-		if len(args) != 1 {
-			err = fmt.Errorf("usage : sth init")
-			break
-		}
-		err = a.runInit()
+		err = a.runInit(args[1:]...)
 	case "list":
 		if len(args) >= 2 && isHelpFlag(args[1]) {
 			a.writeStdout(commandHelpText("list"))
@@ -410,34 +414,52 @@ func (a *app) run(args []string) error {
 	return nil
 }
 
-// reportCloudUsageBestEffort sends a single usage record to the STH Cloud API
-// for any successful command, when the active project profile uses the cloud
-// provider. Failures are swallowed — telemetry must never block a CLI command.
+// reportCloudUsageBestEffort sends a single usage record to the STH Cloud
+// API after every successful CLI command. Routing depends on the user's
+// telemetry mode:
 //
-// Runs synchronously with a tight timeout: a goroutine here would be killed
+//   - off:        nothing is sent.
+//   - anonymous:  POST /v1/usage/anon without any Bearer header. Works
+//                 even when the project has zero providers configured —
+//                 the user can contribute to product stats without ever
+//                 running sth init.
+//   - connected:  POST /v1/usage with the keychain Bearer. Requires a
+//                 sth-cloud provider entry in .sth/project.json. If the
+//                 entry is missing we degrade silently (the wizard hint
+//                 at init already pointed the user at `sth login`).
+//
+// Failures are swallowed — telemetry must never block a CLI command.
+// Runs synchronously with a 500ms timeout: a goroutine here would be killed
 // when main returns (this is the last call before exit), so we'd lose nearly
-// every record. 500ms is short enough to stay invisible on a healthy network
-// and the request is fully cancelled if it overshoots.
+// every record.
 func (a *app) reportCloudUsageBestEffort(command string) {
 	if command == "login" || command == "logout" || command == "version" || command == "help" {
 		return
 	}
-	// Opt-in: only send anything when the user has explicitly accepted at
-	// `sth init`. Fail-closed — missing settings file means no telemetry.
-	if !sthfs.TelemetryConsented() {
+	mode := sthfs.TelemetryModeActive()
+	if mode == sthfs.TelemetryOff {
 		return
 	}
-	cfg, err := sthfs.ReadProjectConfigV2()
-	if err != nil || len(cfg.Providers) == 0 {
-		return
-	}
-	profile, found := findCloudProviderProfile(cfg)
-	if !found {
-		return
-	}
+
 	ctx, cancel := contextWithTimeout(500)
 	defer cancel()
-	_ = a.client.ReportCloudUsage(ctx, profile, valueOrDefault(version, "dev"), command)
+	cliVersion := valueOrDefault(version, "dev")
+
+	switch mode {
+	case sthfs.TelemetryAnonymous:
+		// No provider lookup: anonymous mode is intentionally project-agnostic.
+		_ = a.client.ReportCloudUsageAnonymous(ctx, cliVersion, command)
+	case sthfs.TelemetryConnected:
+		cfg, err := sthfs.ReadProjectConfigV2()
+		if err != nil || len(cfg.Providers) == 0 {
+			return
+		}
+		profile, found := findCloudProviderProfile(cfg)
+		if !found {
+			return
+		}
+		_ = a.client.ReportCloudUsage(ctx, profile, cliVersion, command)
+	}
 }
 
 func findCommandSpec(name string) (commandSpec, bool) {

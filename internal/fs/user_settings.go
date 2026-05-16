@@ -14,14 +14,38 @@ const (
 	userSettingsFileName = "settings.json"
 )
 
-// TelemetrySettings records whether the user has consented to anonymous
-// usage reporting at first init. Absent file or absent block both mean
-// "not consented" (fail-closed) — the CLI must never send telemetry until
-// an explicit affirmative is recorded here.
+// TelemetryMode is the granular telemetry choice persisted in user settings.
+// Three values:
+//
+//   - TelemetryOff:        nothing is sent.
+//   - TelemetryAnonymous:  events are sent to /v1/usage/anon WITHOUT any
+//                          authentication or identifier. Contributes to
+//                          product-level stats only — the user has no
+//                          dashboard view for these events.
+//   - TelemetryConnected:  events are sent to /v1/usage WITH a Bearer
+//                          lsk_live_* key from the keychain. Visible in the
+//                          user's STH Cloud dashboard.
+type TelemetryMode string
+
+const (
+	TelemetryOff       TelemetryMode = "off"
+	TelemetryAnonymous TelemetryMode = "anonymous"
+	TelemetryConnected TelemetryMode = "connected"
+)
+
+// TelemetrySettings records the user's telemetry choice at first init.
+// Absent file or absent block both mean "not decided yet" (fail-closed):
+// the CLI must never send telemetry until an explicit affirmative is
+// recorded here.
+//
+// Mode is the source of truth since the 3-tier rework. The Consented bool
+// is kept for backwards compatibility with settings files written before
+// the rework — TelemetryModeActive migrates them silently on read.
 type TelemetrySettings struct {
-	Consented           bool   `json:"consented"`
-	ConsentedAt         string `json:"consented_at,omitempty"`
-	CLIVersionAtConsent string `json:"cli_version_at_consent,omitempty"`
+	Mode                TelemetryMode `json:"mode,omitempty"`
+	Consented           bool          `json:"consented"`
+	ConsentedAt         string        `json:"consented_at,omitempty"`
+	CLIVersionAtConsent string        `json:"cli_version_at_consent,omitempty"`
 }
 
 // UserSettings is the durable preferences blob stored at
@@ -104,10 +128,24 @@ func WriteUserSettings(s UserSettings) (string, error) {
 	return settingsPath, nil
 }
 
-// SetTelemetryConsent records the user's choice and stamps the moment. The
-// CLI version is captured so future audits know which prompt copy the user
-// agreed to — important if the consent wording ever changes materially.
+// SetTelemetryConsent records a legacy boolean choice and stamps the moment.
+// Deprecated: prefer SetTelemetryMode. Kept so external callers / tests can
+// still toggle the simple consent, which maps to anonymous (true) / off (false).
 func SetTelemetryConsent(consented bool, cliVersion string) (string, error) {
+	mode := TelemetryOff
+	if consented {
+		mode = TelemetryAnonymous
+	}
+	return SetTelemetryMode(mode, cliVersion)
+}
+
+// SetTelemetryMode records the user's explicit choice and stamps the moment.
+// The CLI version is captured so future audits know which prompt copy the
+// user agreed to — important if the consent wording ever changes materially.
+//
+// Mode and the legacy Consented bool are kept in sync on write so older code
+// paths (or rolled-back binaries) keep working without a re-prompt loop.
+func SetTelemetryMode(mode TelemetryMode, cliVersion string) (string, error) {
 	existing, err := ReadUserSettings()
 	if err != nil {
 		return "", err
@@ -116,7 +154,8 @@ func SetTelemetryConsent(consented bool, cliVersion string) (string, error) {
 		existing = &UserSettings{}
 	}
 	existing.Telemetry = TelemetrySettings{
-		Consented:           consented,
+		Mode:                mode,
+		Consented:           mode != TelemetryOff,
 		ConsentedAt:         time.Now().UTC().Format(time.RFC3339),
 		CLIVersionAtConsent: strings.TrimSpace(cliVersion),
 	}
@@ -127,12 +166,36 @@ func SetTelemetryConsent(consented bool, cliVersion string) (string, error) {
 // read error all return false. Callers gating network calls on this can
 // trust a true return; a false might be "not yet asked" or "explicitly
 // refused" — neither should produce traffic.
+//
+// Alias of (TelemetryModeActive() != TelemetryOff) kept for callers that
+// don't care about the granular mode.
 func TelemetryConsented() bool {
+	return TelemetryModeActive() != TelemetryOff
+}
+
+// TelemetryModeActive returns the user's current telemetry mode. Reads the
+// persisted Mode when present; otherwise migrates silently from the legacy
+// Consented bool:
+//
+//   - Consented:false (or absent settings) → TelemetryOff.
+//   - Consented:true                       → TelemetryAnonymous by default.
+//
+// The init wizard upgrades anonymous → connected when the user actively
+// completes the cloud-login sub-prompt; this function is intentionally
+// keychain-agnostic so it does not require the auth package and can't
+// trigger a keyring prompt on platforms where reading is interactive.
+func TelemetryModeActive() TelemetryMode {
 	s, err := ReadUserSettings()
 	if err != nil || s == nil {
-		return false
+		return TelemetryOff
 	}
-	return s.Telemetry.Consented
+	if s.Telemetry.Mode != "" {
+		return s.Telemetry.Mode
+	}
+	if s.Telemetry.Consented {
+		return TelemetryAnonymous
+	}
+	return TelemetryOff
 }
 
 // HasTelemetryDecision distinguishes "user has been asked and answered"

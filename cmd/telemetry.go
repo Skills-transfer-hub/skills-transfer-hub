@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"strconv"
@@ -26,15 +27,29 @@ func (a *app) runTelemetry(args []string) error {
 		}
 		return a.runTelemetryStatus()
 	case "on":
+		// Deprecated alias for `anon` — kept so scripts written against the
+		// pre-3-tier CLI keep working. Emit a one-line stderr warning so the
+		// deprecation is visible but not breaking.
 		if len(args) != 1 {
 			return fmt.Errorf("usage : sth telemetry on")
 		}
-		return a.runTelemetrySet(true)
+		a.writeStderr("`sth telemetry on` est déprécié — utilise `sth telemetry anon` (ou `connect`).")
+		return a.runTelemetryMode(fs.TelemetryAnonymous)
 	case "off":
 		if len(args) != 1 {
 			return fmt.Errorf("usage : sth telemetry off")
 		}
-		return a.runTelemetrySet(false)
+		return a.runTelemetryMode(fs.TelemetryOff)
+	case "anon":
+		if len(args) != 1 {
+			return fmt.Errorf("usage : sth telemetry anon")
+		}
+		return a.runTelemetryMode(fs.TelemetryAnonymous)
+	case "connect":
+		if len(args) != 1 {
+			return fmt.Errorf("usage : sth telemetry connect")
+		}
+		return a.runTelemetryConnect()
 	case "output":
 		return a.runTelemetryOutput(args[1:])
 	case "help", "--help", "-h":
@@ -53,44 +68,71 @@ func (a *app) runTelemetryStatus() error {
 	if settings == nil || strings.TrimSpace(settings.Telemetry.ConsentedAt) == "" {
 		a.writeStdout(
 			"Télémétrie : pas encore configurée.",
-			"Le prochain `sth init` te demandera ton consentement.",
+			"Le prochain `sth init` te demandera ton choix.",
 			fmt.Sprintf("Détails : %s", TelemetryDocsURL()),
 		)
 		return nil
 	}
-	state := "désactivée"
-	if settings.Telemetry.Consented {
-		state = "activée"
-	}
+
+	mode := fs.TelemetryModeActive()
 	a.writeStdout(
-		fmt.Sprintf("Télémétrie : %s.", state),
+		fmt.Sprintf("Télémétrie : mode %s.", mode),
 		fmt.Sprintf("Décision enregistrée le %s (CLI %s).",
 			settings.Telemetry.ConsentedAt,
 			valueOrDefault(settings.Telemetry.CLIVersionAtConsent, "?"),
 		),
-		fmt.Sprintf("Détails : %s", TelemetryDocsURL()),
 	)
+
+	if mode == fs.TelemetryConnected {
+		cfg, _ := fs.ReadProjectConfigV2()
+		if _, found := findCloudProviderProfile(cfg); found {
+			a.writeStdout("Compte STH Cloud rattaché : oui (voir `sth telemetry output`).")
+		} else {
+			a.writeStdout("Compte STH Cloud non rattaché à ce projet — lance `sth login` ici.")
+		}
+	}
+	a.writeStdout(fmt.Sprintf("Détails : %s", TelemetryDocsURL()))
 	return nil
 }
 
-func (a *app) runTelemetrySet(consent bool) error {
+// runTelemetryMode persists the new mode and prints a confirmation tailored
+// to the choice. Shared between `sth telemetry off`, `anon`, and the (legacy)
+// `on` alias.
+func (a *app) runTelemetryMode(mode fs.TelemetryMode) error {
 	cliVersion := valueOrDefault(version, "dev")
-	path, err := fs.SetTelemetryConsent(consent, cliVersion)
+	path, err := fs.SetTelemetryMode(mode, cliVersion)
 	if err != nil {
 		return err
 	}
-	if consent {
-		a.writeStdout(
-			"Télémétrie activée.",
-			fmt.Sprintf("Préférences : %s", path),
-			fmt.Sprintf("Détails : %s", TelemetryDocsURL()),
-		)
-	} else {
+	switch mode {
+	case fs.TelemetryOff:
 		a.writeStdout(
 			"Télémétrie désactivée. Plus aucune commande ne déclenchera d'envoi.",
 			fmt.Sprintf("Préférences : %s", path),
 		)
+	case fs.TelemetryAnonymous:
+		a.writeStdout(
+			"Télémétrie anonyme activée. Pas de dashboard ; passe en `sth telemetry connect` quand tu veux.",
+			fmt.Sprintf("Préférences : %s", path),
+			fmt.Sprintf("Détails : %s", TelemetryDocsURL()),
+		)
+	case fs.TelemetryConnected:
+		a.writeStdout(
+			"Mode connecté activé.",
+			fmt.Sprintf("Préférences : %s", path),
+		)
 	}
+	return nil
+}
+
+// runTelemetryConnect persists mode=connected and chains the cloud-login
+// sub-prompt so the user lands fully wired in one command.
+func (a *app) runTelemetryConnect() error {
+	cliVersion := valueOrDefault(version, "dev")
+	if _, err := fs.SetTelemetryMode(fs.TelemetryConnected, cliVersion); err != nil {
+		return err
+	}
+	a.promptCloudLoginIfNeeded(bufio.NewReader(a.stdin), fs.TelemetryConnected)
 	return nil
 }
 
@@ -173,14 +215,16 @@ func formatTelemetryTable(records []sthhttp.UsageMineRecord) string {
 
 func telemetryHelpText() string {
 	return strings.Join([]string{
-		"Usage : sth telemetry <status|on|off|output>",
+		"Usage : sth telemetry <status|off|anon|connect|output>",
 		"",
 		"Sous-commandes :",
-		"  status           Affiche l'état du consentement local.",
-		"  on               Active l'envoi de télémétrie.",
-		"  off              Désactive l'envoi de télémétrie.",
+		"  status              Affiche le mode actif (off / anonymous / connected).",
+		"  off                 Désactive complètement l'envoi de télémétrie.",
+		"  anon                Active le mode anonyme (stats produit, pas de dashboard).",
+		"  connect             Active le mode connecté et lance le sub-prompt `sth login`.",
+		"  on                  (déprécié) Alias de `anon` pour les anciens scripts.",
 		"  output [--limit=N]  Récupère les derniers enregistrements depuis le serveur",
-		"                   (nécessite un provider sth-cloud configuré).",
+		"                      (nécessite mode connected + provider sth-cloud).",
 		"",
 		"Politique détaillée : voir " + TelemetryDocsURL() + ".",
 	}, "\n")

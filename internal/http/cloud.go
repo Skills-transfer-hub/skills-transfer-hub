@@ -226,6 +226,59 @@ func (c *Client) ReportCloudUsage(ctx context.Context, profile fs.ProjectProfile
 	return c.reportCloudUsage(ctx, profile, cliVersion, commandName)
 }
 
+// ReportCloudUsageAnonymous POSTs the same usage payload as ReportCloudUsage
+// but to /v1/usage/anon, without any Authorization header. Used when the
+// user opted into telemetry but did NOT log in — they contribute to
+// product-level stats only, and the backend never associates the event
+// with a customer identity.
+//
+// The payload is identical (ts, cli_version, command_name) — no machine_id,
+// no fingerprint. The backend may still see the IP + User-Agent at the
+// transport layer; documenting how those are handled is a backend concern.
+//
+// Errors are returned but the caller (cmd/root.go reportCloudUsageBestEffort)
+// swallows them — best-effort. HTTP 404 / 501 is treated as success-equivalent
+// here (returns nil) so a CLI shipping ahead of the backend rollout does not
+// surface noise.
+func (c *Client) ReportCloudUsageAnonymous(ctx context.Context, cliVersion, commandName string) error {
+	payload, err := json.Marshal(usageReportPayload{
+		Commands: []usageReportRecord{{
+			Ts:          nowRFC3339(),
+			CLIVersion:  cliVersion,
+			CommandName: strings.TrimSpace(commandName),
+		}},
+	})
+	if err != nil {
+		return fmt.Errorf("encodage usage anonyme : %w", err)
+	}
+
+	anonURL := CloudBaseURL() + "/v1/usage/anon"
+	req, err := stdhttp.NewRequestWithContext(ctx, stdhttp.MethodPost, anonURL, strings.NewReader(string(payload)))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		c.emitHTTP(stdhttp.MethodPost, anonURL, 0)
+		return err
+	}
+	defer resp.Body.Close()
+	c.emitHTTP(stdhttp.MethodPost, anonURL, resp.StatusCode)
+
+	switch {
+	case resp.StatusCode < 400:
+		return nil
+	case resp.StatusCode == stdhttp.StatusNotFound, resp.StatusCode == stdhttp.StatusNotImplemented:
+		// Backend not yet rolled out — degrade silently so CLI versions that
+		// ship ahead of the endpoint do not generate user-visible noise.
+		return nil
+	default:
+		return fmt.Errorf("anonymous usage ingest failed: HTTP %d", resp.StatusCode)
+	}
+}
+
 // UsageMineRecord mirrors the payload returned by GET /v1/usage/mine. The
 // CLI's `sth telemetry output` command renders these to the terminal.
 type UsageMineRecord struct {
