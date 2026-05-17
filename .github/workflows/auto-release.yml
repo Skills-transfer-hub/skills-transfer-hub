@@ -37,15 +37,31 @@ jobs:
           script: |
             const fs = require('fs');
 
-            const pulls = await github.rest.repos.listPullRequestsAssociatedWithCommit({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              commit_sha: context.sha,
-            });
-
-            const mergedPullRequest = pulls.data.find((pullRequest) =>
-              pullRequest.base.ref === 'main' && pullRequest.merged_at,
-            );
+            // listPullRequestsAssociatedWithCommit is eventually consistent —
+            // when triggered by `push: branches: main`, this workflow can race
+            // the GitHub backend that records the PR↔merge-commit association,
+            // and an early call returns an empty array. Concrete instance:
+            // PR #151 merged at 19:00:29Z, workflow checked at 19:00:40Z, got
+            // []. The same API call from a manual rerun ~15min later returned
+            // the PR. To absorb that window, retry up to 6 times with a 10s
+            // backoff (≈60s total) before declaring the commit unrelated.
+            const MAX_ATTEMPTS = 6;
+            const BACKOFF_MS = 10_000;
+            let mergedPullRequest;
+            for (let attempt = 1; attempt <= MAX_ATTEMPTS && !mergedPullRequest; attempt++) {
+              if (attempt > 1) {
+                core.info(`PR association not yet visible (attempt ${attempt - 1}/${MAX_ATTEMPTS}); retrying in ${BACKOFF_MS / 1000}s…`);
+                await new Promise((resolve) => setTimeout(resolve, BACKOFF_MS));
+              }
+              const pulls = await github.rest.repos.listPullRequestsAssociatedWithCommit({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                commit_sha: context.sha,
+              });
+              mergedPullRequest = pulls.data.find((pullRequest) =>
+                pullRequest.base.ref === 'main' && pullRequest.merged_at,
+              );
+            }
 
             const labelNames = (mergedPullRequest?.labels ?? []).map((label) =>
               String(label.name ?? '').toLowerCase(),
