@@ -36,7 +36,15 @@ func SaveAPIKey(key string) error {
 }
 
 // LoadAPIKey reads the key from the keychain, falling back to STH_CLOUD_API_KEY
-// if the keychain has no entry. Returns ErrKeyNotFound if neither source has a value.
+// if the keychain has no entry or is unreachable. Returns ErrKeyNotFound when
+// no key is available from either source.
+//
+// Any error returned by the keyring backend (not-found, missing libsecret on
+// headless Linux, locked KDE wallet, etc.) is treated as "no keychain entry"
+// — if the env fallback is also empty, the caller gets a single clean
+// ErrKeyNotFound and the standard "run `sth login`" message. The distinction
+// between OS-level keychain errors and a true miss is not actionable for the
+// CLI user, who would see the same recovery path either way.
 func LoadAPIKey() (string, error) {
 	key, err := keyring.Get(KeyringService, defaultAccount)
 	if err == nil && key != "" {
@@ -45,10 +53,7 @@ func LoadAPIKey() (string, error) {
 	if env := os.Getenv(EnvAPIKey); env != "" {
 		return env, nil
 	}
-	if errors.Is(err, keyring.ErrNotFound) || err == nil {
-		return "", ErrKeyNotFound
-	}
-	return "", fmt.Errorf("lecture keychain échouée : %w", err)
+	return "", ErrKeyNotFound
 }
 
 // DeleteAPIKey removes the keychain entry. Idempotent — returns nil if the

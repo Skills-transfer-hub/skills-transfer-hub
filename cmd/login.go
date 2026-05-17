@@ -71,6 +71,14 @@ func (a *app) runLogin(args []string) error {
 		return err
 	}
 
+	// Prime the entitlements cache so the next Pro-gated command runs
+	// without an extra round-trip. Best-effort: a network blip here must
+	// NOT fail the login (the key is already persisted and access-check
+	// has already succeeded above).
+	if primeErr := proGateMarkEntitled(ctx); primeErr != nil {
+		a.writeStderr(fmt.Sprintf("Avertissement : cache entitlements non amorcé : %v", primeErr))
+	}
+
 	if err := ensureCloudProviderEntry(); err != nil {
 		// Non-fatal: keychain is set, user can still call commands. Warn only.
 		a.writeStderr(fmt.Sprintf("Avertissement : configuration projet non écrite : %v", err))

@@ -8,35 +8,42 @@ import (
 	"strings"
 	"time"
 
+	"sth/internal/auth"
+	"sth/internal/cloud"
 	"sth/internal/fs"
 )
 
 const (
-	// proGateSkipEnvVar disables the Pro gate when set to "0". Mirrors the
-	// alpha gate pattern so power users / CI only need to remember one
-	// disable mechanism per gate (here: this var is the dev escape hatch
-	// for everything Pro-only).
+	// proGateSkipEnvVar disables the gate when set to "0". Single escape
+	// hatch shared by every capability check.
 	proGateSkipEnvVar = "STH_PRO_GATE"
 
-	// proGateCacheTTL is the lifetime of a successful entitlement check
-	// stored in user settings. Inside this window we let Pro commands run
-	// even if the user is offline (degraded silent mode); past this window
-	// an offline failure blocks the command.
-	proGateCacheTTL = 24 * time.Hour
+	// proGateStaleSilentWindow lets the cache silently authorize commands
+	// when the network is down up to 7 days after the last successful
+	// check. Beyond that an offline gate fails closed — defensive against
+	// a long-revoked key that happens to still cache a "pack_init" grant.
+	proGateStaleSilentWindow = 7 * 24 * time.Hour
 )
 
-// enforceProGate refuses to run a Pro-only command unless the user is on a
-// Pro plan. Resolution order:
+// proGateCacheTTL is kept as a local alias of fs.EntitlementsHotTTL so the
+// older test names that referenced this constant still compile. The single
+// source of truth is fs.EntitlementsHotTTL — change it there.
+const proGateCacheTTL = fs.EntitlementsHotTTL
+
+// enforceCapability refuses to run a feature gated behind the given
+// capability key (e.g. "pack_init" for Pro, "multi_target" for Wire 2,
+// "fleet_sync" for Team).
 //
-//  1. STH_PRO_GATE=0 — bypass (CI and power users).
-//  2. Dev build (no release metadata) — bypass (tests, `go run`).
-//  3. Cached "pro_active=true" within proGateCacheTTL — pass.
-//  4. Live entitlement check — TODO once the entitlements endpoint ships;
-//     today this returns an explicit "not Pro" error pointing the user at
-//     the docs and the env-var escape hatch.
-//  5. Cached "pro_active=true" past TTL + offline — block with a clear
-//     "retry online" message.
-func (a *app) enforceProGate(_ context.Context) error {
+// Resolution order:
+//  1. STH_PRO_GATE=0  → bypass (CI, power users, devs hacking the binary).
+//  2. Dev build (no release metadata baked in) → bypass.
+//  3. Hot cache (< proGateCacheTTL) with capability present → allow.
+//  4. Live GET /v1/entitlements:
+//      4a. HTTP 401 → clear keychain and tell user to re-login.
+//      4b. Network error + cache <7d with capability → allow (degraded).
+//      4c. Network error + nothing usable → deny with docs link.
+//      4d. HTTP 200 → persist cache, allow iff capability is present.
+func (a *app) enforceCapability(ctx context.Context, capability string) error {
 	if strings.TrimSpace(os.Getenv(proGateSkipEnvVar)) == "0" {
 		return nil
 	}
@@ -44,41 +51,106 @@ func (a *app) enforceProGate(_ context.Context) error {
 		return nil
 	}
 
-	settings, _ := fs.ReadUserSettings()
-	now := time.Now().UTC()
-	if settings != nil && settings.ProActive && !settings.ProCheckedAt.IsZero() && now.Sub(settings.ProCheckedAt) < proGateCacheTTL {
+	// Hot cache check via fs.HasCapability — this is the only path that
+	// honours the legacy ProActive migration (a user who upgrades from a
+	// pre-Wire-1 CLI keeps offline access for one cache cycle without
+	// having to re-login). Inlining the cache check here would silently
+	// regress that promise.
+	if fs.HasCapability(capability) {
 		return nil
 	}
 
-	return proGateNotEntitledError()
+	httpCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	ent, err := cloud.FetchEntitlements(httpCtx, nil)
+	if err != nil {
+		if errors.Is(err, cloud.ErrUnauthorized) {
+			// The key is no longer valid — wipe it so the next interactive
+			// command doesn't keep trying. Best-effort delete.
+			_ = auth.DeleteAPIKey()
+			return errors.New(
+				"clé STH Cloud refusée par le serveur — relance `sth login` " +
+					"avec une clé valide (ou exporte " + proGateSkipEnvVar + "=0 pour bypass).",
+			)
+		}
+		if errors.Is(err, auth.ErrKeyNotFound) {
+			// No key configured at all (keychain empty + env unset) — that's
+			// a "please log in" UX, not a "subscribe to Pro" UX.
+			return errors.New(
+				"aucune clé STH Cloud configurée — exécute `sth login` " +
+					"(ou exporte " + proGateSkipEnvVar + "=0 pour bypass).",
+			)
+		}
+		// Network failure: tolerate a stale cache if it grants the capability.
+		now := time.Now().UTC()
+		settings, _ := fs.ReadUserSettings()
+		if settings != nil && settings.Entitlements != nil &&
+			!settings.Entitlements.CheckedAt.IsZero() &&
+			now.Sub(settings.Entitlements.CheckedAt) < proGateStaleSilentWindow &&
+			containsCapability(settings.Entitlements.Capabilities, capability) {
+			return nil
+		}
+		return notEntitledError(capability)
+	}
+
+	if saveErr := fs.SaveEntitlements(fs.EntitlementsCache{
+		Plan:         ent.Plan,
+		ExpiresAt:    ent.ExpiresAt,
+		Capabilities: ent.Capabilities,
+		CheckedAt:    time.Now().UTC(),
+	}); saveErr != nil {
+		a.writeStderr(fmt.Sprintf("Avertissement : cache entitlements non écrit : %v", saveErr))
+	}
+
+	if !containsCapability(ent.Capabilities, capability) {
+		return notEntitledError(capability)
+	}
+	return nil
 }
 
-func proGateNotEntitledError() error {
-	return errors.New(
-		"`sth pack` est réservé à l'offre Pro. " +
-			"Pour scaffolder un repo de skills manuellement, voir " + DocsURL() + " . " +
-			"Si tu travailles sur le binaire en local, exporte " + proGateSkipEnvVar + "=0",
-	)
+// enforceProGate is the historical entry point. Kept as a thin wrapper so
+// the dozens of call sites in cmd/pack*.go don't have to change.
+func (a *app) enforceProGate(ctx context.Context) error {
+	return a.enforceCapability(ctx, "pack_init")
 }
 
-// proGateMarkEntitled writes a fresh entitlement cache entry into the user
-// settings file. Wired by the entitlements endpoint once it lands; exposed
-// here so tests can drive the cached-pass branch without hitting the API.
-//
-//nolint:deadcode,unused // Intentional: hook point for the entitlements endpoint.
-func proGateMarkEntitled() error {
-	settings, err := fs.ReadUserSettings()
+// proGateMarkEntitled primes the cache after a successful `sth login`. Calls
+// the live endpoint and persists whatever the server returns — best-effort,
+// callers warn on failure but never block the login.
+func proGateMarkEntitled(ctx context.Context) error {
+	httpCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	ent, err := cloud.FetchEntitlements(httpCtx, nil)
 	if err != nil {
 		return err
 	}
-	if settings == nil {
-		settings = &fs.UserSettings{}
+	return fs.SaveEntitlements(fs.EntitlementsCache{
+		Plan:         ent.Plan,
+		ExpiresAt:    ent.ExpiresAt,
+		Capabilities: ent.Capabilities,
+		CheckedAt:    time.Now().UTC(),
+	})
+}
+
+func proGateNotEntitledError() error {
+	// Preserved for any external caller / test that still references the
+	// pack_init message verbatim. New code paths go through notEntitledError.
+	return notEntitledError("pack_init")
+}
+
+func notEntitledError(capability string) error {
+	return fmt.Errorf(
+		"cette commande requiert la capability `%s` (offre Pro / Team). "+
+			"Voir %s pour souscrire, ou exporte %s=0 si tu travailles sur le binaire en local.",
+		capability, DocsURL(), proGateSkipEnvVar,
+	)
+}
+
+func containsCapability(haystack []string, needle string) bool {
+	for _, c := range haystack {
+		if c == needle {
+			return true
+		}
 	}
-	settings.ProActive = true
-	settings.ProCheckedAt = time.Now().UTC()
-	_, err = fs.WriteUserSettings(*settings)
-	if err != nil {
-		return fmt.Errorf("écriture des settings utilisateur échouée : %w", err)
-	}
-	return nil
+	return false
 }

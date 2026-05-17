@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -48,17 +49,118 @@ type TelemetrySettings struct {
 	CLIVersionAtConsent string        `json:"cli_version_at_consent,omitempty"`
 }
 
+// EntitlementsCache is the decoded /v1/entitlements response persisted in
+// user settings so the Pro gate can answer offline within proGateCacheTTL
+// (24h hot, 7d silent stale window). The CheckedAt timestamp drives both
+// the hot-cache decision and the stale-silent-allow path.
+//
+// Capabilities is the source of truth for HasCapability. The legacy
+// ProActive bool below is migrated silently on first read after upgrade and
+// then overwritten by the next live fetch.
+type EntitlementsCache struct {
+	Plan         string    `json:"plan,omitempty"`
+	ExpiresAt    time.Time `json:"expires_at,omitempty"`
+	Capabilities []string  `json:"capabilities,omitempty"`
+	CheckedAt    time.Time `json:"checked_at,omitempty"`
+}
+
 // UserSettings is the durable preferences blob stored at
 // os.UserConfigDir()/sth/settings.json. It is user-scoped (not project-scoped)
 // because consent travels with the human, not the repo.
 //
-// ProActive / ProCheckedAt cache the result of the Pro entitlement check
-// driven by `cmd/pro_gate.go`. Both are omitempty so legacy settings files
-// (telemetry-only) round-trip unchanged.
+// Entitlements caches the result of the Pro entitlement check driven by
+// `cmd/pro_gate.go`. ProActive / ProCheckedAt are kept for round-trip
+// compatibility with settings files written before the capability-based
+// rework — HasCapability migrates them silently on read.
 type UserSettings struct {
-	Telemetry    TelemetrySettings `json:"telemetry"`
-	ProActive    bool              `json:"pro_active,omitempty"`
-	ProCheckedAt time.Time         `json:"pro_checked_at,omitempty"`
+	Telemetry    TelemetrySettings  `json:"telemetry"`
+	ProActive    bool               `json:"pro_active,omitempty"`
+	ProCheckedAt time.Time          `json:"pro_checked_at,omitempty"`
+	Entitlements *EntitlementsCache `json:"entitlements,omitempty"`
+}
+
+// EntitlementsHotTTL is the lifetime of a successful entitlement check
+// inside which the gate trusts the cache without re-fetching. Exported
+// (and not duplicated in cmd) so cmd/pro_gate.go and fs.HasCapability
+// can never drift apart on the boundary.
+const EntitlementsHotTTL = 24 * time.Hour
+
+// settingsWriteMu serialises Read-Modify-Write cycles on the user settings
+// file. atomicWriteFile already prevents a half-written file on disk, but
+// without a mutex two concurrent callers (e.g. SaveEntitlements +
+// SetTelemetryMode) could race on the read step and lose each other's
+// updates to unrelated fields. Process-level mutex is enough — the file
+// is user-scoped, not shared across machines.
+var settingsWriteMu sync.Mutex
+
+// HasCapability returns true when the cached entitlements grant the
+// requested capability AND the cache is still within the 24h hot window.
+// Outside the window (or with no cache at all) it returns false so the
+// gate proceeds to a live fetch.
+//
+// Backwards-compat migration: if the new Entitlements block is absent but
+// the legacy ProActive bool is true and still inside the hot window, we
+// synthesise the "pro" capability set for one cache cycle. The next live
+// fetch overwrites this with the real payload.
+func HasCapability(cap string) bool {
+	settings, err := ReadUserSettings()
+	if err != nil || settings == nil {
+		return false
+	}
+	now := time.Now().UTC()
+
+	if settings.Entitlements != nil && !settings.Entitlements.CheckedAt.IsZero() {
+		if now.Sub(settings.Entitlements.CheckedAt) >= EntitlementsHotTTL {
+			return false
+		}
+		for _, c := range settings.Entitlements.Capabilities {
+			if c == cap {
+				return true
+			}
+		}
+		return false
+	}
+
+	// Legacy migration path: pre-capability cache.
+	if settings.ProActive && !settings.ProCheckedAt.IsZero() && now.Sub(settings.ProCheckedAt) < EntitlementsHotTTL {
+		for _, c := range legacyProCapabilities {
+			if c == cap {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// legacyProCapabilities mirrors the server-side "pro" tier mapping defined
+// in sth-back/shared/capabilities.ts. Used only during the one-cycle
+// migration from the legacy ProActive bool to the Entitlements block.
+var legacyProCapabilities = []string{"private_repos", "pack_init", "multi_target"}
+
+// SaveEntitlements writes the cache atomically and clears the legacy
+// ProActive / ProCheckedAt fields so the migration path in HasCapability
+// does not re-trigger.
+//
+// Serialised via settingsWriteMu so concurrent callers can't race on the
+// Read-Modify-Write cycle and clobber each other's unrelated edits
+// (e.g. another goroutine updating Telemetry at the same moment).
+func SaveEntitlements(e EntitlementsCache) error {
+	settingsWriteMu.Lock()
+	defer settingsWriteMu.Unlock()
+	settings, err := ReadUserSettings()
+	if err != nil {
+		return err
+	}
+	if settings == nil {
+		settings = &UserSettings{}
+	}
+	settings.Entitlements = &e
+	settings.ProActive = false
+	settings.ProCheckedAt = time.Time{}
+	if _, err := WriteUserSettings(*settings); err != nil {
+		return err
+	}
+	return nil
 }
 
 // UserSettingsPath returns the absolute path of the settings file, applying
@@ -145,7 +247,12 @@ func SetTelemetryConsent(consented bool, cliVersion string) (string, error) {
 //
 // Mode and the legacy Consented bool are kept in sync on write so older code
 // paths (or rolled-back binaries) keep working without a re-prompt loop.
+//
+// Serialised via settingsWriteMu so concurrent callers (e.g. SaveEntitlements
+// from a parallel goroutine) can't race on the Read-Modify-Write cycle.
 func SetTelemetryMode(mode TelemetryMode, cliVersion string) (string, error) {
+	settingsWriteMu.Lock()
+	defer settingsWriteMu.Unlock()
 	existing, err := ReadUserSettings()
 	if err != nil {
 		return "", err
