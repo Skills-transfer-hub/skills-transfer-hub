@@ -48,17 +48,102 @@ type TelemetrySettings struct {
 	CLIVersionAtConsent string        `json:"cli_version_at_consent,omitempty"`
 }
 
+// EntitlementsCache is the decoded /v1/entitlements response persisted in
+// user settings so the Pro gate can answer offline within proGateCacheTTL
+// (24h hot, 7d silent stale window). The CheckedAt timestamp drives both
+// the hot-cache decision and the stale-silent-allow path.
+//
+// Capabilities is the source of truth for HasCapability. The legacy
+// ProActive bool below is migrated silently on first read after upgrade and
+// then overwritten by the next live fetch.
+type EntitlementsCache struct {
+	Plan         string    `json:"plan,omitempty"`
+	ExpiresAt    time.Time `json:"expires_at,omitempty"`
+	Capabilities []string  `json:"capabilities,omitempty"`
+	CheckedAt    time.Time `json:"checked_at,omitempty"`
+}
+
 // UserSettings is the durable preferences blob stored at
 // os.UserConfigDir()/sth/settings.json. It is user-scoped (not project-scoped)
 // because consent travels with the human, not the repo.
 //
-// ProActive / ProCheckedAt cache the result of the Pro entitlement check
-// driven by `cmd/pro_gate.go`. Both are omitempty so legacy settings files
-// (telemetry-only) round-trip unchanged.
+// Entitlements caches the result of the Pro entitlement check driven by
+// `cmd/pro_gate.go`. ProActive / ProCheckedAt are kept for round-trip
+// compatibility with settings files written before the capability-based
+// rework — HasCapability migrates them silently on read.
 type UserSettings struct {
-	Telemetry    TelemetrySettings `json:"telemetry"`
-	ProActive    bool              `json:"pro_active,omitempty"`
-	ProCheckedAt time.Time         `json:"pro_checked_at,omitempty"`
+	Telemetry    TelemetrySettings  `json:"telemetry"`
+	ProActive    bool               `json:"pro_active,omitempty"`
+	ProCheckedAt time.Time          `json:"pro_checked_at,omitempty"`
+	Entitlements *EntitlementsCache `json:"entitlements,omitempty"`
+}
+
+// entitlementsHotTTL must mirror cmd/pro_gate.go's proGateCacheTTL — kept
+// local to avoid an import cycle (fs cannot import cmd).
+const entitlementsHotTTL = 24 * time.Hour
+
+// HasCapability returns true when the cached entitlements grant the
+// requested capability AND the cache is still within the 24h hot window.
+// Outside the window (or with no cache at all) it returns false so the
+// gate proceeds to a live fetch.
+//
+// Backwards-compat migration: if the new Entitlements block is absent but
+// the legacy ProActive bool is true and still inside the hot window, we
+// synthesise the "pro" capability set for one cache cycle. The next live
+// fetch overwrites this with the real payload.
+func HasCapability(cap string) bool {
+	settings, err := ReadUserSettings()
+	if err != nil || settings == nil {
+		return false
+	}
+	now := time.Now().UTC()
+
+	if settings.Entitlements != nil && !settings.Entitlements.CheckedAt.IsZero() {
+		if now.Sub(settings.Entitlements.CheckedAt) >= entitlementsHotTTL {
+			return false
+		}
+		for _, c := range settings.Entitlements.Capabilities {
+			if c == cap {
+				return true
+			}
+		}
+		return false
+	}
+
+	// Legacy migration path: pre-capability cache.
+	if settings.ProActive && !settings.ProCheckedAt.IsZero() && now.Sub(settings.ProCheckedAt) < entitlementsHotTTL {
+		for _, c := range legacyProCapabilities {
+			if c == cap {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// legacyProCapabilities mirrors the server-side "pro" tier mapping defined
+// in sth-back/shared/capabilities.ts. Used only during the one-cycle
+// migration from the legacy ProActive bool to the Entitlements block.
+var legacyProCapabilities = []string{"private_repos", "pack_init", "multi_target"}
+
+// SaveEntitlements writes the cache atomically (via WriteUserSettings) and
+// clears the legacy ProActive / ProCheckedAt fields so the migration path
+// in HasCapability does not re-trigger.
+func SaveEntitlements(e EntitlementsCache) error {
+	settings, err := ReadUserSettings()
+	if err != nil {
+		return err
+	}
+	if settings == nil {
+		settings = &UserSettings{}
+	}
+	settings.Entitlements = &e
+	settings.ProActive = false
+	settings.ProCheckedAt = time.Time{}
+	if _, err := WriteUserSettings(*settings); err != nil {
+		return err
+	}
+	return nil
 }
 
 // UserSettingsPath returns the absolute path of the settings file, applying
