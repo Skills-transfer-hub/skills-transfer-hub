@@ -18,16 +18,17 @@ const (
 	// hatch shared by every capability check.
 	proGateSkipEnvVar = "STH_PRO_GATE"
 
-	// proGateCacheTTL is the hot-cache window for a successful entitlement
-	// check. Inside this window we never re-fetch (network is best-effort).
-	proGateCacheTTL = 24 * time.Hour
-
 	// proGateStaleSilentWindow lets the cache silently authorize commands
 	// when the network is down up to 7 days after the last successful
 	// check. Beyond that an offline gate fails closed — defensive against
 	// a long-revoked key that happens to still cache a "pack_init" grant.
 	proGateStaleSilentWindow = 7 * 24 * time.Hour
 )
+
+// proGateCacheTTL is kept as a local alias of fs.EntitlementsHotTTL so the
+// older test names that referenced this constant still compile. The single
+// source of truth is fs.EntitlementsHotTTL — change it there.
+const proGateCacheTTL = fs.EntitlementsHotTTL
 
 // enforceCapability refuses to run a feature gated behind the given
 // capability key (e.g. "pack_init" for Pro, "multi_target" for Wire 2,
@@ -50,14 +51,12 @@ func (a *app) enforceCapability(ctx context.Context, capability string) error {
 		return nil
 	}
 
-	now := time.Now().UTC()
-	settings, _ := fs.ReadUserSettings()
-
-	// Hot cache check.
-	if settings != nil && settings.Entitlements != nil &&
-		!settings.Entitlements.CheckedAt.IsZero() &&
-		now.Sub(settings.Entitlements.CheckedAt) < proGateCacheTTL &&
-		containsCapability(settings.Entitlements.Capabilities, capability) {
+	// Hot cache check via fs.HasCapability — this is the only path that
+	// honours the legacy ProActive migration (a user who upgrades from a
+	// pre-Wire-1 CLI keeps offline access for one cache cycle without
+	// having to re-login). Inlining the cache check here would silently
+	// regress that promise.
+	if fs.HasCapability(capability) {
 		return nil
 	}
 
@@ -74,7 +73,17 @@ func (a *app) enforceCapability(ctx context.Context, capability string) error {
 					"avec une clé valide (ou exporte " + proGateSkipEnvVar + "=0 pour bypass).",
 			)
 		}
+		if errors.Is(err, auth.ErrKeyNotFound) {
+			// No key configured at all (keychain empty + env unset) — that's
+			// a "please log in" UX, not a "subscribe to Pro" UX.
+			return errors.New(
+				"aucune clé STH Cloud configurée — exécute `sth login` " +
+					"(ou exporte " + proGateSkipEnvVar + "=0 pour bypass).",
+			)
+		}
 		// Network failure: tolerate a stale cache if it grants the capability.
+		now := time.Now().UTC()
+		settings, _ := fs.ReadUserSettings()
 		if settings != nil && settings.Entitlements != nil &&
 			!settings.Entitlements.CheckedAt.IsZero() &&
 			now.Sub(settings.Entitlements.CheckedAt) < proGateStaleSilentWindow &&
@@ -88,7 +97,7 @@ func (a *app) enforceCapability(ctx context.Context, capability string) error {
 		Plan:         ent.Plan,
 		ExpiresAt:    ent.ExpiresAt,
 		Capabilities: ent.Capabilities,
-		CheckedAt:    now,
+		CheckedAt:    time.Now().UTC(),
 	}); saveErr != nil {
 		a.writeStderr(fmt.Sprintf("Avertissement : cache entitlements non écrit : %v", saveErr))
 	}

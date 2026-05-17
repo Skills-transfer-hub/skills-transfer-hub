@@ -180,7 +180,7 @@ func TestHasCapability_StaleReturnsFalse(t *testing.T) {
 		Plan:         "pro",
 		ExpiresAt:    time.Now().UTC().Add(30 * 24 * time.Hour),
 		Capabilities: []string{"pack_init"},
-		CheckedAt:    time.Now().UTC().Add(-(entitlementsHotTTL + time.Hour)),
+		CheckedAt:    time.Now().UTC().Add(-(EntitlementsHotTTL + time.Hour)),
 	}); err != nil {
 		t.Fatalf("SaveEntitlements: %v", err)
 	}
@@ -236,7 +236,7 @@ func TestHasCapability_LegacyProActiveExpiredDoesNotMigrate(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(settingsPath), 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
-	stale := time.Now().UTC().Add(-(entitlementsHotTTL + time.Hour))
+	stale := time.Now().UTC().Add(-(EntitlementsHotTTL + time.Hour))
 	raw := `{"telemetry":{"consented":true},"pro_active":true,"pro_checked_at":"` + stale.Format(time.RFC3339) + `"}`
 	if err := os.WriteFile(settingsPath, []byte(raw), 0o644); err != nil {
 		t.Fatalf("write: %v", err)

@@ -39,13 +39,21 @@ var ErrNoKey = auth.ErrKeyNotFound
 const fetchTimeout = 10 * time.Second
 const maxResponseBytes = 1 << 20
 
+// sharedClient is reused across FetchEntitlements calls so the underlying
+// transport keeps Keep-Alive connections to STH Cloud alive — typical CLI
+// sessions issue several gated commands in a row and a fresh client each
+// time would force a TLS handshake per call. The 10s timeout is a hard
+// upper bound; callers should still pass a context with a tighter deadline
+// if they want to fail faster.
+var sharedClient = &stdhttp.Client{Timeout: fetchTimeout}
+
 // FetchEntitlements calls GET $STH_CLOUD_BASE_URL/v1/entitlements with the
 // API key from auth.LoadAPIKey(). hc is optional — pass nil to use the
-// default http.Client with a 10s timeout (httptest passes its own server's
-// client for deterministic tests).
+// shared package-level client (recommended outside of tests). Tests pass
+// their httptest server's client for deterministic isolation.
 func FetchEntitlements(ctx context.Context, hc *stdhttp.Client) (Entitlements, error) {
 	if hc == nil {
-		hc = &stdhttp.Client{Timeout: fetchTimeout}
+		hc = sharedClient
 	}
 	key, err := auth.LoadAPIKey()
 	if err != nil {
