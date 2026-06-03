@@ -59,7 +59,7 @@ func bannerFrameFor(state fs.BuddyState) bannerFrame {
 }
 
 func renderBannerFrame(f bannerFrame) string {
-	title := "STH " + valueOrDefault(version, "dev")
+	title := "STH " + fs.DisplayVersion(valueOrDefault(version, "dev"))
 	tagline := "Skills Transfer Hub."
 	tip := "Astuce : tapez `sth help` pour voir la liste des commandes."
 	footer := "STH gère .claude/skills depuis un dépôt distant."

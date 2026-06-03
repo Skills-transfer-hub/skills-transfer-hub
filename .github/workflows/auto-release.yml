@@ -150,7 +150,8 @@ jobs:
           # user identity, so release.yml fires automatically on each release.
           token: ${{ secrets.RELEASE_PAT }}
           tag_name: ${{ steps.next.outputs.tag }}
-          name: ${{ steps.next.outputs.tag }}
+          # Alpha period: the title is prefixed; the tag itself stays semver.
+          name: Alpha ${{ steps.next.outputs.tag }}
           target_commitish: ${{ github.sha }}
           prerelease: ${{ steps.next.outputs.prerelease }}
           make_latest: ${{ steps.next.outputs.make_latest }}

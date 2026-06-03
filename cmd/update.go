@@ -322,11 +322,11 @@ func (a *app) runSelfUpdate() error {
 		return err
 	}
 	if err := fs.ReplaceExecutableWithAsset(executablePath, release.AssetName, assetData, checksumData); err != nil {
-		return fmt.Errorf("mise à jour stable %s détectée, mais le remplacement automatique a échoué : %w", release.Version, err)
+		return fmt.Errorf("mise à jour stable %s détectée, mais le remplacement automatique a échoué : %w", fs.DisplayVersion(release.Version), err)
 	}
 
 	a.writeStdout(
-		fmt.Sprintf("Version stable détectée : %s", release.Version),
+		fmt.Sprintf("Version stable détectée : %s", fs.DisplayVersion(release.Version)),
 		"Mise à jour appliquée.",
 	)
 	_, _ = fs.WriteUpdateCheckState(fs.NewNoUpdateCheckState(time.Now().UTC(), release.Version))

@@ -134,7 +134,7 @@ func StableUpdateOfferFromState(state UpdateCheckState) StableUpdateOffer {
 		if offer.LatestStableVersion == "" {
 			offer.Message = "Mise à jour stable disponible. Utilisez `sth update self`."
 		} else {
-			offer.Message = fmt.Sprintf("Mise à jour stable disponible : %s (utilisez `sth update self`).", offer.LatestStableVersion)
+			offer.Message = fmt.Sprintf("Mise à jour stable disponible : %s (utilisez `sth update self`).", DisplayVersion(offer.LatestStableVersion))
 		}
 	case updateCheckStatusError:
 		offer.Status = "error"

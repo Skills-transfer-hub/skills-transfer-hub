@@ -121,6 +121,8 @@ release:
   github:
     owner: Grandpied33
     name: sth-releases
+  # Alpha period: prefix the release title; the tag stays plain semver.
+  name_template: "Alpha {{ .Tag }}"
   prerelease: auto
 
 brews:
@@ -136,7 +138,7 @@ brews:
     commit_msg_template: "Brew formula update for {{ .ProjectName }} version {{ .Tag }}"
     directory: Formula
     homepage: "https://github.com/Grandpied33/sth-releases"
-    description: "Skills Transfer Hub — CLI to install AI skills from a hosted catalog."
+    description: "Skills Transfer Hub (Alpha) — CLI to install AI skills from a hosted catalog."
     license: MIT
     skip_upload: auto
     install: |
@@ -156,7 +158,7 @@ scoops:
       email: bot@goreleaser.com
     commit_msg_template: "Scoop manifest update for {{ .ProjectName }} version {{ .Tag }}"
     homepage: "https://github.com/Grandpied33/sth-releases"
-    description: "Skills Transfer Hub — CLI to install AI skills."
+    description: "Skills Transfer Hub (Alpha) — CLI to install AI skills."
     license: MIT
     skip_upload: auto
 
@@ -170,9 +172,9 @@ winget:
   - name: sth
     publisher: Skills-Transfer-Hub
     package_identifier: Grandpied33.STH
-    short_description: CLI to install and update AI skill bundles from a hosted catalog.
+    short_description: (Alpha) CLI to install and update AI skill bundles from a hosted catalog.
     description: |
-      STH (Skills Transfer Hub) is a single-binary Go CLI that connects a project
+      STH (Skills Transfer Hub, Alpha) is a single-binary Go CLI that connects a project
       to a hosted catalog of AI resources, reads SKILLS.md, installs resources
       locally, and keeps them in sync.
     homepage: https://github.com/Grandpied33/sth-releases
