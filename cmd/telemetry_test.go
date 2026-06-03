@@ -90,15 +90,65 @@ func TestRunTelemetry_Off_PersistsRefusal(t *testing.T) {
 	}
 }
 
-func TestRunTelemetry_Output_NoCloudProvider(t *testing.T) {
+func TestRunTelemetry_Output_Server_NoCloudProvider(t *testing.T) {
 	result := runCLIWithOptions(t, cliOptions{
-		args: []string{"telemetry", "output"},
+		args: []string{"telemetry", "output", "--server"},
 	})
 	if result.err == nil {
-		t.Fatal("expected error when no sth-cloud provider is configured")
+		t.Fatal("expected error when --server is used without an sth-cloud provider")
 	}
 	if !strings.Contains(result.err.Error(), "sth-cloud") {
 		t.Fatalf("expected 'sth-cloud' in error, got: %v", result.err)
+	}
+}
+
+func TestRunTelemetry_Output_Local_RendersSeededLog(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("STH_USER_CONFIG_DIR", dir)
+	if _, err := fs.SetTelemetryMode(fs.TelemetryAnonymous, "v1"); err != nil {
+		t.Fatalf("seed mode: %v", err)
+	}
+	for _, command := range []string{"init", "list"} {
+		if err := fs.AppendUsageLogEntry(fs.UsageLogRecord{Ts: "2026-06-03T10:00:00Z", CLIVersion: "v0.2.0", CommandName: command}); err != nil {
+			t.Fatalf("seed log: %v", err)
+		}
+	}
+
+	result := runCLIWithOptions(t, cliOptions{
+		args:              []string{"telemetry", "output"},
+		skipTelemetrySeed: true,
+		userConfigDir:     dir,
+	})
+	if result.err != nil {
+		t.Fatalf("Run() error = %v\nstderr=%s", result.err, result.stderr)
+	}
+	if !strings.Contains(result.stdout, "init") || !strings.Contains(result.stdout, "list") {
+		t.Fatalf("expected both commands from local log, got: %s", result.stdout)
+	}
+	if !strings.Contains(result.stdout, "journal local") {
+		t.Fatalf("expected local-source note, got: %s", result.stdout)
+	}
+	if !strings.Contains(result.stdout, "2 envoi") {
+		t.Fatalf("expected local count footer, got: %s", result.stdout)
+	}
+}
+
+func TestRunTelemetry_Output_Local_EmptyWhenOff(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("STH_USER_CONFIG_DIR", dir)
+	if _, err := fs.SetTelemetryMode(fs.TelemetryOff, "v1"); err != nil {
+		t.Fatalf("seed mode: %v", err)
+	}
+	result := runCLIWithOptions(t, cliOptions{
+		args:              []string{"telemetry", "output"},
+		skipTelemetrySeed: true,
+		userConfigDir:     dir,
+	})
+	if result.err != nil {
+		t.Fatalf("Run() error = %v", result.err)
+	}
+	if !strings.Contains(result.stdout, "désactivée") {
+		t.Fatalf("expected disabled message, got: %s", result.stdout)
 	}
 }
 
@@ -136,7 +186,7 @@ func TestRunTelemetry_Output_RendersServerRecords(t *testing.T) {
 	result := runCLIWithOptions(t, cliOptions{
 		workDir: projectDir,
 		homeDir: homeDir,
-		args:    []string{"telemetry", "output"},
+		args:    []string{"telemetry", "output", "--server"},
 	})
 	if result.err != nil {
 		t.Fatalf("Run() error = %v\nstderr=%s", result.err, result.stderr)
@@ -165,8 +215,6 @@ func TestRunTelemetry_Output_LimitFlag(t *testing.T) {
 		{args: []string{"telemetry", "output", "--unknown"}, wantErr: true, errSubstr: "inattendu"},
 	} {
 		t.Run(strings.Join(tc.args, " "), func(t *testing.T) {
-			// No cloud provider — so even success-of-flag-parse hits the
-			// "aucun provider" branch. We only check flag parsing here.
 			result := runCLIWithOptions(t, cliOptions{args: tc.args})
 			if tc.wantErr {
 				if result.err == nil || !strings.Contains(result.err.Error(), tc.errSubstr) {
