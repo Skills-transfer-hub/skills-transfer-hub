@@ -152,9 +152,6 @@ func (a *app) runTelemetryOutput(args []string) error {
 	return a.runTelemetryOutputLocal(limit)
 }
 
-// runTelemetryOutputLocal renders the machine-local send-log. This is the
-// default source: it works in every mode (including anonymous, where the server
-// keeps no per-user record) and offline.
 func (a *app) runTelemetryOutputLocal(limit int) error {
 	records, err := fs.ReadUsageLog(limit)
 	if err != nil {
@@ -172,8 +169,8 @@ func (a *app) runTelemetryOutputLocal(limit int) error {
 		a.writeStdout("Télémétrie désactivée — historique des envois passés de cette machine :")
 	}
 	mine := make([]sthhttp.UsageMineRecord, len(records))
-	for i, r := range records {
-		mine[i] = sthhttp.UsageMineRecord{Ts: r.Ts, CLIVersion: r.CLIVersion, CommandName: r.CommandName}
+	for i, record := range records {
+		mine[i] = sthhttp.UsageMineRecord{Ts: record.Ts, CLIVersion: record.CLIVersion, CommandName: record.CommandName}
 	}
 	a.writeStdout(formatTelemetryTable(mine))
 	a.writeStdout("(source : journal local de cette machine)")
@@ -181,9 +178,6 @@ func (a *app) runTelemetryOutputLocal(limit int) error {
 	return nil
 }
 
-// runTelemetryOutputServer keeps the original `--server` behaviour: fetch the
-// org-scoped records the back has on file via the connected sth-cloud key. Only
-// meaningful in connected mode with a provider attached.
 func (a *app) runTelemetryOutputServer(limit int) error {
 	cfg, err := fs.ReadProjectConfigV2()
 	if err != nil {
@@ -209,18 +203,15 @@ func (a *app) runTelemetryOutputServer(limit int) error {
 	return nil
 }
 
-// stripServerFlag removes the `--server` token from args, returning whether it
-// was present plus the remaining args for parseTelemetryLimit. Keeping the
-// flag-split here leaves parseTelemetryLimit (and its tests) untouched.
 func stripServerFlag(args []string) (bool, []string) {
 	server := false
 	rest := make([]string, 0, len(args))
-	for _, a := range args {
-		if a == "--server" {
+	for _, arg := range args {
+		if arg == "--server" {
 			server = true
 			continue
 		}
-		rest = append(rest, a)
+		rest = append(rest, arg)
 	}
 	return server, rest
 }

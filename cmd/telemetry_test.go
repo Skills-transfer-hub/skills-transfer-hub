@@ -91,8 +91,6 @@ func TestRunTelemetry_Off_PersistsRefusal(t *testing.T) {
 }
 
 func TestRunTelemetry_Output_Server_NoCloudProvider(t *testing.T) {
-	// Only the `--server` source needs a provider; the default (local) source
-	// works without one.
 	result := runCLIWithOptions(t, cliOptions{
 		args: []string{"telemetry", "output", "--server"},
 	})
@@ -110,14 +108,12 @@ func TestRunTelemetry_Output_Local_RendersSeededLog(t *testing.T) {
 	if _, err := fs.SetTelemetryMode(fs.TelemetryAnonymous, "v1"); err != nil {
 		t.Fatalf("seed mode: %v", err)
 	}
-	for _, c := range []string{"init", "list"} {
-		if err := fs.AppendUsageLogEntry(fs.UsageLogRecord{Ts: "2026-06-03T10:00:00Z", CLIVersion: "v0.2.0", CommandName: c}); err != nil {
+	for _, command := range []string{"init", "list"} {
+		if err := fs.AppendUsageLogEntry(fs.UsageLogRecord{Ts: "2026-06-03T10:00:00Z", CLIVersion: "v0.2.0", CommandName: command}); err != nil {
 			t.Fatalf("seed log: %v", err)
 		}
 	}
 
-	// Default output (no --server) reads the local journal — works in anonymous
-	// mode with no cloud provider, and must not hit the network.
 	result := runCLIWithOptions(t, cliOptions{
 		args:              []string{"telemetry", "output"},
 		skipTelemetrySeed: true,
@@ -219,8 +215,6 @@ func TestRunTelemetry_Output_LimitFlag(t *testing.T) {
 		{args: []string{"telemetry", "output", "--unknown"}, wantErr: true, errSubstr: "inattendu"},
 	} {
 		t.Run(strings.Join(tc.args, " "), func(t *testing.T) {
-			// Default (local) source needs no provider, so a parsed flag
-			// succeeds with an empty-log message. We only check flag parsing.
 			result := runCLIWithOptions(t, cliOptions{args: tc.args})
 			if tc.wantErr {
 				if result.err == nil || !strings.Contains(result.err.Error(), tc.errSubstr) {

@@ -25,9 +25,9 @@ func TestReadUsageLog_AbsentFile_EmptyNoError(t *testing.T) {
 func TestAppendUsageLog_RoundTripNewestFirst(t *testing.T) {
 	sandboxUserConfig(t)
 
-	for _, c := range []string{"first", "second", "third"} {
-		if err := AppendUsageLogEntry(UsageLogRecord{Ts: "2026-06-03T00:00:00Z", CLIVersion: "1.0.0", CommandName: c}); err != nil {
-			t.Fatalf("append %q: %v", c, err)
+	for _, command := range []string{"first", "second", "third"} {
+		if err := AppendUsageLogEntry(UsageLogRecord{Ts: "2026-06-03T00:00:00Z", CLIVersion: "1.0.0", CommandName: command}); err != nil {
+			t.Fatalf("append %q: %v", command, err)
 		}
 	}
 
@@ -38,7 +38,6 @@ func TestAppendUsageLog_RoundTripNewestFirst(t *testing.T) {
 	if len(records) != 3 {
 		t.Fatalf("want 3 records, got %d", len(records))
 	}
-	// Newest-first.
 	if records[0].CommandName != "third" || records[2].CommandName != "first" {
 		t.Fatalf("want newest-first order, got %q..%q", records[0].CommandName, records[2].CommandName)
 	}
@@ -65,19 +64,18 @@ func TestReadUsageLog_SkipsMalformedLines(t *testing.T) {
 	if err := AppendUsageLogEntry(UsageLogRecord{Ts: "2026-06-03T00:00:00Z", CLIVersion: "1.0.0", CommandName: "good"}); err != nil {
 		t.Fatal(err)
 	}
-	// Corrupt the file with a junk line in the middle.
 	path, err := UsageLogPath()
 	if err != nil {
 		t.Fatal(err)
 	}
-	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o644)
+	file, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o644)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := f.WriteString("{not json\n\n"); err != nil {
+	if _, err := file.WriteString("{not json\n\n"); err != nil {
 		t.Fatal(err)
 	}
-	f.Close()
+	file.Close()
 	if err := AppendUsageLogEntry(UsageLogRecord{Ts: "2026-06-03T00:00:00Z", CLIVersion: "1.0.0", CommandName: "good2"}); err != nil {
 		t.Fatal(err)
 	}
@@ -93,9 +91,6 @@ func TestReadUsageLog_SkipsMalformedLines(t *testing.T) {
 
 func TestAppendUsageLog_TrimsRingBuffer(t *testing.T) {
 	sandboxUserConfig(t)
-	// Write enough oversized command-ish payloads to push past usageLogMaxBytes,
-	// forcing at least one trim. Each entry is padded so we cross 256 KB without
-	// needing hundreds of thousands of writes.
 	pad := strings.Repeat("x", 1024)
 	total := (usageLogMaxBytes / 1024) + usageLogKeep + 50
 	for i := 0; i < total; i++ {
@@ -103,7 +98,7 @@ func TestAppendUsageLog_TrimsRingBuffer(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	records, err := ReadUsageLog(0) // 0 = no cap
+	records, err := ReadUsageLog(0)
 	if err != nil {
 		t.Fatal(err)
 	}

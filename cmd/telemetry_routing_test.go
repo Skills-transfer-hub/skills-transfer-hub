@@ -91,9 +91,6 @@ func TestReportCloudUsageBestEffort_AnonymousMode_CallsAnonymousEndpoint(t *test
 		t.Errorf("anonymous mode must never hit /v1/usage (auth), got %d", hits.auth)
 	}
 
-	// The emitted command must also land in the machine-local send-log so
-	// `sth telemetry output` can show it — the only feedback path in anonymous
-	// mode.
 	records, err := fs.ReadUsageLog(10)
 	if err != nil {
 		t.Fatalf("read local log: %v", err)
