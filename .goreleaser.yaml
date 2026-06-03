@@ -81,41 +81,13 @@ checksum:
 snapshot:
   name_template: "{{ incpatch .Version }}-snapshot"
 
+# Release notes are authored by hand: auto-release.yml extracts the curated
+# "## Release notes" section from the merged PR, and release.yml passes it to
+# GoReleaser via --release-notes. We disable the commit-derived changelog
+# entirely so raw commit subjects (which can expose endpoints / internal
+# helpers) never reach the public release.
 changelog:
-  use: github
-  sort: asc
-  filters:
-    exclude:
-      - '^docs:'
-      - '^test:'
-      - '^chore:'
-      - '^ci:'
-      - 'merge conflict'
-      - Merge pull request
-      - Merge branch
-  # Groups the categorised changelog appended to the release body. The auto-
-  # release.yml step writes a hand-written PR summary at the top; this block
-  # sorts the surviving commits into user-facing sections so readers don't
-  # have to parse raw `feat:` / `fix:` prefixes themselves. Order is the
-  # render order; commits not matching any regexp land in "Other".
-  groups:
-    - title: Breaking changes
-      regexp: '(?i)^[a-z]+(\([^)]+\))?!:'
-      order: 0
-    - title: Added
-      regexp: '(?i)^feat(\([^)]+\))?:'
-      order: 1
-    - title: Fixed
-      regexp: '(?i)^fix(\([^)]+\))?:'
-      order: 2
-    - title: Performance
-      regexp: '(?i)^perf(\([^)]+\))?:'
-      order: 3
-    - title: Changed
-      regexp: '(?i)^refactor(\([^)]+\))?:'
-      order: 4
-    - title: Other
-      order: 999
+  disable: true
 
 release:
   github:
