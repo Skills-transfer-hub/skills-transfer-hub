@@ -141,6 +141,40 @@ jobs:
           echo "make_latest=$make_latest" >> "$GITHUB_OUTPUT"
           echo "Preparing release $next from PR #${{ steps.pr.outputs.number }} (labels: ${{ steps.pr.outputs.labels }})." >> "$GITHUB_STEP_SUMMARY"
 
+      # action-gh-release creates a lightweight (unsigned) tag when the tag
+      # doesn't exist yet. To get the green "Verified" badge on the release we
+      # create a signed annotated tag here first; the release step below then
+      # reuses it instead of creating its own. SSH signing key (RELEASE_SSH_
+      # SIGNING_KEY) must be registered as a Signing Key on the account whose
+      # verified email is RELEASE_SIGNING_EMAIL.
+      - name: Set up SSH tag signing
+        if: steps.pr.outputs.found == 'true' && steps.existing.outputs.tag == ''
+        shell: bash
+        env:
+          SIGNING_KEY: ${{ secrets.RELEASE_SSH_SIGNING_KEY }}
+          SIGNING_EMAIL: ${{ vars.RELEASE_SIGNING_EMAIL }}
+          SIGNING_NAME: ${{ vars.RELEASE_SIGNING_NAME }}
+        run: |
+          if [[ -z "$SIGNING_KEY" || -z "$SIGNING_EMAIL" ]]; then
+            echo "Missing RELEASE_SSH_SIGNING_KEY secret or RELEASE_SIGNING_EMAIL variable." >&2
+            exit 1
+          fi
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SIGNING_KEY" > ~/.ssh/release_signing
+          chmod 600 ~/.ssh/release_signing
+          git config user.name "${SIGNING_NAME:-STH Release Bot}"
+          git config user.email "$SIGNING_EMAIL"
+          git config gpg.format ssh
+          git config user.signingkey "$HOME/.ssh/release_signing"
+          git config tag.gpgsign true
+
+      - name: Create and push signed tag
+        if: steps.pr.outputs.found == 'true' && steps.existing.outputs.tag == ''
+        shell: bash
+        run: |
+          git tag -s "${{ steps.next.outputs.tag }}" -m "Release ${{ steps.next.outputs.tag }}" "${{ github.sha }}"
+          git push origin "refs/tags/${{ steps.next.outputs.tag }}"
+
       - name: Create GitHub release
         if: steps.pr.outputs.found == 'true' && steps.existing.outputs.tag == ''
         uses: softprops/action-gh-release@v2
