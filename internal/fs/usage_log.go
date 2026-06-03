@@ -1,7 +1,6 @@
 package fs
 
 import (
-	"bufio"
 	"bytes"
 	"encoding/json"
 	"fmt"
@@ -83,12 +82,8 @@ func trimUsageLogIfNeeded(path string) error {
 		return nil
 	}
 	kept := lines[len(lines)-usageLogKeep:]
-	var buffer bytes.Buffer
-	for _, line := range kept {
-		buffer.Write(line)
-		buffer.WriteByte('\n')
-	}
-	return atomicWriteFile(path, buffer.Bytes(), 0o644)
+	trimmed := append(bytes.Join(kept, []byte{'\n'}), '\n')
+	return atomicWriteFile(path, trimmed, 0o644)
 }
 
 func ReadUsageLog(limit int) ([]UsageLogRecord, error) {
@@ -105,37 +100,31 @@ func ReadUsageLog(limit int) ([]UsageLogRecord, error) {
 	}
 
 	lines := splitNonEmptyLines(data)
-	records := make([]UsageLogRecord, 0, len(lines))
-	for _, line := range lines {
-		var record UsageLogRecord
-		if err := json.Unmarshal(line, &record); err != nil {
-			continue
-		}
-		records = append(records, record)
+	capacity := len(lines)
+	if limit > 0 && limit < capacity {
+		capacity = limit
 	}
-
-	out := make([]UsageLogRecord, 0, len(records))
-	for i := len(records) - 1; i >= 0; i-- {
+	out := make([]UsageLogRecord, 0, capacity)
+	for i := len(lines) - 1; i >= 0; i-- {
 		if limit > 0 && len(out) >= limit {
 			break
 		}
-		out = append(out, records[i])
+		var record UsageLogRecord
+		if err := json.Unmarshal(lines[i], &record); err != nil {
+			continue
+		}
+		out = append(out, record)
 	}
 	return out, nil
 }
 
 func splitNonEmptyLines(data []byte) [][]byte {
 	var lines [][]byte
-	scanner := bufio.NewScanner(bytes.NewReader(data))
-	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
-	for scanner.Scan() {
-		line := bytes.TrimSpace(scanner.Bytes())
-		if len(line) == 0 {
-			continue
+	for _, part := range bytes.Split(data, []byte{'\n'}) {
+		line := bytes.TrimSpace(part)
+		if len(line) > 0 {
+			lines = append(lines, line)
 		}
-		lineCopy := make([]byte, len(line))
-		copy(lineCopy, line)
-		lines = append(lines, lineCopy)
 	}
 	return lines
 }
