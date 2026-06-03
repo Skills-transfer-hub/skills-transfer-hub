@@ -1,8 +1,20 @@
 name: CI
 
 on:
+  # Branch pushes are only built on main (post-merge validation). Feature
+  # branches are covered by their pull_request run instead — this avoids the
+  # classic double-run where a push event and a pull_request event both fire
+  # for the same commit on a PR branch.
   push:
+    branches:
+      - main
   pull_request:
+
+# Cancel an in-flight run when a newer commit is pushed to the same ref, so a
+# rapid series of pushes doesn't pile up billed runner minutes.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -14,10 +26,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os:
-          - ubuntu-latest
-          - windows-latest
-          - macos-latest
+        # macOS runners bill at 10x; it's the priciest job by far. We keep it
+        # off the per-PR path and run it only on main (post-merge) so macOS
+        # regressions are still caught before a release, at ~1/10th the spend.
+        # ubuntu + windows run on every PR.
+        os: ${{ fromJSON(github.ref == 'refs/heads/main' && '["ubuntu-latest","windows-latest","macos-latest"]' || '["ubuntu-latest","windows-latest"]') }}
 
     steps:
       - name: Check out repository
@@ -49,9 +62,34 @@ jobs:
           "RELEASE_ASSET_NAME=$assetName" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "RELEASE_CHECKSUM_NAME=SHA256SUMS" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
+      # No -trimpath here: this build is only a compile-check, not a release
+      # artifact (GoReleaser owns reproducible release builds in release.yml).
+      # -trimpath rewrites every package's build-cache key, forcing a full
+      # recompile that can't reuse the cache `go vet`/`go test` just warmed —
+      # dropping it lets the build reuse those objects and only relink.
       - name: Build binary
         shell: pwsh
         env:
           CGO_ENABLED: "0"
         run: |
-          go build -trimpath -ldflags "-X sth/cmd.version=$env:VERSION -X sth/cmd.commit=$env:COMMIT -X sth/cmd.buildDate=$env:BUILD_DATE -X sth/cmd.target=$env:TARGET -X sth/cmd.releaseAPIURL=$env:RELEASE_API_URL -X sth/cmd.releaseAssetName=$env:RELEASE_ASSET_NAME -X sth/cmd.releaseChecksumName=$env:RELEASE_CHECKSUM_NAME" -o sth .
+          go build -ldflags "-X sth/cmd.version=$env:VERSION -X sth/cmd.commit=$env:COMMIT -X sth/cmd.buildDate=$env:BUILD_DATE -X sth/cmd.target=$env:TARGET -X sth/cmd.releaseAPIURL=$env:RELEASE_API_URL -X sth/cmd.releaseAssetName=$env:RELEASE_ASSET_NAME -X sth/cmd.releaseChecksumName=$env:RELEASE_CHECKSUM_NAME" -o sth .
+
+  # Single stable status check to require in branch protection. Because the
+  # matrix composition varies by event (macOS only on main), requiring the
+  # individual "Test and build (<os>)" legs would block every PR waiting on a
+  # macos-latest check that never runs there. This gate aggregates the matrix
+  # result into one check name that's always produced — require "CI gate".
+  ci-gate:
+    name: CI gate
+    if: always()
+    needs: [test-and-build]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify all matrix jobs passed
+        run: |
+          result='${{ needs.test-and-build.result }}'
+          if [ "$result" != "success" ]; then
+            echo "test-and-build did not succeed (result: $result)"
+            exit 1
+          fi
+          echo "All test-and-build matrix jobs succeeded."
