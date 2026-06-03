@@ -83,11 +83,21 @@ snapshot:
 
 # Release notes are authored by hand: auto-release.yml extracts the curated
 # "## Release notes" section from the merged PR, and release.yml passes it to
-# GoReleaser via --release-notes. We disable the commit-derived changelog
-# entirely so raw commit subjects (which can expose endpoints / internal
-# helpers) never reach the public release.
+# GoReleaser via --release-notes, which OVERRIDES this generated changelog.
+# We must NOT set `disable: true` here: per GoReleaser docs it also ignores
+# --release-notes and renders an empty body. release.yml always writes a
+# non-empty notes file (curated notes or a safe fallback), so the commit-
+# derived list below is always overridden and never reaches the release.
 changelog:
-  disable: true
+  use: github
+  filters:
+    exclude:
+      - "^ci:"
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+      - Merge pull request
+      - Merge branch
 
 release:
   github:
