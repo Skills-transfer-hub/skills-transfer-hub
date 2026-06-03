@@ -433,7 +433,12 @@ func (a *app) run(args []string) error {
 // when main returns (this is the last call before exit), so we'd lose nearly
 // every record.
 func (a *app) reportCloudUsageBestEffort(command string) {
-	if command == "login" || command == "logout" || command == "version" || command == "help" {
+	// Meta/management commands don't generate usage records: they're about
+	// the CLI's own configuration, not skill activity. `telemetry` is included
+	// so inspecting or changing your telemetry settings never feeds itself
+	// into the journal (or the server) — the blacklist matches args[0], so all
+	// `telemetry <sub>` variants are covered at once.
+	if command == "login" || command == "logout" || command == "version" || command == "help" || command == "telemetry" {
 		return
 	}
 	mode := sthfs.TelemetryModeActive()
@@ -449,6 +454,7 @@ func (a *app) reportCloudUsageBestEffort(command string) {
 	case sthfs.TelemetryAnonymous:
 		// No provider lookup: anonymous mode is intentionally project-agnostic.
 		_ = a.client.ReportCloudUsageAnonymous(ctx, cliVersion, command)
+		recordLocalUsage(cliVersion, command)
 	case sthfs.TelemetryConnected:
 		cfg, err := sthfs.ReadProjectConfigV2()
 		if err != nil || len(cfg.Providers) == 0 {
@@ -459,7 +465,22 @@ func (a *app) reportCloudUsageBestEffort(command string) {
 			return
 		}
 		_ = a.client.ReportCloudUsage(ctx, profile, cliVersion, command)
+		recordLocalUsage(cliVersion, command)
 	}
+}
+
+// recordLocalUsage appends the just-emitted command to the machine-local send
+// log so `sth telemetry output` can show it offline — the only feedback path
+// for anonymous mode, where the server stores events without any attribution.
+// Records the emission, not delivery confirmation: an offline send still shows
+// up, which reflects what this machine did. Best-effort — a journal write must
+// never affect the command's exit.
+func recordLocalUsage(cliVersion, command string) {
+	_ = sthfs.AppendUsageLogEntry(sthfs.UsageLogRecord{
+		Ts:          time.Now().UTC().Format(time.RFC3339),
+		CLIVersion:  cliVersion,
+		CommandName: command,
+	})
 }
 
 func findCommandSpec(name string) (commandSpec, bool) {

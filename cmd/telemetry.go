@@ -83,14 +83,18 @@ func (a *app) runTelemetryStatus() error {
 		),
 	)
 
-	if mode == fs.TelemetryConnected {
+	switch mode {
+	case fs.TelemetryConnected:
 		cfg, _ := fs.ReadProjectConfigV2()
 		if _, found := findCloudProviderProfile(cfg); found {
-			a.writeStdout("Compte STH Cloud rattaché : oui (voir `sth telemetry output`).")
+			a.writeStdout("Compte STH Cloud rattaché : oui (vue org côté serveur via `sth telemetry output --server`).")
 		} else {
 			a.writeStdout("Compte STH Cloud non rattaché à ce projet — lance `sth login` ici.")
 		}
+	case fs.TelemetryAnonymous:
+		a.writeStdout("Mode anonyme : pas de dashboard serveur (envois non attribués), mais journal local disponible.")
 	}
+	a.writeStdout("Derniers envois de cette machine : `sth telemetry output`.")
 	a.writeStdout(fmt.Sprintf("Détails : %s", TelemetryDocsURL()))
 	return nil
 }
@@ -137,18 +141,57 @@ func (a *app) runTelemetryConnect() error {
 }
 
 func (a *app) runTelemetryOutput(args []string) error {
-	limit, err := parseTelemetryLimit(args)
+	server, rest := stripServerFlag(args)
+	limit, err := parseTelemetryLimit(rest)
 	if err != nil {
 		return err
 	}
+	if server {
+		return a.runTelemetryOutputServer(limit)
+	}
+	return a.runTelemetryOutputLocal(limit)
+}
 
+// runTelemetryOutputLocal renders the machine-local send-log. This is the
+// default source: it works in every mode (including anonymous, where the server
+// keeps no per-user record) and offline.
+func (a *app) runTelemetryOutputLocal(limit int) error {
+	records, err := fs.ReadUsageLog(limit)
+	if err != nil {
+		return err
+	}
+	if len(records) == 0 {
+		if fs.TelemetryModeActive() == fs.TelemetryOff {
+			a.writeStdout("Télémétrie désactivée — aucun envoi enregistré localement.")
+		} else {
+			a.writeStdout("Aucun envoi de télémétrie enregistré localement pour le moment.")
+		}
+		return nil
+	}
+	if fs.TelemetryModeActive() == fs.TelemetryOff {
+		a.writeStdout("Télémétrie désactivée — historique des envois passés de cette machine :")
+	}
+	mine := make([]sthhttp.UsageMineRecord, len(records))
+	for i, r := range records {
+		mine[i] = sthhttp.UsageMineRecord{Ts: r.Ts, CLIVersion: r.CLIVersion, CommandName: r.CommandName}
+	}
+	a.writeStdout(formatTelemetryTable(mine))
+	a.writeStdout("(source : journal local de cette machine)")
+	a.writeStdout(fmt.Sprintf("%d envoi(s) enregistré(s) localement.", len(mine)))
+	return nil
+}
+
+// runTelemetryOutputServer keeps the original `--server` behaviour: fetch the
+// org-scoped records the back has on file via the connected sth-cloud key. Only
+// meaningful in connected mode with a provider attached.
+func (a *app) runTelemetryOutputServer(limit int) error {
 	cfg, err := fs.ReadProjectConfigV2()
 	if err != nil {
 		return err
 	}
 	profile, found := findCloudProviderProfile(cfg)
 	if !found {
-		return fmt.Errorf("aucun provider sth-cloud configuré — lance `sth login` d'abord")
+		return fmt.Errorf("--server nécessite le mode connected + un provider sth-cloud — lance `sth login` d'abord")
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), telemetryFetchTimeout)
@@ -162,8 +205,24 @@ func (a *app) runTelemetryOutput(args []string) error {
 		return nil
 	}
 	a.writeStdout(formatTelemetryTable(records))
-	a.writeStdout(fmt.Sprintf("%d enregistrement(s).", len(records)))
+	a.writeStdout(fmt.Sprintf("%d enregistrement(s) côté serveur.", len(records)))
 	return nil
+}
+
+// stripServerFlag removes the `--server` token from args, returning whether it
+// was present plus the remaining args for parseTelemetryLimit. Keeping the
+// flag-split here leaves parseTelemetryLimit (and its tests) untouched.
+func stripServerFlag(args []string) (bool, []string) {
+	server := false
+	rest := make([]string, 0, len(args))
+	for _, a := range args {
+		if a == "--server" {
+			server = true
+			continue
+		}
+		rest = append(rest, a)
+	}
+	return server, rest
 }
 
 // parseTelemetryLimit reads `--limit=N` from the args. Defaults to 50 — small
@@ -223,8 +282,9 @@ func telemetryHelpText() string {
 		"  anon                Active le mode anonyme (stats produit, pas de dashboard).",
 		"  connect             Active le mode connecté et lance le sub-prompt `sth login`.",
 		"  on                  (déprécié) Alias de `anon` pour les anciens scripts.",
-		"  output [--limit=N]  Récupère les derniers enregistrements depuis le serveur",
-		"                      (nécessite mode connected + provider sth-cloud).",
+		"  output [--limit=N]  Affiche le journal local des envois de cette machine",
+		"                      (tous modes, hors-ligne). Ajoute --server pour la vue",
+		"                      org côté serveur (mode connected + provider sth-cloud).",
 		"",
 		"Politique détaillée : voir " + TelemetryDocsURL() + ".",
 	}, "\n")

@@ -68,6 +68,9 @@ func TestReportCloudUsageBestEffort_OffMode_NoCalls(t *testing.T) {
 	if hits.anon != 0 || hits.auth != 0 {
 		t.Fatalf("off mode must not send anything, got anon=%d auth=%d", hits.anon, hits.auth)
 	}
+	if records, _ := fs.ReadUsageLog(10); len(records) != 0 {
+		t.Fatalf("off mode must not write the local log, got %d entries", len(records))
+	}
 }
 
 func TestReportCloudUsageBestEffort_AnonymousMode_CallsAnonymousEndpoint(t *testing.T) {
@@ -87,6 +90,17 @@ func TestReportCloudUsageBestEffort_AnonymousMode_CallsAnonymousEndpoint(t *test
 	if hits.auth != 0 {
 		t.Errorf("anonymous mode must never hit /v1/usage (auth), got %d", hits.auth)
 	}
+
+	// The emitted command must also land in the machine-local send-log so
+	// `sth telemetry output` can show it — the only feedback path in anonymous
+	// mode.
+	records, err := fs.ReadUsageLog(10)
+	if err != nil {
+		t.Fatalf("read local log: %v", err)
+	}
+	if len(records) != 1 || records[0].CommandName != "list" {
+		t.Fatalf("anonymous send must append one local-log entry for %q, got %+v", "list", records)
+	}
 }
 
 func TestReportCloudUsageBestEffort_ConnectedMode_NoProvider_NoCalls(t *testing.T) {
@@ -103,6 +117,9 @@ func TestReportCloudUsageBestEffort_ConnectedMode_NoProvider_NoCalls(t *testing.
 	if hits.anon != 0 || hits.auth != 0 {
 		t.Fatalf("connected mode without provider must not send anything, got anon=%d auth=%d", hits.anon, hits.auth)
 	}
+	if records, _ := fs.ReadUsageLog(10); len(records) != 0 {
+		t.Fatalf("connected-without-provider must not write the local log, got %d entries", len(records))
+	}
 }
 
 func TestReportCloudUsageBestEffort_SkipsBlacklistedCommands(t *testing.T) {
@@ -114,7 +131,7 @@ func TestReportCloudUsageBestEffort_SkipsBlacklistedCommands(t *testing.T) {
 
 	hits, srv := newTelemetryHits(t)
 	a := newTestApp(t, srv)
-	for _, cmd := range []string{"login", "logout", "version", "help"} {
+	for _, cmd := range []string{"login", "logout", "version", "help", "telemetry"} {
 		a.reportCloudUsageBestEffort(cmd)
 	}
 
