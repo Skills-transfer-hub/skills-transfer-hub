@@ -74,29 +74,31 @@ jobs:
             core.setOutput('prerelease', String(isPrerelease));
             core.setOutput('labels', labelNames.join(', '));
 
-            // Compose a user-facing release body from the PR title + description.
-            // GoReleaser appends the auto-generated, categorised changelog below
-            // what we write here, so this section reads as a hand-written summary.
+            // The release body is published verbatim to the PUBLIC sth-releases
+            // release and surfaced as `sth update` highlights, so it must be
+            // user-facing and must NOT leak internals (endpoints, helper names,
+            // auth/gating internals, file paths). We publish ONLY the
+            // "## Release notes" section of the PR — authored in English for
+            // users — never the technical Why/What/Tests sections or raw commit
+            // subjects. Absent or empty -> a safe generic line.
             if (mergedPullRequest) {
-              const title = String(mergedPullRequest.title ?? '').trim();
-              const body = String(mergedPullRequest.body ?? '').trim();
-              const number = mergedPullRequest.number;
-
-              const lines = [];
-              if (title) {
-                lines.push(`## ${title}`);
-                lines.push('');
+              const prBody = String(mergedPullRequest.body ?? '');
+              const collected = [];
+              let inSection = false;
+              for (const line of prBody.split(/\r?\n/)) {
+                const heading = line.match(/^##\s+(.+?)\s*$/);
+                if (heading) {
+                  if (inSection) break;
+                  inSection = heading[1].toLowerCase() === 'release notes';
+                  continue;
+                }
+                if (inSection) collected.push(line);
               }
-              if (body) {
-                lines.push(body);
-                lines.push('');
-              }
-              lines.push('---');
-              lines.push('');
-              lines.push(`Merged via [#${number}](${mergedPullRequest.html_url}).`);
-              lines.push('');
+              let notes = collected.join('\n').replace(/<!--[\s\S]*?-->/g, '').trim();
+              if (!/[A-Za-z0-9]/.test(notes)) notes = '';
+              const finalNotes = notes || 'Maintenance & internal improvements.';
 
-              fs.writeFileSync(process.env.RELEASE_BODY_PATH, lines.join('\n'));
+              fs.writeFileSync(process.env.RELEASE_BODY_PATH, finalNotes + '\n');
               core.setOutput('bodyPath', process.env.RELEASE_BODY_PATH);
             }
 
@@ -188,10 +190,10 @@ jobs:
           target_commitish: ${{ github.sha }}
           prerelease: ${{ steps.next.outputs.prerelease }}
           make_latest: ${{ steps.next.outputs.make_latest }}
-          # body_path holds the hand-written PR summary; generate_release_notes
-          # appends the categorised commit list (Added / Fixed / Breaking…)
-          # produced by GoReleaser below it.
-          generate_release_notes: true
+          # body_path holds the curated "Release notes" section extracted from
+          # the PR — the only thing published. We do NOT set generate_release_notes:
+          # it would append GitHub's auto PR list and a private compare link, both
+          # of which would then propagate to the public release.
           body_path: ${{ steps.pr.outputs.bodyPath }}
 
       - name: Skip if merged commit is already released
