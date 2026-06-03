@@ -29,24 +29,27 @@ jobs:
       # body of the (private) source-repo release. Reuse them verbatim so the
       # public release and `sth update` highlights show exactly what we authored
       # — never raw commit subjects. Falls back to a safe generic line.
+      # Written to RUNNER_TEMP, NOT the repo: `goreleaser release` aborts on a
+      # dirty git tree, and an untracked release-notes.md would count as dirty.
       - name: Prepare release notes
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.RELEASE_PAT }}
         run: |
+          notes="$RUNNER_TEMP/release-notes.md"
           tag="${{ github.event.release.tag_name }}"
           if [[ -z "$tag" ]]; then tag="$(git describe --tags --abbrev=0)"; fi
-          if ! gh release view "$tag" -R Grandpied33/skills-transfer-hub --json body --jq '.body' > release-notes.md 2>/dev/null || [[ ! -s release-notes.md ]]; then
-            printf 'Maintenance & internal improvements.\n' > release-notes.md
+          if ! gh release view "$tag" -R Grandpied33/skills-transfer-hub --json body --jq '.body' > "$notes" 2>/dev/null || [[ ! -s "$notes" ]]; then
+            printf 'Maintenance & internal improvements.\n' > "$notes"
           fi
-          printf '\n---\nSee all releases: https://github.com/Grandpied33/sth-releases/releases\n' >> release-notes.md
+          printf '\n---\nSee all releases: https://github.com/Grandpied33/sth-releases/releases\n' >> "$notes"
 
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v6
         with:
           distribution: goreleaser
           version: "~> v2"
-          args: release --clean --release-notes=release-notes.md
+          args: release --clean --release-notes=${{ runner.temp }}/release-notes.md
         env:
           # GoReleaser creates the release on the public Grandpied33/sth-releases repo
           # (cross-repo, the default GITHUB_TOKEN can't push there). RELEASE_PAT must
