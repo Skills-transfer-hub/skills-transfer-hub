@@ -273,7 +273,7 @@ func TestRun_updateSelfAppliesStableRelease(t *testing.T) {
 	if result.err != nil {
 		t.Fatalf("Run() error = %v\nstdout=%s\nstderr=%s", result.err, result.stdout, result.stderr)
 	}
-	assertContains(t, result.stdout, "Version stable détectée : v9.9.9")
+	assertContains(t, result.stdout, "Version stable détectée : Alpha v9.9.9")
 	assertContains(t, result.stdout, "Mise à jour appliquée")
 
 	data, err := os.ReadFile(executablePath)

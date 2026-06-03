@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"runtime"
+	"sth/internal/fs"
 	sthhttp "sth/internal/http"
 	"strings"
 )
@@ -22,7 +23,7 @@ const versionByline = "dev with 🤖 by Hugo MR and Jeremy, Lead Tech."
 
 func formatVersionSignature() string {
 	return strings.Join([]string{
-		fmt.Sprintf("STH %s", valueOrDefault(version, "dev")),
+		fmt.Sprintf("STH %s", fs.DisplayVersion(valueOrDefault(version, "dev"))),
 		versionByline,
 	}, "\n")
 }
