@@ -6,10 +6,12 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strconv"
 	"strings"
 
 	"sth/internal/fs"
 	sthhttp "sth/internal/http"
+	"sth/internal/writer"
 )
 
 // wizardEmotion drives the buddy face/emoji shown above each prompt.
@@ -121,6 +123,7 @@ type wizardProfile struct {
 	Ref          string
 	CatalogPath  string
 	TargetDir    string
+	Targets      []string
 	IsPrivate    bool
 	Token        string // session-only, never persisted
 	TokenSource  string // "env:GITHUB_TOKEN" / "manual" / "" (none)
@@ -189,6 +192,10 @@ func (a *app) runInitWizard(reader *bufio.Reader, existingCfg fs.ProjectConfigV2
 	}
 
 	if err := a.askCatalogSettings(reader, &draft); err != nil {
+		return err
+	}
+
+	if err := a.askTargets(reader, &draft, existingCfg); err != nil {
 		return err
 	}
 
@@ -268,7 +275,7 @@ func (a *app) askRepository(reader *bufio.Reader, draft *wizardProfile) error {
 
 func (a *app) askCatalogSettings(reader *bufio.Reader, draft *wizardProfile) error {
 	a.narrate(wizardHello,
-		"Trois petits réglages.",
+		"Deux petits réglages.",
 		"Appuie sur Entrée pour accepter les valeurs par défaut.",
 	)
 	ref, err := promptValue(reader, a.stdout, "Référence Git", draft.Ref)
@@ -276,16 +283,11 @@ func (a *app) askCatalogSettings(reader *bufio.Reader, draft *wizardProfile) err
 		return err
 	}
 	draft.Ref = ref
-	cat, err := promptValue(reader, a.stdout, "Chemin du catalogue", draft.CatalogPath)
+	catalog, err := promptValue(reader, a.stdout, "Chemin du catalogue", draft.CatalogPath)
 	if err != nil {
 		return err
 	}
-	draft.CatalogPath = cat
-	target, err := promptValue(reader, a.stdout, "Dossier cible local", draft.TargetDir)
-	if err != nil {
-		return err
-	}
-	draft.TargetDir = target
+	draft.CatalogPath = catalog
 	return nil
 }
 
@@ -439,7 +441,7 @@ func (a *app) recapAndConfirm(reader *bufio.Reader, draft *wizardProfile, existi
 			fmt.Sprintf("  Dépôt         : %s", draft.RepositoryID),
 			fmt.Sprintf("  Référence     : %s", draft.Ref),
 			fmt.Sprintf("  Catalogue     : %s", draft.CatalogPath),
-			fmt.Sprintf("  Dossier cible : %s", draft.TargetDir),
+			fmt.Sprintf("  Cibles        : %s", strings.Join(draft.Targets, ", ")),
 			fmt.Sprintf("  Accès         : %s", accessLabel(draft.IsPrivate)),
 			fmt.Sprintf("  Token         : %s", draft.tokenLabel()),
 			"",
@@ -465,9 +467,9 @@ func (a *app) recapAndConfirm(reader *bufio.Reader, draft *wizardProfile, existi
 func (a *app) editDraftField(reader *bufio.Reader, draft *wizardProfile, existingCfg fs.ProjectConfigV2) error {
 	a.narrate(wizardThinking, "Quelle entrée veux-tu corriger ?")
 	field, err := promptChoice(reader, a.stdout,
-		"Champ [alias|provider|dépôt|ref|catalogue|dossier|accès|token]",
+		"Champ [alias|provider|dépôt|ref|catalogue|cibles|accès|token]",
 		"dépôt",
-		[]string{"alias", "provider", "dépôt", "depot", "ref", "catalogue", "dossier", "accès", "acces", "token"},
+		[]string{"alias", "provider", "dépôt", "depot", "ref", "catalogue", "cibles", "targets", "accès", "acces", "token"},
 	)
 	if err != nil {
 		return err
@@ -505,12 +507,8 @@ func (a *app) editDraftField(reader *bufio.Reader, draft *wizardProfile, existin
 			return err
 		}
 		draft.CatalogPath = v
-	case "dossier":
-		v, err := promptValue(reader, a.stdout, "Dossier cible local", draft.TargetDir)
-		if err != nil {
-			return err
-		}
-		draft.TargetDir = v
+	case "cibles", "targets":
+		return a.askTargets(reader, draft, existingCfg)
 	case "accès", "acces", "token":
 		return a.askAccessAndToken(reader, draft)
 	}
@@ -524,6 +522,162 @@ func accessLabel(private bool) string {
 	return "public"
 }
 
+func (a *app) askTargets(reader *bufio.Reader, draft *wizardProfile, existingCfg fs.ProjectConfigV2) error {
+	specs := writer.AllTargetSpecs()
+	preselected := preselectedKinds(draft, existingCfg)
+
+	a.narrate(wizardHello,
+		"Quels modèles/agents veux-tu cibler ?",
+		"Je pré-coche ceux détectés dans le projet.",
+		"Entrée = garder ; ex : 1,3 ou claude,copilot ou all.",
+	)
+	for index, spec := range specs {
+		mark := " "
+		if containsKind(preselected, spec.Kind) {
+			mark = "x"
+		}
+		a.writeStdout(fmt.Sprintf("  %d. [%s] %s", index+1, mark, spec.DisplayName))
+	}
+
+	selected, err := promptMultiChoice(reader, a.stdout, "Cibles", specs, preselected)
+	if err != nil {
+		return err
+	}
+	if len(selected) == 0 {
+		selected = []string{writer.KindClaude}
+	}
+	draft.Targets = selected
+	return nil
+}
+
+func preselectedKinds(draft *wizardProfile, existingCfg fs.ProjectConfigV2) []string {
+	if len(draft.Targets) > 0 {
+		return draft.Targets
+	}
+	if len(existingCfg.Targets) > 0 {
+		kinds := make([]string, 0, len(existingCfg.Targets))
+		for _, target := range existingCfg.Targets {
+			kinds = append(kinds, target.Kind)
+		}
+		return kinds
+	}
+	workingDir, err := os.Getwd()
+	if err != nil {
+		return []string{writer.KindClaude}
+	}
+	detected := writer.DetectAvailableTargets(workingDir)
+	kinds := make([]string, 0, len(detected))
+	for _, target := range detected {
+		kinds = append(kinds, target.Kind)
+	}
+	if len(kinds) == 0 {
+		return []string{writer.KindClaude}
+	}
+	return kinds
+}
+
+func promptMultiChoice(reader *bufio.Reader, stdout io.Writer, label string, specs []writer.TargetSpec, preselected []string) ([]string, error) {
+	for {
+		if _, err := fmt.Fprintf(stdout, "%s [%s]: ", label, strings.Join(preselected, ",")); err != nil {
+			return nil, err
+		}
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			if err == io.EOF && strings.TrimSpace(line) == "" {
+				return nil, io.EOF
+			}
+			if err != io.EOF {
+				return nil, fmt.Errorf("lecture de l'entrée utilisateur échouée : %w", err)
+			}
+		}
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			return preselected, nil
+		}
+		selected, parseErr := parseTargetSelection(trimmed, specs)
+		if parseErr != nil {
+			fmt.Fprintln(stdout, parseErr.Error())
+			continue
+		}
+		return selected, nil
+	}
+}
+
+func parseTargetSelection(input string, specs []writer.TargetSpec) ([]string, error) {
+	if strings.EqualFold(strings.TrimSpace(input), "all") {
+		all := make([]string, 0, len(specs))
+		for _, spec := range specs {
+			all = append(all, spec.Kind)
+		}
+		return all, nil
+	}
+	fields := strings.FieldsFunc(input, func(separator rune) bool {
+		return separator == ',' || separator == ' ' || separator == '\t'
+	})
+	selected := make([]string, 0, len(fields))
+	seen := make(map[string]bool)
+	for _, field := range fields {
+		kind, ok := resolveTargetToken(field, specs)
+		if !ok {
+			return nil, fmt.Errorf("cible invalide : %q (choix : numéros, %s, ou all)", field, strings.Join(specKinds(specs), ", "))
+		}
+		if !seen[kind] {
+			seen[kind] = true
+			selected = append(selected, kind)
+		}
+	}
+	if len(selected) == 0 {
+		return nil, fmt.Errorf("aucune cible valide")
+	}
+	return selected, nil
+}
+
+func resolveTargetToken(token string, specs []writer.TargetSpec) (string, bool) {
+	trimmed := strings.TrimSpace(token)
+	if index, err := strconv.Atoi(trimmed); err == nil {
+		if index >= 1 && index <= len(specs) {
+			return specs[index-1].Kind, true
+		}
+		return "", false
+	}
+	lower := strings.ToLower(trimmed)
+	for _, spec := range specs {
+		if strings.ToLower(spec.Kind) == lower {
+			return spec.Kind, true
+		}
+	}
+	return "", false
+}
+
+func specKinds(specs []writer.TargetSpec) []string {
+	kinds := make([]string, 0, len(specs))
+	for _, spec := range specs {
+		kinds = append(kinds, spec.Kind)
+	}
+	return kinds
+}
+
+func containsKind(kinds []string, kind string) bool {
+	for _, candidate := range kinds {
+		if candidate == kind {
+			return true
+		}
+	}
+	return false
+}
+
+func targetEntriesFromKinds(kinds []string) []fs.TargetEntry {
+	entries := make([]fs.TargetEntry, 0, len(kinds))
+	for _, kind := range kinds {
+		rootDir := kind
+		if spec, ok := writer.SpecForKind(kind); ok {
+			rootDir = spec.RootDir
+		}
+		entries = append(entries, fs.TargetEntry{ID: kind, Kind: kind, RootDir: rootDir, Enabled: true})
+	}
+	return entries
+}
+
 func (a *app) writeAndValidate(existingCfg fs.ProjectConfigV2, draft wizardProfile) error {
 	entry := fs.ProviderEntry{
 		ID:           draft.Alias,
@@ -534,12 +688,18 @@ func (a *app) writeAndValidate(existingCfg fs.ProjectConfigV2, draft wizardProfi
 		TargetDir:    draft.TargetDir,
 	}
 	existingCfg.Providers = append(existingCfg.Providers, entry)
+	existingCfg.Targets = targetEntriesFromKinds(draft.Targets)
 
 	path, err := fs.WriteProjectConfigV2(existingCfg)
 	if err != nil {
 		return err
 	}
 	a.writeStdout(fmt.Sprintf("✓ Configuration enregistrée : %s", path))
+	if workingDir, wdErr := os.Getwd(); wdErr == nil {
+		if changed, gitErr := fs.EnsureManagedGitignore(workingDir); gitErr == nil && changed {
+			a.writeStdout("✓ .gitignore mis à jour (fichiers d'état STH ignorés)")
+		}
+	}
 
 	profile := fs.ProjectProfile{
 		Provider:     draft.Provider,

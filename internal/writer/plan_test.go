@@ -13,10 +13,12 @@ var (
 	_ TargetWriter  = CopilotWriter{}
 	_ TargetWriter  = CodexWriter{}
 	_ TargetWriter  = CursorWriter{}
+	_ TargetWriter  = AntigravityWriter{}
 	_ TargetPlanner = ClaudeWriter{}
 	_ TargetPlanner = CopilotWriter{}
 	_ TargetPlanner = CodexWriter{}
 	_ TargetPlanner = CursorWriter{}
+	_ TargetPlanner = AntigravityWriter{}
 )
 
 func TestPlan_MappingMatrix(t *testing.T) {

@@ -85,7 +85,7 @@ func (a *app) runInit(args ...string) error {
 		Provider:    "github",
 		Ref:         "main",
 		CatalogPath: "SKILLS.md",
-		TargetDir:   ".claude/skills",
+		TargetDir:   ".sth",
 	}
 	if len(existingCfg.Providers) == 0 && legacyConfig != nil {
 		legacyProfile, legacyErr := fs.LegacyProfileFromConfig(*legacyConfig)
