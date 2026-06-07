@@ -28,6 +28,10 @@ func (a *app) runUpdate(args []string) error {
 		return err
 	}
 
+	if len(cfg.Targets) > 0 {
+		return a.updateFanout(profile, cfg, dryRun, jsonOut, failOnChanges)
+	}
+
 	// FR-017/FR-018/FR-019: --fail-on-changes is a CI gate. Detect any
 	// locally-modified managed file and exit 1 BEFORE doing anything else
 	// (network calls, writes, etc.). Combines correctly with --dry-run.

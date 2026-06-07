@@ -3,8 +3,8 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"sth/internal/fs"
 	"path/filepath"
+	"sth/internal/fs"
 )
 
 func (a *app) runInstall(args []string) error {
@@ -24,8 +24,9 @@ func (a *app) runInstall(args []string) error {
 	}
 	defer release()
 
+	cfg, _ := fs.ReadProjectConfigV2()
 	providerID := "default"
-	if cfg, cfgErr := fs.ReadProjectConfigV2(); cfgErr == nil && len(cfg.Providers) > 0 {
+	if len(cfg.Providers) > 0 {
 		providerID = cfg.Providers[0].ID
 	}
 
@@ -43,8 +44,15 @@ func (a *app) runInstall(args []string) error {
 		return err
 	}
 
+	if len(cfg.Targets) > 0 {
+		return a.installFanout(*profile, cfg, entry, providerID, dryRun, jsonOut, force)
+	}
+	return a.installLegacy(*profile, entry, providerID, dryRun, jsonOut, force)
+}
+
+func (a *app) installLegacy(profile fs.ProjectProfile, entry fs.CatalogEntry, providerID string, dryRun, jsonOut, force bool) error {
 	if entry.ResourceType == "bundle" {
-		bundleContents, bundleErr := a.downloadBundleContents(context.Background(), *profile, entry)
+		bundleContents, bundleErr := a.downloadBundleContents(context.Background(), profile, entry)
 		if bundleErr != nil {
 			return bundleErr
 		}
@@ -61,7 +69,7 @@ func (a *app) runInstall(args []string) error {
 		return nil
 	}
 
-	content, err := a.client.DownloadCatalogEntry(context.Background(), *profile, entry)
+	content, err := a.client.DownloadCatalogEntry(context.Background(), profile, entry)
 	if err != nil {
 		return err
 	}
@@ -69,7 +77,6 @@ func (a *app) runInstall(args []string) error {
 	workingDir, _ := filepath.Abs(".")
 	ignorePats, _ := fs.ReadSTHIgnore(workingDir)
 
-	// Build incoming managed files for dry-run or conflict check.
 	incomingRecord := fs.RefreshManagedFileHashes(fs.InstalledResourceRecordV2{
 		ResourceName: entry.CatalogID,
 		ManagedFiles: []fs.ManagedFile{{Path: fs.ResolveManagedFilePath(profile.TargetDir, entry)}},
@@ -98,7 +105,6 @@ func (a *app) runInstall(args []string) error {
 		return nil
 	}
 
-	// Ownership conflict check (T023: --force transfers ownership).
 	state, _ := fs.ReadInstalledStateV2(profile.TargetDir)
 	if !force {
 		for _, mf := range incomingRecord.ManagedFiles {
@@ -123,7 +129,6 @@ func (a *app) runInstall(args []string) error {
 		}
 	}
 
-	// T020: Skip file write when excluded by .sthignore (SC-003).
 	relPath := filepath.ToSlash(entry.SourcePath)
 	if len(ignorePats) > 0 && fs.MatchIgnore(ignorePats, relPath) {
 		a.writeStderr("warning: no files installed — all excluded by .sthignore")
@@ -135,7 +140,6 @@ func (a *app) runInstall(args []string) error {
 		if upsertErr := fs.UpsertInstalledResourceV2(profile.TargetDir, v2rec); upsertErr != nil {
 			return upsertErr
 		}
-		// Also register in v1 state so update/remove can discover the resource.
 		v1rec := fs.InstalledResourceRecord{
 			CatalogID:     entry.CatalogID,
 			ResourceType:  entry.ResourceType,
@@ -159,7 +163,6 @@ func (a *app) runInstall(args []string) error {
 	if err != nil {
 		return err
 	}
-	// T025: update resolved_version to commit SHA when available.
 	if v2cfg, v2err := fs.ReadProjectConfigV2(); v2err == nil {
 		if sha, shaErr := a.client.GetLatestCommitSHA(context.Background(), v2cfg, providerID); shaErr == nil && sha != "" {
 			v2rec.ResolvedVersion = sha

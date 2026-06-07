@@ -35,6 +35,8 @@ var commandCatalog = []commandSpec{
 			"Providers heberges supportes : github.com, gitlab.com, dev.azure.com et bitbucket.org.",
 			"Le wizard affiche les URLs officielles pour creer le token/API token, la permission minimale attendue et les variables d'environnement reconnues.",
 			"Le repository_id accepte un identifiant canonique ou une URL hebergee supportee. Les hosts self-hosted sont rejetes.",
+			"Le wizard demande quels modeles/agents cibler (Claude Code, GitHub Copilot, OpenAI Codex, Cursor, Google Antigravity), pre-coche ceux detectes, et n'a plus besoin du dossier d'install : il est derive automatiquement.",
+			"Les skills sont dedupliques (.claude/skills sert de hub partage lu par Claude/Cursor/Copilot ; .agents/skills s'ajoute pour Antigravity). init met aussi a jour .gitignore pour les fichiers d'etat STH.",
 			"La guidance provider peut etre relue pendant le wizard et aucun secret n'est persiste dans .sth/project.json.",
 			"Au premier init, le wizard propose un menu télémétrie (off / anonymous / connected). Mode connected enchaine sur un sub-prompt `sth login`.",
 			"--no-cloud-prompt : skippe le sub-prompt login même quand le mode connecté est choisi (CI, wrappers).",

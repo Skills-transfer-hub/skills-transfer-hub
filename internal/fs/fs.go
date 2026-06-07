@@ -1449,15 +1449,18 @@ func UpsertInstalledResourceV2(targetDir string, record InstalledResourceRecordV
 	}
 
 	for i, existing := range state.Entries {
-		if existing.ResourceName == record.ResourceName {
+		if existing.ResourceName == record.ResourceName && existing.TargetID == record.TargetID {
 			state.Entries[i] = record
 			return WriteInstalledStateV2(targetDir, state)
 		}
 	}
 
 	state.Entries = append(state.Entries, record)
-	sort.Slice(state.Entries, func(a, b int) bool {
-		return state.Entries[a].ResourceName < state.Entries[b].ResourceName
+	sort.Slice(state.Entries, func(left, right int) bool {
+		if state.Entries[left].ResourceName != state.Entries[right].ResourceName {
+			return state.Entries[left].ResourceName < state.Entries[right].ResourceName
+		}
+		return state.Entries[left].TargetID < state.Entries[right].TargetID
 	})
 	return WriteInstalledStateV2(targetDir, state)
 }

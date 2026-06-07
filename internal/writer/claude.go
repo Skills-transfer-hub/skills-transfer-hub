@@ -41,7 +41,7 @@ func (ClaudeWriter) Plan(artifactKind, artifactName, _ string, sources []string)
 	}
 	switch artifactKind {
 	case "skill":
-		return PlanResult{Files: relForClaudeSkillBundle(artifactName, sources)}
+		return PlanResult{Files: relForSkillBundle(".claude/skills", artifactName, sources)}
 	case "agent":
 		return PlanResult{Files: []PlannedFile{{SourcePath: sources[0], RelativePath: ".claude/agents/" + artifactName + ".md"}}}
 	case "command":
@@ -52,21 +52,8 @@ func (ClaudeWriter) Plan(artifactKind, artifactName, _ string, sources []string)
 	return PlanResult{Skipped: true, Reason: "unknown artifact kind: " + artifactKind}
 }
 
-// relForClaudeSkillBundle maps the upstream source paths of a skill bundle
-// to their Claude-Code on-disk relative paths under .claude/skills/<name>/.
-//
-// The whole subtree below the skill's source folder is preserved so that
-// `<src>/references/component-patterns.md` lands as
-// `.claude/skills/<name>/references/component-patterns.md` (and not
-// flattened to `.claude/skills/<name>/component-patterns.md` which would
-// collide on assets sharing a basename and silently break relative links
-// inside SKILL.md).
-//
-// The skill root is the directory containing the source path that ends in
-// "/SKILL.md". When no SKILL.md is present in sources (defensive: should
-// not happen for kind=skill) the longest common directory prefix is used.
-func relForClaudeSkillBundle(name string, sources []string) []PlannedFile {
-	base := ".claude/skills/" + name
+func relForSkillBundle(skillsRoot, name string, sources []string) []PlannedFile {
+	base := skillsRoot + "/" + name
 	skillRoot := skillBundleRoot(sources)
 	files := make([]PlannedFile, 0, len(sources))
 	for _, source := range sources {

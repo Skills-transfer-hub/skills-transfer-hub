@@ -17,7 +17,7 @@ import (
 //   2. repo       (owner/repo)
 //   3. ref        (Enter = main)
 //   4. catalog    (Enter = SKILLS.md)
-//   5. target     (Enter = .claude/skills)
+//   5. targets    (Enter = detected / claude by default)
 //   6. access     (Enter = privé / "n" = public)
 //   7. details?   (only if private + no env token)
 //   8. token      (only if private + no env token)
@@ -373,8 +373,8 @@ func TestRunInit_EmptyProject_CreatesV2WithOneProvider(t *testing.T) {
 	defer server.Close()
 	t.Setenv("STH_GITHUB_RAW_BASE_URL", server.URL)
 
-	// provider, repo, ref, cat, target, access=public(n), recap
-	input := "github\norg/repo\nmain\nSKILLS.md\n.claude/skills\nn\n\n"
+	// provider, repo, ref, cat, targets(default), access=public(n), recap
+	input := "github\norg/repo\nmain\nSKILLS.md\n\nn\n\n"
 	result := runCLIWithInput(t, projectDir, homeDir, input, "init")
 
 	if result.err != nil {
@@ -434,8 +434,8 @@ func TestRunInit_ExistingV2_AppendsSecondProviderWithAliasPrompt(t *testing.T) {
 		Resources: []fs.ResourceEntry{},
 	})
 
-	// add new=y, alias=second, provider=github, repo, ref/cat/target, access=public, recap
-	input := "y\nsecond\ngithub\norg/second\nmain\nSKILLS.md\n.claude/skills\nn\n\n"
+	// add new=y, alias=second, provider=github, repo, ref/cat/targets(default), access=public, recap
+	input := "y\nsecond\ngithub\norg/second\nmain\nSKILLS.md\n\nn\n\n"
 	result := runCLIWithInput(t, projectDir, homeDir, input, "init")
 
 	if result.err != nil {
@@ -702,6 +702,80 @@ func TestRun_initAcceptsRepositoryURL(t *testing.T) {
 	}
 }
 
+// The targets step persists the chosen models into ProjectConfigV2.Targets.
+func TestRunInit_PersistsSelectedTargets(t *testing.T) {
+	homeDir := t.TempDir()
+	projectDir := t.TempDir()
+	server := httptest.NewServer(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		_, _ = w.Write([]byte(testCatalogMarkdown("| skill | alpha | skills | skills/alpha.md | Alpha |")))
+	}))
+	defer server.Close()
+	t.Setenv("STH_GITHUB_RAW_BASE_URL", server.URL)
+
+	// provider, repo, ref, catalog, targets=claude,cursor, access=public(n), recap
+	input := "github\nowner/repo\nmain\nSKILLS.md\nclaude,cursor\nn\n\n"
+	result := runCLIWithInput(t, projectDir, homeDir, input, "init")
+	if result.err != nil {
+		t.Fatalf("Run() error = %v\nstdout=%s\nstderr=%s", result.err, result.stdout, result.stderr)
+	}
+
+	data, err := os.ReadFile(filepath.Join(projectDir, ".sth", "project.json"))
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	var cfg fs.ProjectConfigV2
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		t.Fatalf("json.Unmarshal: %v", err)
+	}
+	kinds := make([]string, 0, len(cfg.Targets))
+	for _, entry := range cfg.Targets {
+		kinds = append(kinds, entry.Kind)
+		if !entry.Enabled {
+			t.Errorf("target %q should be enabled", entry.Kind)
+		}
+	}
+	if strings.Join(kinds, ",") != "claude,cursor" {
+		t.Fatalf("targets = %v, want [claude cursor]", kinds)
+	}
+	if cfg.Targets[1].RootDir != ".cursor" {
+		t.Fatalf("cursor RootDir = %q, want .cursor", cfg.Targets[1].RootDir)
+	}
+}
+
+// An empty answer at the targets step keeps the detected targets (here Cursor,
+// because the project already has a .cursor/ directory).
+func TestRunInit_PreselectsDetectedTargets(t *testing.T) {
+	homeDir := t.TempDir()
+	projectDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(projectDir, ".cursor"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		_, _ = w.Write([]byte(testCatalogMarkdown("| skill | alpha | skills | skills/alpha.md | Alpha |")))
+	}))
+	defer server.Close()
+	t.Setenv("STH_GITHUB_RAW_BASE_URL", server.URL)
+
+	// provider, repo, ref, catalog, targets(empty=keep detected), access=public(n), recap
+	input := "github\nowner/repo\nmain\nSKILLS.md\n\nn\n\n"
+	result := runCLIWithInput(t, projectDir, homeDir, input, "init")
+	if result.err != nil {
+		t.Fatalf("Run() error = %v\nstdout=%s\nstderr=%s", result.err, result.stdout, result.stderr)
+	}
+
+	data, err := os.ReadFile(filepath.Join(projectDir, ".sth", "project.json"))
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	var cfg fs.ProjectConfigV2
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		t.Fatalf("json.Unmarshal: %v", err)
+	}
+	if len(cfg.Targets) != 1 || cfg.Targets[0].Kind != "cursor" {
+		t.Fatalf("targets = %+v, want a single detected cursor target", cfg.Targets)
+	}
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Telemetry consent + Alpha provider gate
 // ─────────────────────────────────────────────────────────────────────────────
@@ -902,9 +976,9 @@ func TestRunInit_AlphaGate_AllowsGitProviderAlongsideSthCloud(t *testing.T) {
 		Resources: []fs.ResourceEntry{},
 	})
 
-	// New wizard flow: addNew, alias, provider, repo, ref, catalog, target,
+	// New wizard flow: addNew, alias, provider, repo, ref, catalog, targets,
 	// access=n (public), recap accept, recap accept.
-	input := "y\nfirst\ngithub\norg/first\nmain\nSKILLS.md\n.claude/skills\nn\n\n"
+	input := "y\nfirst\ngithub\norg/first\nmain\nSKILLS.md\n\nn\n\n"
 	result := runCLIWithInput(t, projectDir, homeDir, input, "init")
 	if result.err != nil {
 		t.Fatalf("expected success — sth-cloud does not count, got: %v\nstdout=%s", result.err, result.stdout)
@@ -942,8 +1016,8 @@ func TestRunInit_AlphaGate_Bypassed(t *testing.T) {
 	})
 
 	// New wizard flow (same as the alias-prompt test above): addNew, alias,
-	// provider, repo, ref, catalog, target, access=n, recap accept, recap accept.
-	input := "y\nsecond\ngithub\norg/second\nmain\nSKILLS.md\n.claude/skills\nn\n\n"
+	// provider, repo, ref, catalog, targets, access=n, recap accept, recap accept.
+	input := "y\nsecond\ngithub\norg/second\nmain\nSKILLS.md\n\nn\n\n"
 	result := runCLIWithInput(t, projectDir, homeDir, input, "init")
 	if result.err != nil {
 		t.Fatalf("expected bypass to allow second Git provider, got: %v", result.err)

@@ -59,6 +59,35 @@ func TestDetectAvailableTargets_RecognizesLegacyMarkers(t *testing.T) {
 	}
 }
 
+func TestDetectAvailableTargets_Antigravity(t *testing.T) {
+	canonical := t.TempDir()
+	mustMkdir(t, filepath.Join(canonical, ".agents"))
+	if !detectsKind(DetectAvailableTargets(canonical), "antigravity") {
+		t.Errorf(".agents/ should detect antigravity")
+	}
+
+	legacy := t.TempDir()
+	mustMkdir(t, filepath.Join(legacy, ".agent"))
+	if !detectsKind(DetectAvailableTargets(legacy), "antigravity") {
+		t.Errorf(".agent/ should detect antigravity")
+	}
+
+	gemini := t.TempDir()
+	mustWrite(t, filepath.Join(gemini, "GEMINI.md"), "# Gemini")
+	if !detectsKind(DetectAvailableTargets(gemini), "antigravity") {
+		t.Errorf("GEMINI.md should detect antigravity")
+	}
+}
+
+func detectsKind(targets []DetectedTarget, kind string) bool {
+	for _, target := range targets {
+		if target.Kind == kind {
+			return true
+		}
+	}
+	return false
+}
+
 func mustMkdir(t *testing.T, path string) {
 	t.Helper()
 	if err := os.MkdirAll(path, 0o755); err != nil {
