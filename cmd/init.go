@@ -19,10 +19,11 @@ const alphaProviderGateSkipValue = "0"
 // narrated step-by-step flow. The bulk of the UX lives in cmd/init_wizard.go.
 //
 // Recognized flags:
-//   --no-cloud-prompt   skip the connected-mode cloud-login sub-prompt even
-//                       when the user picks telemetry mode = connected. Used
-//                       by power users / CI wrappers that don't want the
-//                       extra interactive step.
+//
+//	--no-cloud-prompt   skip the connected-mode cloud-login sub-prompt even
+//	                    when the user picks telemetry mode = connected. Used
+//	                    by power users / CI wrappers that don't want the
+//	                    extra interactive step.
 func (a *app) runInit(args ...string) error {
 	skipCloudPrompt := false
 	for _, arg := range args {
@@ -66,18 +67,6 @@ func (a *app) runInit(args ...string) error {
 		if !addNew {
 			a.writeStdout("Configuration projet conservée.", "Prochaine étape : utilisez `sth list`.")
 			return nil
-		}
-		// Alpha period: a project may hold a single Git provider. sth-cloud is
-		// exempted (added via `sth login`, independent infra). Refuse early so
-		// the user doesn't go through the whole wizard for nothing.
-		if alphaProviderGateActive() && countGitProviders(existingCfg) >= 1 {
-			a.writeStdout(
-				"",
-				"Pendant l'Alpha, un projet ne peut référencer qu'un seul dépôt Git.",
-				fmt.Sprintf("Détails : %s", AlphaLimitsDocsURL()),
-				"Pour contourner (à vos risques) : exporte STH_ALPHA_GATE=0.",
-			)
-			return fmt.Errorf("limite Alpha : 1 provider Git max par projet")
 		}
 	}
 
@@ -324,17 +313,17 @@ func promptValue(reader *bufio.Reader, stdout io.Writer, label, defaultValue str
 // the 3-tier choice — see cmd/init_telemetry_mode.go and
 // cmd/init_cloud_login.go.)
 
-// countGitProviders returns the number of non-cloud providers in the project.
-// sth-cloud is exempted from the Alpha "1 provider" rule because it represents
-// authenticated SaaS access, not a self-hosted Git remote.
-func countGitProviders(cfg fs.ProjectConfigV2) int {
-	n := 0
-	for _, p := range cfg.Providers {
-		if !strings.EqualFold(strings.TrimSpace(p.Provider), loginProviderName) {
-			n++
+func countPrivateGitProviders(cfg fs.ProjectConfigV2) int {
+	count := 0
+	for _, provider := range cfg.Providers {
+		if IsCloudProvider(provider.Provider) {
+			continue
+		}
+		if provider.Private {
+			count++
 		}
 	}
-	return n
+	return count
 }
 
 // alphaProviderGateActive reports whether the Alpha-period provider cap is

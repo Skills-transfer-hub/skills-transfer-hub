@@ -92,6 +92,7 @@ type ProviderEntry struct {
 	CatalogRef   string `json:"catalog_ref"`
 	CatalogPath  string `json:"catalog_path"`
 	TargetDir    string `json:"target_dir"`
+	Private      bool   `json:"private,omitempty"`
 }
 
 // ResourceEntry tracks a managed resource in the providers array.

@@ -58,8 +58,8 @@ func renderWizardBox(v wizardView, lines ...string) string {
 		faceCells       = 3
 		leftFacePadding = 4 // spaces before the face box opening
 	)
-	face := padFace(v.Face, faceCells)             // " ^_^ "
-	innerBoxWidth := displayCells(face) + 2        // " ^_^ " + two borders
+	face := padFace(v.Face, faceCells)              // " ^_^ "
+	innerBoxWidth := displayCells(face) + 2         // " ^_^ " + two borders
 	leftCol := strings.Repeat(" ", leftFacePadding) // "    "
 	box := struct {
 		Top, Mid, Bot string
@@ -199,7 +199,7 @@ func (a *app) runInitWizard(reader *bufio.Reader, existingCfg fs.ProjectConfigV2
 		return err
 	}
 
-	if err := a.askAccessAndToken(reader, &draft); err != nil {
+	if err := a.askAccessAndToken(reader, &draft, existingCfg); err != nil {
 		return err
 	}
 
@@ -291,13 +291,23 @@ func (a *app) askCatalogSettings(reader *bufio.Reader, draft *wizardProfile) err
 	return nil
 }
 
-func (a *app) askAccessAndToken(reader *bufio.Reader, draft *wizardProfile) error {
+func (a *app) askAccessAndToken(reader *bufio.Reader, draft *wizardProfile, existingCfg fs.ProjectConfigV2) error {
 	a.narrate(wizardHello, "Le dépôt est public ou privé ?")
 	access, err := promptAccessType(reader, a.stdout)
 	if err != nil {
 		return err
 	}
 	draft.IsPrivate = access
+
+	if draft.IsPrivate && alphaProviderGateActive() && countPrivateGitProviders(existingCfg) >= 1 {
+		a.writeStdout(
+			"",
+			"Pendant l'Alpha, un projet ne peut référencer qu'un seul dépôt privé.",
+			"Choisis public pour ce dépôt, ou contourne (à tes risques) avec STH_ALPHA_GATE=0.",
+			fmt.Sprintf("Détails : %s", AlphaLimitsDocsURL()),
+		)
+		return fmt.Errorf("limite Alpha : 1 dépôt privé max par projet")
+	}
 
 	if !draft.IsPrivate {
 		draft.Token = ""
@@ -510,7 +520,7 @@ func (a *app) editDraftField(reader *bufio.Reader, draft *wizardProfile, existin
 	case "cibles", "targets":
 		return a.askTargets(reader, draft, existingCfg)
 	case "accès", "acces", "token":
-		return a.askAccessAndToken(reader, draft)
+		return a.askAccessAndToken(reader, draft, existingCfg)
 	}
 	return nil
 }
@@ -686,6 +696,7 @@ func (a *app) writeAndValidate(existingCfg fs.ProjectConfigV2, draft wizardProfi
 		CatalogRef:   draft.Ref,
 		CatalogPath:  draft.CatalogPath,
 		TargetDir:    draft.TargetDir,
+		Private:      draft.IsPrivate,
 	}
 	existingCfg.Providers = append(existingCfg.Providers, entry)
 	existingCfg.Targets = targetEntriesFromKinds(draft.Targets)
