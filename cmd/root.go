@@ -203,6 +203,19 @@ var commandCatalog = []commandSpec{
 			"sth pack init",
 		},
 	},
+	{
+		name:    "alpha",
+		usage:   "sth alpha request",
+		summary: "Demande à tester les options payantes pendant l'Alpha (compte requis)",
+		details: []string{
+			"`sth alpha request` envoie une demande d'accès aux offres payantes à l'équipe STH.",
+			"Nécessite d'être connecté : exécute `sth login` au préalable.",
+			"La demande est approuvée ou refusée depuis le dashboard ; une fois approuvée, les droits se rafraîchissent au prochain appel CLI.",
+		},
+		examples: []string{
+			"sth alpha request",
+		},
+	},
 }
 
 type app struct {
@@ -395,6 +408,12 @@ func (a *app) run(args []string) error {
 		err = a.runCompletion(args[1:])
 	case "pack":
 		err = a.runPack(args[1:])
+	case "alpha":
+		if len(args) >= 2 && isHelpFlag(args[1]) {
+			a.writeStdout(commandHelpText("alpha"))
+			return nil
+		}
+		err = a.runAlpha(args[1:])
 	case "--help", "-h":
 		a.writeStdout(helpText())
 		return nil
@@ -422,13 +441,13 @@ func (a *app) run(args []string) error {
 //
 //   - off:        nothing is sent.
 //   - anonymous:  POST /v1/usage/anon without any Bearer header. Works
-//                 even when the project has zero providers configured —
-//                 the user can contribute to product stats without ever
-//                 running sth init.
+//     even when the project has zero providers configured —
+//     the user can contribute to product stats without ever
+//     running sth init.
 //   - connected:  POST /v1/usage with the keychain Bearer. Requires a
-//                 sth-cloud provider entry in .sth/project.json. If the
-//                 entry is missing we degrade silently (the wizard hint
-//                 at init already pointed the user at `sth login`).
+//     sth-cloud provider entry in .sth/project.json. If the
+//     entry is missing we degrade silently (the wizard hint
+//     at init already pointed the user at `sth login`).
 //
 // Failures are swallowed — telemetry must never block a CLI command.
 // Runs synchronously with a 500ms timeout: a goroutine here would be killed
