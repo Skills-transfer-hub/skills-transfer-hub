@@ -334,3 +334,42 @@ func (c *Client) FetchOwnUsage(ctx context.Context, profile fs.ProjectProfile, l
 	}
 	return out.Records, nil
 }
+
+type AlphaAccessResult struct {
+	Status    string `json:"status"`
+	Plan      string `json:"plan,omitempty"`
+	CreatedAt string `json:"created_at,omitempty"`
+}
+
+func (c *Client) RequestAlphaAccess(ctx context.Context, profile fs.ProjectProfile) (AlphaAccessResult, error) {
+	headers, err := resolveCredentialHeaders(ctx, profile)
+	if err != nil {
+		return AlphaAccessResult{}, err
+	}
+	url := CloudBaseURL() + "/v1/access-request"
+	req, err := stdhttp.NewRequestWithContext(ctx, stdhttp.MethodPost, url, nil)
+	if err != nil {
+		return AlphaAccessResult{}, err
+	}
+	for name, value := range headers.headers {
+		req.Header.Set(name, value)
+	}
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		c.emitHTTP(stdhttp.MethodPost, url, 0)
+		return AlphaAccessResult{}, err
+	}
+	defer resp.Body.Close()
+	c.emitHTTP(stdhttp.MethodPost, url, resp.StatusCode)
+	if resp.StatusCode == stdhttp.StatusUnauthorized {
+		return AlphaAccessResult{}, fmt.Errorf("clé refusée (HTTP 401) — vérifie `sth login`")
+	}
+	if resp.StatusCode != stdhttp.StatusOK {
+		return AlphaAccessResult{}, fmt.Errorf("réponse inattendue (HTTP %d)", resp.StatusCode)
+	}
+	var out AlphaAccessResult
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&out); err != nil {
+		return AlphaAccessResult{}, fmt.Errorf("réponse access-request invalide : %w", err)
+	}
+	return out, nil
+}

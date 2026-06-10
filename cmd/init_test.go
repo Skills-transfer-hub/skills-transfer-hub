@@ -466,6 +466,55 @@ func TestRunInit_ExistingV2_AppendsSecondProviderWithAliasPrompt(t *testing.T) {
 	}
 }
 
+func TestCountPrivateGitProviders(t *testing.T) {
+	cfg := fs.ProjectConfigV2{Providers: []fs.ProviderEntry{
+		{ID: "a", Provider: "github", Private: true},
+		{ID: "b", Provider: "gitlab", Private: false},
+		{ID: "c", Provider: "sth-cloud", Private: true},
+	}}
+	if got := countPrivateGitProviders(cfg); got != 1 {
+		t.Fatalf("countPrivateGitProviders = %d, want 1 (public and cloud excluded)", got)
+	}
+}
+
+func TestRunInit_AlphaGate_AllowsSecondPublicRepo(t *testing.T) {
+	homeDir := t.TempDir()
+	projectDir := t.TempDir()
+	server := httptest.NewServer(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		_, _ = w.Write([]byte(testCatalogMarkdown("| skill | alpha | skills | skills/alpha.md | Alpha |")))
+	}))
+	defer server.Close()
+	t.Setenv("STH_GITHUB_RAW_BASE_URL", server.URL)
+
+	writeProjectConfigV2ForTest(t, projectDir, fs.ProjectConfigV2{
+		SchemaVersion: 2,
+		Providers: []fs.ProviderEntry{
+			{ID: "default", Provider: "github", RepositoryID: "org/first", CatalogRef: "main", CatalogPath: "SKILLS.md", TargetDir: ".claude/skills", Private: true},
+		},
+		Resources: []fs.ResourceEntry{},
+	})
+
+	input := "y\nsecond\ngithub\norg/second\nmain\nSKILLS.md\n\nn\n\n"
+	result := runCLIWithInput(t, projectDir, homeDir, input, "init")
+
+	if result.err != nil {
+		t.Fatalf("Run() error = %v, want success for a public second repo\nstdout=%s\nstderr=%s", result.err, result.stdout, result.stderr)
+	}
+
+	configPath := filepath.Join(projectDir, ".sth", "project.json")
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("ReadFile(%s): %v", configPath, err)
+	}
+	var cfg fs.ProjectConfigV2
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		t.Fatalf("json.Unmarshal(): %v", err)
+	}
+	if len(cfg.Providers) != 2 {
+		t.Fatalf("providers count = %d, want 2 (public second repo allowed under Alpha)", len(cfg.Providers))
+	}
+}
+
 // When the user picks an alias already used by an existing provider, the
 // wizard re-prompts (does not abort, does not write a duplicate).
 // STH_ALPHA_GATE=0 keeps the Alpha provider cap out of the way for this test.
@@ -931,23 +980,22 @@ func TestRunInit_SecondInit_DoesNotRePromptTelemetry(t *testing.T) {
 	}
 }
 
-func TestRunInit_AlphaGate_RefusesSecondGitProvider(t *testing.T) {
+func TestRunInit_AlphaGate_RefusesSecondPrivateRepo(t *testing.T) {
 	homeDir := t.TempDir()
 	projectDir := t.TempDir()
 
-	// Existing project already has one Git provider.
 	writeProjectConfigV2ForTest(t, projectDir, fs.ProjectConfigV2{
 		SchemaVersion: 2,
 		Providers: []fs.ProviderEntry{
-			{ID: "first", Provider: "github", RepositoryID: "org/first", CatalogRef: "main", CatalogPath: "SKILLS.md", TargetDir: ".claude/skills"},
+			{ID: "first", Provider: "github", RepositoryID: "org/first", CatalogRef: "main", CatalogPath: "SKILLS.md", TargetDir: ".claude/skills", Private: true},
 		},
 		Resources: []fs.ResourceEntry{},
 	})
 
-	// y to "add new" — and the gate should fire immediately, no further prompts.
-	result := runCLIWithInput(t, projectDir, homeDir, "y\n", "init")
+	input := "y\nsecond\ngithub\norg/second\nmain\nSKILLS.md\n\np\n"
+	result := runCLIWithInput(t, projectDir, homeDir, input, "init")
 	if result.err == nil {
-		t.Fatal("expected error from Alpha provider gate")
+		t.Fatal("expected error from Alpha private-repo gate")
 	}
 	if !strings.Contains(result.err.Error(), "Alpha") {
 		t.Fatalf("expected Alpha-cap error, got: %v", result.err)
