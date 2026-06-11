@@ -67,6 +67,20 @@ func TestFetchEntitlements_OK_Team(t *testing.T) {
 	}
 }
 
+func TestFetchEntitlements_OK_Alpha(t *testing.T) {
+	setupTestEnv(t)
+	newTestServer(t, func(w stdhttp.ResponseWriter, _ *stdhttp.Request) {
+		_, _ = io.WriteString(w, `{"plan":"alpha","expires_at":"2026-12-31T23:59:59Z","capabilities":["private_repos","pack_init","multi_target","fleet_sync","alpha_preview"]}`)
+	})
+	ent, err := FetchEntitlements(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if ent.Plan != "alpha" || len(ent.Capabilities) != 5 {
+		t.Fatalf("unexpected response: %+v", ent)
+	}
+}
+
 func TestFetchEntitlements_OK_Starter(t *testing.T) {
 	setupTestEnv(t)
 	newTestServer(t, func(w stdhttp.ResponseWriter, _ *stdhttp.Request) {
