@@ -312,11 +312,15 @@ func (a *app) runSelfUpdate() error {
 		return nil
 	}
 
-	assetData, err := a.client.DownloadURL(context.Background(), release.DownloadURL, nil)
+	assetData, err := a.client.DownloadURL(context.Background(), release.DownloadURL, nil, sthhttp.ReleaseAssetResponseLimitBytes)
 	if err != nil {
 		return err
 	}
-	checksumData, err := a.client.DownloadURL(context.Background(), release.ChecksumURL, nil)
+	checksumData, err := a.client.DownloadURL(context.Background(), release.ChecksumURL, nil, sthhttp.ChecksumManifestResponseLimitBytes)
+	if err != nil {
+		return err
+	}
+	signatureData, err := a.client.DownloadURL(context.Background(), release.SignatureURL, nil, sthhttp.ChecksumManifestResponseLimitBytes)
 	if err != nil {
 		return err
 	}
@@ -325,7 +329,7 @@ func (a *app) runSelfUpdate() error {
 	if err != nil {
 		return err
 	}
-	if err := fs.ReplaceExecutableWithAsset(executablePath, release.AssetName, assetData, checksumData); err != nil {
+	if err := fs.ReplaceExecutableWithAsset(executablePath, release.AssetName, assetData, checksumData, signatureData); err != nil {
 		return fmt.Errorf("mise à jour stable %s détectée, mais le remplacement automatique a échoué : %w", fs.DisplayVersion(release.Version), err)
 	}
 

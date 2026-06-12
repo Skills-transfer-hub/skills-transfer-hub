@@ -757,13 +757,17 @@ func ListInstalledResources(targetDir string) ([]InstalledResourceRecord, error)
 }
 
 // ReplaceExecutableWithAsset verifies the downloaded archive and replaces the target executable.
-func ReplaceExecutableWithAsset(executablePath, assetName string, assetData, checksumManifest []byte) error {
+func ReplaceExecutableWithAsset(executablePath, assetName string, assetData, checksumManifest, checksumSignature []byte) error {
 	trimmedExecutablePath := strings.TrimSpace(executablePath)
 	if trimmedExecutablePath == "" {
 		return errors.New("chemin du binaire courant introuvable")
 	}
 	if strings.TrimSpace(assetName) == "" {
 		return errors.New("nom d'artefact de release introuvable")
+	}
+
+	if err := verifyChecksumSignature(checksumManifest, checksumSignature); err != nil {
+		return err
 	}
 
 	expectedChecksum, err := checksumForAsset(checksumManifest, assetName)

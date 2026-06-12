@@ -49,6 +49,7 @@ type ReleaseMetadata struct {
 	ReleasesAPIURL string
 	AssetName      string
 	ChecksumName   string
+	SignatureName  string
 }
 
 // ReleaseAsset describes the stable release asset selected for self-update.
@@ -56,6 +57,7 @@ type ReleaseAsset struct {
 	Version         string
 	DownloadURL     string
 	ChecksumURL     string
+	SignatureURL    string
 	ChecksumName    string
 	AssetName       string
 	Highlights      []string
@@ -250,6 +252,9 @@ func (c *Client) CheckForStableUpdate(ctx context.Context, metadata ReleaseMetad
 	if strings.TrimSpace(metadata.ChecksumName) == "" {
 		metadata.ChecksumName = "SHA256SUMS"
 	}
+	if strings.TrimSpace(metadata.SignatureName) == "" {
+		metadata.SignatureName = metadata.ChecksumName + ".sig"
+	}
 
 	data, err := c.downloadURL(ctx, strings.TrimSpace(metadata.ReleasesAPIURL), nil)
 	if err != nil {
@@ -271,12 +276,15 @@ func (c *Client) CheckForStableUpdate(ctx context.Context, metadata ReleaseMetad
 
 		assetURL := ""
 		checksumURL := ""
+		signatureURL := ""
 		for _, asset := range release.Assets {
 			switch asset.Name {
 			case metadata.AssetName:
 				assetURL = asset.BrowserDownloadURL
 			case metadata.ChecksumName:
 				checksumURL = asset.BrowserDownloadURL
+			case metadata.SignatureName:
+				signatureURL = asset.BrowserDownloadURL
 			}
 		}
 
@@ -288,6 +296,7 @@ func (c *Client) CheckForStableUpdate(ctx context.Context, metadata ReleaseMetad
 			Version:         strings.TrimSpace(release.TagName),
 			DownloadURL:     assetURL,
 			ChecksumURL:     checksumURL,
+			SignatureURL:    signatureURL,
 			ChecksumName:    metadata.ChecksumName,
 			AssetName:       metadata.AssetName,
 			Highlights:      extractReleaseHighlights(release.Body, 3),
@@ -348,8 +357,8 @@ func extractReleaseHighlights(body string, maxItems int) []string {
 }
 
 // DownloadURL downloads a raw URL without provider-specific resolution.
-func (c *Client) DownloadURL(ctx context.Context, rawURL string, headers map[string]string) ([]byte, error) {
-	return c.downloadURL(ctx, rawURL, headers)
+func (c *Client) DownloadURL(ctx context.Context, rawURL string, headers map[string]string, limitBytes int64) ([]byte, error) {
+	return c.downloadURLWithLimit(ctx, rawURL, headers, limitBytes)
 }
 
 // GetLatestCommitSHA fetches the HEAD commit SHA for the given provider's catalog ref.
@@ -426,6 +435,10 @@ func (c *Client) fetchCatalogBytes(ctx context.Context, profile fs.ProjectProfil
 }
 
 func (c *Client) downloadURL(ctx context.Context, rawURL string, headers map[string]string) ([]byte, error) {
+	return c.downloadURLWithLimit(ctx, rawURL, headers, defaultResponseLimitBytes)
+}
+
+func (c *Client) downloadURLWithLimit(ctx context.Context, rawURL string, headers map[string]string, limitBytes int64) ([]byte, error) {
 	req, err := stdhttp.NewRequestWithContext(ctx, stdhttp.MethodGet, strings.TrimSpace(rawURL), nil)
 	if err != nil {
 		return nil, fmt.Errorf("préparation de la requête pour %s échouée : %w", rawURL, err)
@@ -455,9 +468,12 @@ func (c *Client) downloadURL(ctx context.Context, rawURL string, headers map[str
 		return nil, fmt.Errorf("réponse inattendue du serveur : HTTP %d pour %s", resp.StatusCode, rawURL)
 	}
 
-	data, err := io.ReadAll(resp.Body)
+	data, err := io.ReadAll(io.LimitReader(resp.Body, limitBytes+1))
 	if err != nil {
 		return nil, fmt.Errorf("lecture du corps de la réponse échouée : %w", err)
+	}
+	if int64(len(data)) > limitBytes {
+		return nil, fmt.Errorf("réponse trop volumineuse (> %d octets) : %s", limitBytes, rawURL)
 	}
 
 	return data, nil

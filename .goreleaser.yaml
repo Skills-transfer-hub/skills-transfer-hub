@@ -78,6 +78,28 @@ checksum:
   name_template: "SHA256SUMS"
   algorithm: sha256
 
+# Detached ed25519 signature of SHA256SUMS, uploaded as SHA256SUMS.sig. The CLI
+# verifies it (internal/fs/signing.go) before trusting any checksum, so a
+# compromised release host cannot serve a tampered binary + matching manifest.
+# Requires the STH_RELEASE_SIGNING_KEY secret (base64 ed25519 private key);
+# generate with `go run ./tools/release-sign -genkey` and paste the public key
+# into releaseSigningPublicKeyBase64.
+signs:
+  - id: checksums
+    artifacts: checksum
+    signature: "${artifact}.sig"
+    cmd: go
+    args:
+      - run
+      - ./tools/release-sign
+      - --key-env
+      - STH_RELEASE_SIGNING_KEY
+      - --in
+      - "${artifact}"
+      - --out
+      - "${signature}"
+    output: true
+
 snapshot:
   name_template: "{{ incpatch .Version }}-snapshot"
 
