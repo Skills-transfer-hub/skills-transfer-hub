@@ -262,16 +262,11 @@ Authentification : Clerk + JWT template → Supabase RLS. Pages protégées par 
 
 ## 7. Anomalies et points d'attention
 
-### 7.1. Drift de schéma — colonnes utilisées sans migration committée
+### 7.1. Drift de schéma — résolu (migrations 0007-0011)
 
-Le code de `sth-back/shared/auth.ts` et `license.service.ts` utilise les colonnes `licenses.key_hash`, `licenses.key_prefix`, `licenses.last_used_at`, mais les migrations Supabase visibles (`0001_init.sql`, `0011_drop_license_plaintext.sql`) ne montrent pas leur création. Les migrations `0007-0010` sont **absentes du repo `sth-dashboard/supabase/migrations/`**.
+Le code de `sth-back/shared/auth.ts` et `license.service.ts` utilise les colonnes `licenses.key_hash`, `licenses.key_prefix`, `licenses.last_used_at`. Ces colonnes sont créées par `0007_licenses_hash_columns.sql`, et `0011_drop_license_plaintext.sql` retire l'ancien `key_value`. Un setup neuf reconstruit donc le schéma d'auth correct depuis `sth-dashboard/supabase/migrations/` sans récupération manuelle.
 
-**Conséquences possibles** :
-- Un setup neuf échouera à l'auth (colonne `key_hash` inexistante)
-- Toute reconstruction de l'environnement nécessite de récupérer les migrations manquantes depuis l'historique de prod
-- À traiter en priorité avant d'inviter un contributeur externe
-
-### 7.2. Tables référencées mais absentes du schéma versionné
+### 7.2. Tables du catalog — présentes dans le schéma versionné
 
 `sth-back/functions/cli/routes/catalog_get.ts` et `catalog_list.ts` queryent :
 
@@ -279,7 +274,7 @@ Le code de `sth-back/shared/auth.ts` et `license.service.ts` utilise les colonne
 - `skill_versions` (`storage_path, sha256, version`)
 - `skill_installs` (`license_id, skill_id, version` avec UNIQUE sur `(license_id, skill_id)`)
 
-Aucune migration ne crée ces tables explicitement dans le repo. Même cause/conséquence que §7.1.
+Ces tables sont créées par `0008_skills_catalog.sql` (skills + skill_versions) et `0010_skill_installs_table.sql` (skill_installs, avec l'index `skill_installs_license_idx`).
 
 ### 7.3. Catalog non filtré par plan
 
@@ -325,7 +320,6 @@ Liste des chantiers explicitement non décidés, à arbitrer indépendamment.
 | Grace period | Tolérer N jours après expiration avec warning ? | Réduit la friction commerciale mais ouvre une fenêtre d'abus |
 | Scopes par clé | `licenses.scopes TEXT[]` (`read`, `usage:report`, `admin`) ? | Permet clés CI restreintes. Gros chantier — pas justifié tant qu'il n'y a qu'un type d'usage |
 | Ouverture commerciale Pro/Team | Quand basculer `comingSoon: false` ? Avec quel changement de quota ? | Hors scope tech, mais conditionne les autres décisions |
-| Migrations manquantes 0007-0010 | Récupérer depuis l'historique de prod et committer | Bloque tout setup neuf — à traiter avant toute autre évolution |
 
 ---
 
