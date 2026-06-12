@@ -60,3 +60,6 @@ jobs:
           HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
           SCOOP_BUCKET_TOKEN: ${{ secrets.SCOOP_BUCKET_TOKEN }}
           WINGET_TOKEN: ${{ secrets.WINGET_TOKEN }}
+          # Base64 ed25519 private key used by the `signs` block to produce
+          # SHA256SUMS.sig. Generate with `go run ./tools/release-sign -genkey`.
+          STH_RELEASE_SIGNING_KEY: ${{ secrets.STH_RELEASE_SIGNING_KEY }}

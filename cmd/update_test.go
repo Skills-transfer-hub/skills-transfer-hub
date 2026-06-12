@@ -5,7 +5,10 @@ import (
 	"archive/zip"
 	"bytes"
 	"compress/gzip"
+	"crypto/ed25519"
+	"crypto/rand"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -240,15 +243,24 @@ func TestRun_updateSelfAppliesStableRelease(t *testing.T) {
 	checksum := sha256.Sum256(archiveData)
 	checksumBody := []byte(fmt.Sprintf("%s  %s\n", hex.EncodeToString(checksum[:]), assetName))
 
+	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("ed25519.GenerateKey: %v", err)
+	}
+	t.Setenv("STH_RELEASE_SIGNING_PUBKEY", base64.StdEncoding.EncodeToString(publicKey))
+	signatureBody := []byte(base64.StdEncoding.EncodeToString(ed25519.Sign(privateKey, checksumBody)) + "\n")
+
 	serverURL := ""
 	server := httptest.NewServer(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		switch r.URL.Path {
 		case "/releases":
-			_, _ = w.Write([]byte(fmt.Sprintf(`[{"tag_name":"v9.9.9","prerelease":false,"assets":[{"name":"%s","browser_download_url":"%s/asset"},{"name":"SHA256SUMS","browser_download_url":"%s/checksum"}]},{"tag_name":"v10.0.0-beta.1","prerelease":true,"assets":[{"name":"%s","browser_download_url":"%s/beta"}]}]`, assetName, serverURL, serverURL, assetName, serverURL)))
+			_, _ = w.Write([]byte(fmt.Sprintf(`[{"tag_name":"v9.9.9","prerelease":false,"assets":[{"name":"%s","browser_download_url":"%s/asset"},{"name":"SHA256SUMS","browser_download_url":"%s/checksum"},{"name":"SHA256SUMS.sig","browser_download_url":"%s/signature"}]},{"tag_name":"v10.0.0-beta.1","prerelease":true,"assets":[{"name":"%s","browser_download_url":"%s/beta"}]}]`, assetName, serverURL, serverURL, serverURL, assetName, serverURL)))
 		case "/asset":
 			_, _ = w.Write(archiveData)
 		case "/checksum":
 			_, _ = w.Write(checksumBody)
+		case "/signature":
+			_, _ = w.Write(signatureBody)
 		default:
 			stdhttp.NotFound(w, r)
 		}
