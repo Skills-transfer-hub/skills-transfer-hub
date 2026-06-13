@@ -15,6 +15,9 @@ import (
 const orgCommandTimeout = 10 * time.Second
 
 func (a *app) runOrg(args []string) error {
+	if !experimentalEnabled() {
+		return errExperimentalDisabled("sth org")
+	}
 	if len(args) == 0 {
 		return errors.New("usage : sth org <current|list|use>")
 	}

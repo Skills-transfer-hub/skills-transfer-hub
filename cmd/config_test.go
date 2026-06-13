@@ -30,6 +30,19 @@ const orgConfigBody = `{"config":{"schema_version":2,` +
 	`"providers":[{"id":"acme","provider":"github","catalog_ref":"release/1.x"}],` +
 	`"resources":[]},"config_version":3}`
 
+func TestRunConfig_BlockedWithoutExperimentalFlag(t *testing.T) {
+	t.Setenv("STH_EXPERIMENTAL", "")
+	var stdout bytes.Buffer
+	application := newApp(nil, &stdout, io.Discard, nil)
+	err := application.runConfig([]string{"show"})
+	if err == nil {
+		t.Fatal("sth config doit être bloqué sans STH_EXPERIMENTAL")
+	}
+	if !strings.Contains(err.Error(), "préversion") {
+		t.Fatalf("erreur de préversion attendue, got %v", err)
+	}
+}
+
 func TestRunConfigPull_DryRunWritesNothing(t *testing.T) {
 	chdirTemp(t)
 	t.Setenv("STH_USER_CONFIG_DIR", t.TempDir())

@@ -13,6 +13,9 @@ import (
 const configCommandTimeout = 15 * time.Second
 
 func (a *app) runConfig(args []string) error {
+	if !experimentalEnabled() {
+		return errExperimentalDisabled("sth config")
+	}
 	if len(args) == 0 {
 		return errors.New("usage : sth config <show|pull|push>")
 	}

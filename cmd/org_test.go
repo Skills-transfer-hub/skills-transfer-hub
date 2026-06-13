@@ -110,9 +110,23 @@ func TestRunOrgCurrent_ServesCacheOffline(t *testing.T) {
 }
 
 func TestRunOrg_UnknownSubcommand(t *testing.T) {
+	t.Setenv("STH_EXPERIMENTAL", "1")
 	var stdout bytes.Buffer
 	application := newApp(nil, &stdout, io.Discard, nil)
 	if err := application.runOrg([]string{"bogus"}); err == nil {
 		t.Fatal("attendu une erreur pour un sous-commande org inconnue")
+	}
+}
+
+func TestRunOrg_BlockedWithoutExperimentalFlag(t *testing.T) {
+	t.Setenv("STH_EXPERIMENTAL", "")
+	var stdout bytes.Buffer
+	application := newApp(nil, &stdout, io.Discard, nil)
+	err := application.runOrg([]string{"current"})
+	if err == nil {
+		t.Fatal("sth org doit être bloqué sans STH_EXPERIMENTAL")
+	}
+	if !strings.Contains(err.Error(), "préversion") {
+		t.Fatalf("erreur de préversion attendue, got %v", err)
 	}
 }

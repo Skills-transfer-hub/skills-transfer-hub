@@ -101,6 +101,9 @@ func (a *app) runLogin(args []string) error {
 }
 
 func (a *app) hintMultipleOrgs() {
+	if !experimentalEnabled() {
+		return
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	orgs, err := cloud.ListOrgs(ctx, nil)
