@@ -216,6 +216,38 @@ var commandCatalog = []commandSpec{
 			"sth alpha request",
 		},
 	},
+	{
+		name:    "org",
+		usage:   "sth org <current|list|use>",
+		summary: "Gère l'organisation active du CLI (multi-organisations)",
+		details: []string{
+			"current : affiche l'organisation active (id, nom, rôle, plan). Lisible hors-ligne depuis le cache.",
+			"list : liste les organisations ciblables et marque l'active (requiert la capability multi_org).",
+			"use <id|nom> : bascule l'organisation active (appartenance validée côté serveur).",
+		},
+		examples: []string{
+			"sth org current",
+			"sth org list",
+			"sth org use \"Acme Corp\"",
+		},
+		flags: []string{"--json"},
+	},
+	{
+		name:    "config",
+		usage:   "sth config <show|pull|push> [--dry-run]",
+		summary: "Synchronise la configuration partagée de l'organisation (Team)",
+		details: []string{
+			"show : affiche la configuration effective avec la provenance (org/local) de chaque champ.",
+			"pull : applique les champs gérés de l'org par-dessus le local et préserve les ressources locales. --dry-run prévisualise.",
+			"push : publie le sous-ensemble local comme base de l'org (requiert fleet_sync + rôle owner/admin).",
+		},
+		examples: []string{
+			"sth config show",
+			"sth config pull --dry-run",
+			"sth config push",
+		},
+		flags: []string{"--dry-run"},
+	},
 }
 
 type app struct {
@@ -414,6 +446,10 @@ func (a *app) run(args []string) error {
 			return nil
 		}
 		err = a.runAlpha(args[1:])
+	case "org":
+		err = a.runOrg(args[1:])
+	case "config":
+		err = a.runConfig(args[1:])
 	case "--help", "-h":
 		a.writeStdout(helpText())
 		return nil

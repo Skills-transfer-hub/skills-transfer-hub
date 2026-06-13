@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"sth/internal/auth"
+	"sth/internal/cloud"
 	"sth/internal/fs"
 
 	"golang.org/x/term"
@@ -95,7 +96,21 @@ func (a *app) runLogin(args []string) error {
 		fmt.Sprintf("Connecté à %s (plan %s, expire le %s).", resp.Org.Name, resp.Plan, resp.ExpiresAt),
 		"Clé stockée dans le keychain de l'OS.",
 	)
+	a.hintMultipleOrgs()
 	return nil
+}
+
+func (a *app) hintMultipleOrgs() {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	orgs, err := cloud.ListOrgs(ctx, nil)
+	if err != nil || len(orgs) <= 1 {
+		return
+	}
+	a.writeStdout(fmt.Sprintf(
+		"Tu appartiens à %d organisations. Utilise `sth org use <nom|id>` pour choisir l'organisation active.",
+		len(orgs),
+	))
 }
 
 // runLogout deletes the keychain entry. Idempotent.
@@ -200,4 +215,3 @@ func loginHelpText() string {
 		"Pour basculer le CLI sur un backend de dev, exporte STH_CLOUD_BASE_URL.",
 	}, "\n")
 }
-
