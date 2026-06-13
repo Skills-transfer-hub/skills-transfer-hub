@@ -230,7 +230,8 @@ var commandCatalog = []commandSpec{
 			"sth org list",
 			"sth org use \"Acme Corp\"",
 		},
-		flags: []string{"--json"},
+		flags:  []string{"--json"},
+		hidden: true,
 	},
 	{
 		name:    "config",
@@ -246,7 +247,8 @@ var commandCatalog = []commandSpec{
 			"sth config pull --dry-run",
 			"sth config push",
 		},
-		flags: []string{"--dry-run"},
+		flags:  []string{"--dry-run"},
+		hidden: true,
 	},
 }
 
