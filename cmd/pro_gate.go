@@ -39,10 +39,10 @@ const proGateCacheTTL = fs.EntitlementsHotTTL
 //  2. Dev build (no release metadata baked in) → bypass.
 //  3. Hot cache (< proGateCacheTTL) with capability present → allow.
 //  4. Live GET /v1/entitlements:
-//      4a. HTTP 401 → clear keychain and tell user to re-login.
-//      4b. Network error + cache <7d with capability → allow (degraded).
-//      4c. Network error + nothing usable → deny with docs link.
-//      4d. HTTP 200 → persist cache, allow iff capability is present.
+//     4a. HTTP 401 → clear keychain and tell user to re-login.
+//     4b. Network error + cache <7d with capability → allow (degraded).
+//     4c. Network error + nothing usable → deny with docs link.
+//     4d. HTTP 200 → persist cache, allow iff capability is present.
 func (a *app) enforceCapability(ctx context.Context, capability string) error {
 	if strings.TrimSpace(os.Getenv(proGateSkipEnvVar)) == "0" {
 		return nil
@@ -87,6 +87,7 @@ func (a *app) enforceCapability(ctx context.Context, capability string) error {
 		if settings != nil && settings.Entitlements != nil &&
 			!settings.Entitlements.CheckedAt.IsZero() &&
 			now.Sub(settings.Entitlements.CheckedAt) < proGateStaleSilentWindow &&
+			(settings.Entitlements.ExpiresAt.IsZero() || now.Before(settings.Entitlements.ExpiresAt)) &&
 			containsCapability(settings.Entitlements.Capabilities, capability) {
 			return nil
 		}
@@ -104,6 +105,9 @@ func (a *app) enforceCapability(ctx context.Context, capability string) error {
 
 	if !containsCapability(ent.Capabilities, capability) {
 		return notEntitledError(capability)
+	}
+	if notice := licenseExpiryWarning(); notice != "" {
+		a.writeStderr(notice)
 	}
 	return nil
 }

@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	stdhttp "net/http"
 	"net/http/httptest"
@@ -76,6 +77,49 @@ func TestDoctor_passesOnHealthyProject(t *testing.T) {
 	}
 	if !strings.Contains(res.stdout, "All checks passed.") {
 		t.Fatalf("missing pass summary: %q", res.stdout)
+	}
+}
+
+func TestDoctor_failsOnExpiredLicense(t *testing.T) {
+	configDir := t.TempDir()
+	t.Setenv("STH_USER_CONFIG_DIR", configDir)
+	if err := fs.SaveEntitlements(fs.EntitlementsCache{
+		Plan:         "pro",
+		ExpiresAt:    time.Now().UTC().Add(-48 * time.Hour),
+		Capabilities: []string{"pack_init"},
+		CheckedAt:    time.Now().UTC(),
+	}); err != nil {
+		t.Fatalf("SaveEntitlements: %v", err)
+	}
+	res := runCLIWithOptions(t, cliOptions{userConfigDir: configDir, args: []string{"doctor"}})
+	if res.err == nil {
+		t.Fatal("expected non-zero exit on expired license")
+	}
+	if !strings.Contains(res.stdout, "[✗] License expiry") {
+		t.Fatalf("missing expired license fail line: %q", res.stdout)
+	}
+	if !strings.Contains(res.stdout, "Regenerate your key") {
+		t.Fatalf("missing remediation: %q", res.stdout)
+	}
+}
+
+func TestDoctor_passesWithNearExpiryDetail(t *testing.T) {
+	configDir := t.TempDir()
+	t.Setenv("STH_USER_CONFIG_DIR", configDir)
+	if err := fs.SaveEntitlements(fs.EntitlementsCache{
+		Plan:         "pro",
+		ExpiresAt:    time.Now().UTC().Add(5 * 24 * time.Hour),
+		Capabilities: []string{"pack_init"},
+		CheckedAt:    time.Now().UTC(),
+	}); err != nil {
+		t.Fatalf("SaveEntitlements: %v", err)
+	}
+	res := runCLIWithOptions(t, cliOptions{userConfigDir: configDir, args: []string{"doctor"}})
+	if !strings.Contains(res.stdout, "[✓] License expiry") {
+		t.Fatalf("missing license expiry pass line: %q", res.stdout)
+	}
+	if !strings.Contains(res.stdout, "expires in") {
+		t.Fatalf("missing near-expiry detail: %q", res.stdout)
 	}
 }
 
