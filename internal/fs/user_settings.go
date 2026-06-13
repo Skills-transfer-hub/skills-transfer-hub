@@ -20,12 +20,12 @@ const (
 //
 //   - TelemetryOff:        nothing is sent.
 //   - TelemetryAnonymous:  events are sent to /v1/usage/anon WITHOUT any
-//                          authentication or identifier. Contributes to
-//                          product-level stats only — the user has no
-//                          dashboard view for these events.
+//     authentication or identifier. Contributes to
+//     product-level stats only — the user has no
+//     dashboard view for these events.
 //   - TelemetryConnected:  events are sent to /v1/usage WITH a Bearer
-//                          lsk_live_* key from the keychain. Visible in the
-//                          user's STH Cloud dashboard.
+//     lsk_live_* key from the keychain. Visible in the
+//     user's STH Cloud dashboard.
 type TelemetryMode string
 
 const (
@@ -73,10 +73,19 @@ type EntitlementsCache struct {
 // compatibility with settings files written before the capability-based
 // rework — HasCapability migrates them silently on read.
 type UserSettings struct {
-	Telemetry    TelemetrySettings  `json:"telemetry"`
-	ProActive    bool               `json:"pro_active,omitempty"`
-	ProCheckedAt time.Time          `json:"pro_checked_at,omitempty"`
-	Entitlements *EntitlementsCache `json:"entitlements,omitempty"`
+	Telemetry    TelemetrySettings   `json:"telemetry"`
+	ProActive    bool                `json:"pro_active,omitempty"`
+	ProCheckedAt time.Time           `json:"pro_checked_at,omitempty"`
+	Entitlements *EntitlementsCache  `json:"entitlements,omitempty"`
+	ActiveOrg    *ActiveOrgSelection `json:"active_org,omitempty"`
+}
+
+type ActiveOrgSelection struct {
+	OrgID      string    `json:"org_id"`
+	OrgName    string    `json:"org_name"`
+	Role       string    `json:"role"`
+	Plan       string    `json:"plan"`
+	SelectedAt time.Time `json:"selected_at"`
 }
 
 // EntitlementsHotTTL is the lifetime of a successful entitlement check
@@ -161,6 +170,47 @@ func SaveEntitlements(e EntitlementsCache) error {
 		return err
 	}
 	return nil
+}
+
+func ReadActiveOrg() (*ActiveOrgSelection, error) {
+	settings, err := ReadUserSettings()
+	if err != nil {
+		return nil, err
+	}
+	if settings == nil {
+		return nil, nil
+	}
+	return settings.ActiveOrg, nil
+}
+
+func SaveActiveOrg(selection ActiveOrgSelection) error {
+	settingsWriteMu.Lock()
+	defer settingsWriteMu.Unlock()
+	settings, err := ReadUserSettings()
+	if err != nil {
+		return err
+	}
+	if settings == nil {
+		settings = &UserSettings{}
+	}
+	settings.ActiveOrg = &selection
+	_, err = WriteUserSettings(*settings)
+	return err
+}
+
+func ClearActiveOrg() error {
+	settingsWriteMu.Lock()
+	defer settingsWriteMu.Unlock()
+	settings, err := ReadUserSettings()
+	if err != nil {
+		return err
+	}
+	if settings == nil || settings.ActiveOrg == nil {
+		return nil
+	}
+	settings.ActiveOrg = nil
+	_, err = WriteUserSettings(*settings)
+	return err
 }
 
 // UserSettingsPath returns the absolute path of the settings file, applying

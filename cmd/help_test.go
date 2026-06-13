@@ -41,7 +41,7 @@ func TestHelpTextUsesCommandCatalogExamplesInOrder(t *testing.T) {
 	got := strings.Split(parts[1], "\n")
 	want := make([]string, 0, len(commandCatalog))
 	for _, spec := range commandCatalog {
-		if len(spec.examples) == 0 {
+		if spec.hidden || len(spec.examples) == 0 {
 			continue
 		}
 		want = append(want, "  "+spec.examples[0])
