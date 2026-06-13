@@ -204,6 +204,21 @@ func TestHasCapability_CapMissingReturnsFalse(t *testing.T) {
 	}
 }
 
+func TestHasCapability_ExpiredReturnsFalse(t *testing.T) {
+	withTempUserConfig(t)
+	if err := SaveEntitlements(EntitlementsCache{
+		Plan:         "pro",
+		ExpiresAt:    time.Now().UTC().Add(-time.Hour),
+		Capabilities: []string{"pack_init"},
+		CheckedAt:    time.Now().UTC(),
+	}); err != nil {
+		t.Fatalf("SaveEntitlements: %v", err)
+	}
+	if HasCapability("pack_init") {
+		t.Fatal("an expired license must not grant capabilities even with a fresh cache")
+	}
+}
+
 // Legacy migration: a settings file written by the pre-capabilities CLI
 // will have ProActive=true / ProCheckedAt within TTL but no Entitlements
 // block. HasCapability should still credit the legacy pro caps for one

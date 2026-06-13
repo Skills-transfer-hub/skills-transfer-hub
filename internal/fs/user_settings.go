@@ -119,6 +119,9 @@ func HasCapability(cap string) bool {
 	now := time.Now().UTC()
 
 	if settings.Entitlements != nil && !settings.Entitlements.CheckedAt.IsZero() {
+		if !settings.Entitlements.ExpiresAt.IsZero() && now.After(settings.Entitlements.ExpiresAt) {
+			return false
+		}
 		if now.Sub(settings.Entitlements.CheckedAt) >= EntitlementsHotTTL {
 			return false
 		}

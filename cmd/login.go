@@ -96,6 +96,9 @@ func (a *app) runLogin(args []string) error {
 		fmt.Sprintf("Connecté à %s (plan %s, expire le %s).", resp.Org.Name, resp.Plan, resp.ExpiresAt),
 		"Clé stockée dans le keychain de l'OS.",
 	)
+	if notice := licenseExpiryWarning(); notice != "" {
+		a.writeStderr(notice)
+	}
 	a.hintMultipleOrgs()
 	return nil
 }

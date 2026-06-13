@@ -38,6 +38,7 @@ func (a *app) runDoctor(args []string) error {
 	}
 	checks = append(checks, a.doctorCheckStateFile(cfg, cfgErr))
 	checks = append(checks, a.doctorCheckCredential(cfg, cfgErr))
+	checks = append(checks, a.doctorCheckLicenseExpiry())
 	checks = append(checks, a.doctorChecksProviderReachability(cfg, cfgErr)...)
 
 	failures := 0
@@ -183,6 +184,33 @@ func (a *app) doctorCheckCredential(cfg fs.ProjectConfigV2, cfgErr error) doctor
 		status:      "fail",
 		detail:      "no STH_TOKEN or OIDC env detected",
 		remediation: "Set a valid STH_TOKEN or run `sth init`.",
+	}
+}
+
+func (a *app) doctorCheckLicenseExpiry() doctorCheck {
+	state, expiresAt := licenseExpiryStatus()
+	switch state {
+	case licenseExpiryExpired:
+		return doctorCheck{
+			name:        "License expiry",
+			status:      "fail",
+			detail:      fmt.Sprintf("expired on %s", expiresAt.Format("2006-01-02")),
+			remediation: "Regenerate your key on the dashboard, then run `sth login` with the new key.",
+		}
+	case licenseExpiryNear:
+		return doctorCheck{
+			name:   "License expiry",
+			status: "pass",
+			detail: fmt.Sprintf("expires in %d day(s) (%s) — regenerate it soon on the dashboard", licenseExpiryDaysRemaining(expiresAt), expiresAt.Format("2006-01-02")),
+		}
+	case licenseExpiryValid:
+		return doctorCheck{
+			name:   "License expiry",
+			status: "pass",
+			detail: fmt.Sprintf("valid until %s", expiresAt.Format("2006-01-02")),
+		}
+	default:
+		return doctorCheck{name: "License expiry", status: "skip", detail: "no license cache (run `sth login`)"}
 	}
 }
 
