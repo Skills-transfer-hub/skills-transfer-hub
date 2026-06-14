@@ -191,6 +191,21 @@ var commandCatalog = []commandSpec{
 		},
 	},
 	{
+		name:    "mcp",
+		usage:   "sth mcp [install]",
+		summary: "Connecte Claude Code, Codex et Gemini à la bibliothèque STH (serveur MCP)",
+		details: []string{
+			"Sans argument, démarre le serveur MCP sur stdio : les agents l'appellent pour chercher, récupérer et enregistrer des éléments de la bibliothèque (outils library_search / library_get / library_save).",
+			"library_get marque l'élément comme réutilisé (métrique d'habituation).",
+			"install : écrit ./.mcp.json (Claude Code) et imprime la config à coller pour Codex et Gemini.",
+			"Prérequis : `sth login` — la bibliothèque est rattachée à ta clé et à ton organisation active.",
+		},
+		examples: []string{
+			"sth mcp install",
+			"sth mcp",
+		},
+	},
+	{
 		name:    "pack",
 		usage:   "sth pack init",
 		summary: "Scaffolde un repo de skills compatible STH (Pro)",
@@ -440,6 +455,12 @@ func (a *app) run(args []string) error {
 			return nil
 		}
 		err = a.runCompletion(args[1:])
+	case "mcp":
+		if len(args) >= 2 && isHelpFlag(args[1]) {
+			a.writeStdout(commandHelpText("mcp"))
+			return nil
+		}
+		err = a.runMCP(args[1:])
 	case "pack":
 		err = a.runPack(args[1:])
 	case "alpha":
