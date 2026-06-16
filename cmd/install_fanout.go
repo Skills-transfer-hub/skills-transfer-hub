@@ -80,6 +80,7 @@ func enabledTargetKinds(cfg fs.ProjectConfigV2) []string {
 }
 
 func (a *app) installSkillFanout(profile fs.ProjectProfile, entry fs.CatalogEntry, providerID, projectRoot string, kinds []string, dryRun, jsonOut bool) error {
+	a.progress.step(fmt.Sprintf("Téléchargement de %s…", entry.Name))
 	sources, fetch, err := a.resolveSkillSources(profile, entry)
 	if err != nil {
 		return err
@@ -90,6 +91,7 @@ func (a *app) installSkillFanout(profile fs.ProjectProfile, entry fs.CatalogEntr
 		return fmt.Errorf("aucune destination de skill pour les cibles sélectionnées")
 	}
 
+	a.progress.step("Installation des fichiers…")
 	managedFiles := make([]fs.ManagedFile, 0)
 	for _, folder := range placement.Folders {
 		target, ok := writer.WriterForSkillsFolder(folder)
@@ -110,12 +112,14 @@ func (a *app) installSkillFanout(profile fs.ProjectProfile, entry fs.CatalogEntr
 	}
 
 	if placement.NeedsCodexCfg {
+		a.progress.note("Configuration de Codex…")
 		codexSkillPath := placement.CodexFolder + "/" + entry.Name + "/SKILL.md"
 		if _, cfgErr := fs.EnsureCodexSkillsConfig(projectRoot, codexSkillPath); cfgErr != nil {
 			a.writeStderr(fmt.Sprintf("warning: configuration codex non mise à jour : %v", cfgErr))
 		}
 	}
 
+	a.progress.step("Finalisation…")
 	previous, _, _ := fs.InstalledRecordV2For(profile.TargetDir, entry.CatalogID, "")
 	record := fs.InstalledResourceRecordV2{
 		ResourceName: entry.CatalogID,
@@ -138,6 +142,7 @@ type fanoutTargetPlan struct {
 }
 
 func (a *app) installArtifactFanout(profile fs.ProjectProfile, cfg fs.ProjectConfigV2, entry fs.CatalogEntry, providerID, projectRoot, kind string, dryRun, jsonOut, force bool) error {
+	a.progress.step(fmt.Sprintf("Téléchargement de %s…", entry.Name))
 	content, err := a.client.DownloadCatalogEntry(context.Background(), profile, entry)
 	if err != nil {
 		return err
@@ -197,6 +202,7 @@ func (a *app) installArtifactFanout(profile fs.ProjectProfile, cfg fs.ProjectCon
 		return a.renderFanoutDryRun(projectRoot, profile.TargetDir, entry.CatalogID, plannedFiles, jsonOut)
 	}
 
+	a.progress.step("Installation des fichiers…")
 	installedCount := 0
 	for _, plan := range plans {
 		result, matErr := writer.MaterializeArtifact(projectRoot, plan.tool, kind, entry.Name, entry.Lang, sources, fetch, true, true)
@@ -225,6 +231,7 @@ func (a *app) installArtifactFanout(profile fs.ProjectProfile, cfg fs.ProjectCon
 		installedCount++
 	}
 
+	a.progress.step("Finalisation…")
 	a.writeStdout(fmt.Sprintf("Ressource '%s' (%s) installée sur %d cible(s).", entry.Name, kind, installedCount))
 	return nil
 }

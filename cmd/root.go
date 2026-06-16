@@ -259,6 +259,7 @@ type app struct {
 	client      *sthhttp.Client
 	interactive func() bool
 	verbose     sthlog.Verbose
+	progress    *installProgress
 }
 
 func newApp(stdin io.Reader, stdout, stderr io.Writer, client *sthhttp.Client) *app {
@@ -554,10 +555,12 @@ func renderMessage(lines ...string) string {
 }
 
 func (a *app) writeStdout(lines ...string) {
+	a.progress.stop()
 	fmt.Fprint(a.stdout, renderMessage(lines...))
 }
 
 func (a *app) writeStderr(lines ...string) {
+	a.progress.stop()
 	fmt.Fprint(a.stderr, renderMessage(lines...))
 }
 
