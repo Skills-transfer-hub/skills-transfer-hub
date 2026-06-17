@@ -569,27 +569,42 @@ func helpText() string {
 	builder.WriteString("STH\n")
 	builder.WriteString("Sans argument, `sth` ouvre le menu guidé en TTY et affiche la prochaine étape utile hors TTY.\n\n")
 	builder.WriteString("Commandes visibles :\n")
-	nameWidth := 0
-	for _, spec := range commandCatalog {
-		if spec.hidden {
-			continue
-		}
-		if width := len(commandDisplayName(spec)); width > nameWidth {
-			nameWidth = width
-		}
-	}
-	for _, spec := range commandCatalog {
-		if spec.hidden {
-			continue
-		}
-		builder.WriteString(fmt.Sprintf("  %-*s  %s\n", nameWidth, commandDisplayName(spec), spec.summary))
-	}
+	builder.WriteString(commandListText())
 	builder.WriteString("\nExemples :\n")
 	for _, example := range usageExamples() {
 		builder.WriteString(fmt.Sprintf("  %s\n", example))
 	}
 
 	return strings.TrimRight(builder.String(), "\n")
+}
+
+const helpInlineUsageMax = 36
+
+func commandListText() string {
+	inlineColumn := 0
+	for _, spec := range commandCatalog {
+		if spec.hidden {
+			continue
+		}
+		width := len(commandDisplayName(spec))
+		if width <= helpInlineUsageMax && width > inlineColumn {
+			inlineColumn = width
+		}
+	}
+
+	var builder strings.Builder
+	for _, spec := range commandCatalog {
+		if spec.hidden {
+			continue
+		}
+		name := commandDisplayName(spec)
+		if len(name) <= inlineColumn {
+			builder.WriteString(fmt.Sprintf("  %-*s  %s\n", inlineColumn, name, spec.summary))
+			continue
+		}
+		builder.WriteString(fmt.Sprintf("  %s\n      %s\n", name, spec.summary))
+	}
+	return builder.String()
 }
 
 func usageExamples() []string {
