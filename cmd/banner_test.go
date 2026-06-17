@@ -133,3 +133,12 @@ func TestPadFace_FixedWidthAlignment(t *testing.T) {
 		}
 	}
 }
+
+func TestBannerRewindRows_ReturnsCursorToFirstLine(t *testing.T) {
+	frame := renderBannerFrame(bannerFrameFor(fs.BuddyError))
+	lines := strings.Split(frame, "\n")
+	want := len(lines) - 1
+	if got := bannerRewindRows(frame); got != want {
+		t.Errorf("bannerRewindRows = %d, want %d for a %d-line frame; an off-by-one leaves border residue in the menu", got, want, len(lines))
+	}
+}

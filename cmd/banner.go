@@ -19,8 +19,6 @@ type bannerFrame struct {
 	emoji string
 }
 
-// playLaunchBanner affiche la bannière au démarrage. En TTY, joue une mini
-// animation "réveil" (3 frames). Sinon, écrit uniquement la frame finale.
 func (a *app) playLaunchBanner(finalState fs.BuddyState) {
 	final := bannerFrameFor(finalState)
 
@@ -30,22 +28,25 @@ func (a *app) playLaunchBanner(finalState fs.BuddyState) {
 	}
 
 	frames := []bannerFrame{
-		{face: "- -", emoji: "💤"}, // dort
-		{face: "o.o", emoji: "👀"}, // se réveille
+		{face: "- -", emoji: "💤"},
+		{face: "o.o", emoji: "👀"},
 		final,
 	}
 
 	first := renderBannerFrame(frames[0])
 	fmt.Fprint(a.stdout, first)
-	height := strings.Count(first, "\n") + 1
+	rewindRows := bannerRewindRows(first)
 
-	for _, f := range frames[1:] {
+	for _, frame := range frames[1:] {
 		time.Sleep(220 * time.Millisecond)
-		// Remonte le curseur au début de la bannière, puis redessine.
-		fmt.Fprintf(a.stdout, "\x1b[%dA\r", height)
-		fmt.Fprint(a.stdout, renderBannerFrame(f))
+		fmt.Fprintf(a.stdout, "\x1b[%dA\r", rewindRows)
+		fmt.Fprint(a.stdout, renderBannerFrame(frame))
 	}
 	fmt.Fprintln(a.stdout)
+}
+
+func bannerRewindRows(frame string) int {
+	return strings.Count(frame, "\n")
 }
 
 // renderBanner produit la bannière statique pour un état buddy donné.

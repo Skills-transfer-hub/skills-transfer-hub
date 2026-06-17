@@ -17,6 +17,19 @@ const (
 	projectStateConfiguredReady projectState = "configured-ready"
 )
 
+func projectStateLabel(state projectState) string {
+	switch state {
+	case projectStateUnconfigured:
+		return "non configuré"
+	case projectStateConfiguredBad:
+		return "configuration invalide"
+	case projectStateConfiguredReady:
+		return "prêt"
+	default:
+		return string(state)
+	}
+}
+
 type guidedStartupState struct {
 	InteractionMode  string
 	ProjectState     projectState
@@ -76,30 +89,36 @@ func (a *app) loadGuidedStartupState() guidedStartupState {
 func renderGuidedMenuLines(state guidedStartupState) []string {
 	lines := []string{
 		"Menu guidé STH",
-		fmt.Sprintf("Etat projet : %s", state.ProjectState),
-		fmt.Sprintf("Action recommandée : %s", state.PrimaryAction),
+		fmt.Sprintf("État du projet : %s", projectStateLabel(state.ProjectState)),
 	}
 	if state.Detail != "" {
-		lines = append(lines, state.Detail)
+		lines = append(lines, "  "+state.Detail)
 	}
-	if state.UpdateOffer != nil && strings.TrimSpace(state.UpdateOffer.Message) != "" {
-		lines = append(lines, state.UpdateOffer.Message)
-		for _, h := range state.UpdateOffer.Highlights {
-			lines = append(lines, "  • "+h)
-		}
-		if strings.TrimSpace(state.UpdateOffer.ReleaseNotesURL) != "" {
-			lines = append(lines, "  Détails : "+strings.TrimSpace(state.UpdateOffer.ReleaseNotesURL))
-		}
-	}
+	lines = append(lines, fmt.Sprintf("Action recommandée : %s", state.PrimaryAction))
+	lines = append(lines, updateOfferLines(state.UpdateOffer)...)
 	lines = append(lines, "Actions :")
 	for index, action := range state.AvailableActions {
 		label := action
 		if action == state.PrimaryAction {
 			label += " (recommandé)"
 		}
-		lines = append(lines, fmt.Sprintf("%d. %s", index+1, label))
+		lines = append(lines, fmt.Sprintf("  %d. %s", index+1, label))
 	}
 
+	return lines
+}
+
+func updateOfferLines(offer *fs.StableUpdateOffer) []string {
+	if offer == nil || !offer.Actionable() || strings.TrimSpace(offer.Message) == "" {
+		return nil
+	}
+	lines := []string{offer.Message}
+	for _, highlight := range offer.Highlights {
+		lines = append(lines, "  • "+highlight)
+	}
+	if strings.TrimSpace(offer.ReleaseNotesURL) != "" {
+		lines = append(lines, "  Détails : "+strings.TrimSpace(offer.ReleaseNotesURL))
+	}
 	return lines
 }
 
@@ -235,7 +254,7 @@ func renderProviderGuideLines(provider string) []string {
 
 func startupGuidanceLines(state guidedStartupState) []string {
 	lines := []string{
-		fmt.Sprintf("Etat projet : %s", state.ProjectState),
+		fmt.Sprintf("État du projet : %s", projectStateLabel(state.ProjectState)),
 		fmt.Sprintf("Action recommandée : sth %s", state.PrimaryAction),
 	}
 	if state.ProviderHint != "" {
@@ -244,15 +263,7 @@ func startupGuidanceLines(state guidedStartupState) []string {
 	if state.Detail != "" {
 		lines = append(lines, state.Detail)
 	}
-	if state.UpdateOffer != nil && strings.TrimSpace(state.UpdateOffer.Message) != "" {
-		lines = append(lines, state.UpdateOffer.Message)
-		for _, h := range state.UpdateOffer.Highlights {
-			lines = append(lines, "  • "+h)
-		}
-		if strings.TrimSpace(state.UpdateOffer.ReleaseNotesURL) != "" {
-			lines = append(lines, "  Détails : "+strings.TrimSpace(state.UpdateOffer.ReleaseNotesURL))
-		}
-	}
+	lines = append(lines, updateOfferLines(state.UpdateOffer)...)
 
 	return lines
 }
