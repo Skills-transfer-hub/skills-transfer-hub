@@ -30,15 +30,15 @@ var commandCatalog = []commandSpec{
 	{
 		name:    "init",
 		usage:   "sth init [--no-cloud-prompt]",
-		summary: "Configure pas a pas un depot distant heberge supporte pour le projet courant",
+		summary: "Configure pas à pas un dépôt distant hébergé supporté pour le projet courant",
 		details: []string{
-			"Providers heberges supportes : github.com, gitlab.com, dev.azure.com et bitbucket.org.",
-			"Le wizard affiche les URLs officielles pour creer le token/API token, la permission minimale attendue et les variables d'environnement reconnues.",
-			"Le repository_id accepte un identifiant canonique ou une URL hebergee supportee. Les hosts self-hosted sont rejetes.",
-			"Le wizard demande quels modeles/agents cibler (Claude Code, GitHub Copilot, OpenAI Codex, Cursor, Google Antigravity), pre-coche ceux detectes, et n'a plus besoin du dossier d'install : il est derive automatiquement.",
-			"Les skills sont dedupliques (.claude/skills sert de hub partage lu par Claude/Cursor/Copilot ; .agents/skills s'ajoute pour Antigravity). init met aussi a jour .gitignore pour les fichiers d'etat STH.",
-			"La guidance provider peut etre relue pendant le wizard et aucun secret n'est persiste dans .sth/project.json.",
-			"Au premier init, le wizard propose un menu télémétrie (off / anonymous / connected). Mode connected enchaine sur un sub-prompt `sth login`.",
+			"Providers hébergés supportés : github.com, gitlab.com, dev.azure.com et bitbucket.org.",
+			"Le wizard affiche les URLs officielles pour créer le token/API token, la permission minimale attendue et les variables d'environnement reconnues.",
+			"Le repository_id accepte un identifiant canonique ou une URL hébergée supportée. Les hosts self-hosted sont rejetés.",
+			"Le wizard demande quels modèles/agents cibler (Claude Code, GitHub Copilot, OpenAI Codex, Cursor, Google Antigravity), pré-coche ceux détectés, et n'a plus besoin du dossier d'install : il est dérivé automatiquement.",
+			"Les skills sont dédupliqués (.claude/skills sert de hub partagé lu par Claude/Cursor/Copilot ; .agents/skills s'ajoute pour Antigravity). init met aussi à jour .gitignore pour les fichiers d'état STH.",
+			"La guidance provider peut être relue pendant le wizard et aucun secret n'est persisté dans .sth/project.json.",
+			"Au premier init, le wizard propose un menu télémétrie (off / anonymous / connected). Mode connected enchaîne sur un sub-prompt `sth login`.",
 			"--no-cloud-prompt : skippe le sub-prompt login même quand le mode connecté est choisi (CI, wrappers).",
 		},
 		examples: []string{
@@ -115,10 +115,10 @@ var commandCatalog = []commandSpec{
 	{
 		name:    "buddy",
 		usage:   "sth buddy [--watch]",
-		summary: "Affiche l'etat du projet STH sous forme de compagnon visuel",
+		summary: "Affiche l'état du projet STH sous forme de compagnon visuel",
 		details: []string{
-			"Sans flag, affiche l'etat courant et quitte immediatement.",
-			"--watch lance le mode tableau de bord : surveille .sth/ et le repertoire d'etat, se rafraichit a chaque changement.",
+			"Sans flag, affiche l'état courant et quitte immédiatement.",
+			"--watch lance le mode tableau de bord : surveille .sth/ et le répertoire d'état, se rafraîchit à chaque changement.",
 			"Quittez avec Ctrl+C.",
 		},
 		examples: []string{
@@ -569,18 +569,42 @@ func helpText() string {
 	builder.WriteString("STH\n")
 	builder.WriteString("Sans argument, `sth` ouvre le menu guidé en TTY et affiche la prochaine étape utile hors TTY.\n\n")
 	builder.WriteString("Commandes visibles :\n")
-	for _, spec := range commandCatalog {
-		if spec.hidden {
-			continue
-		}
-		builder.WriteString(fmt.Sprintf("  %-20s %s\n", commandDisplayName(spec), spec.summary))
-	}
+	builder.WriteString(commandListText())
 	builder.WriteString("\nExemples :\n")
 	for _, example := range usageExamples() {
 		builder.WriteString(fmt.Sprintf("  %s\n", example))
 	}
 
 	return strings.TrimRight(builder.String(), "\n")
+}
+
+const helpInlineUsageMax = 36
+
+func commandListText() string {
+	inlineColumn := 0
+	for _, spec := range commandCatalog {
+		if spec.hidden {
+			continue
+		}
+		width := len(commandDisplayName(spec))
+		if width <= helpInlineUsageMax && width > inlineColumn {
+			inlineColumn = width
+		}
+	}
+
+	var builder strings.Builder
+	for _, spec := range commandCatalog {
+		if spec.hidden {
+			continue
+		}
+		name := commandDisplayName(spec)
+		if len(name) <= inlineColumn {
+			builder.WriteString(fmt.Sprintf("  %-*s  %s\n", inlineColumn, name, spec.summary))
+			continue
+		}
+		builder.WriteString(fmt.Sprintf("  %s\n      %s\n", name, spec.summary))
+	}
+	return builder.String()
 }
 
 func usageExamples() []string {

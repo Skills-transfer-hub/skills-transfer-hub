@@ -32,6 +32,10 @@ type StableUpdateOffer struct {
 	DownloadReady       bool     `json:"download_ready"`
 }
 
+func (offer StableUpdateOffer) Actionable() bool {
+	return offer.Status == "fresh-update-available"
+}
+
 // UpdateCheckState stores the last automatic stable update check for the local machine.
 type UpdateCheckState struct {
 	LastCheckedAt       string   `json:"last_checked_at"`

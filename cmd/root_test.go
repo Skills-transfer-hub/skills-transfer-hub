@@ -190,7 +190,7 @@ func TestRun_noArgumentsNonInteractiveShowsNextStepGuidance(t *testing.T) {
 	if result.err != nil {
 		t.Fatalf("Run() error = %v", result.err)
 	}
-	assertContains(t, result.stdout, "Etat projet : unconfigured")
+	assertContains(t, result.stdout, "État du projet : non configuré")
 	assertContains(t, result.stdout, "Action recommandée : sth init")
 	assertNotContains(t, result.stdout, "STH dev")
 	assertEmpty(t, result.stderr)

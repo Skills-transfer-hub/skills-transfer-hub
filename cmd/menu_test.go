@@ -117,7 +117,7 @@ func TestRenderGuidedMenu_unconfiguredProject(t *testing.T) {
 	})
 	menu := renderMessage(lines...)
 	assertStartupState(t, menu, "Menu guidé STH")
-	assertStartupState(t, menu, "Etat projet : unconfigured")
+	assertStartupState(t, menu, "État du projet : non configuré")
 	assertStartupState(t, menu, "1. init (recommandé)")
 	assertStartupState(t, menu, "3. quit")
 }
@@ -131,7 +131,7 @@ func TestRenderGuidedMenu_configuredInvalidProject(t *testing.T) {
 		Detail:           "profil projet malformé",
 	})
 	menu := renderMessage(lines...)
-	assertStartupState(t, menu, "Etat projet : configured-invalid")
+	assertStartupState(t, menu, "État du projet : configuration invalide")
 	assertStartupState(t, menu, "profil projet malformé")
 	assertStartupState(t, menu, "1. init (recommandé)")
 }
@@ -145,7 +145,7 @@ func TestRenderGuidedMenu_configuredReadyProject(t *testing.T) {
 		Detail:           "Provider configuré : github",
 	})
 	menu := renderMessage(lines...)
-	assertStartupState(t, menu, "Etat projet : configured-ready")
+	assertStartupState(t, menu, "État du projet : prêt")
 	assertStartupState(t, menu, "1. list (recommandé)")
 	assertStartupState(t, menu, "4. show-config")
 	assertStartupState(t, menu, "5. provider-guide")
