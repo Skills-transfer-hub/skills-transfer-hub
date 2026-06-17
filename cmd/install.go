@@ -4,8 +4,17 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"sync"
+
 	"sth/internal/fs"
 )
+
+const bundleDownloadConcurrency = 4
+
+type resolvedVersion struct {
+	sha string
+	err error
+}
 
 func (a *app) runInstall(args []string) error {
 	flags, positional := parseFlags(args, "--dry-run", "--json", "--force")
@@ -30,6 +39,16 @@ func (a *app) runInstall(args []string) error {
 		providerID = cfg.Providers[0].ID
 	}
 
+	if !dryRun && !jsonOut {
+		a.progress = newInstallProgress(a.stdout, a.stderr, isWriterTTY(a.stdout))
+		a.progress.start(installStepCount)
+		defer func() {
+			a.progress.stop()
+			a.progress = nil
+		}()
+	}
+
+	a.progress.step("Récupération du catalogue…")
 	var entries []fs.CatalogEntry
 	if err := a.withAuthRecovery(context.Background(), func() error {
 		var listErr error
@@ -52,14 +71,17 @@ func (a *app) runInstall(args []string) error {
 
 func (a *app) installLegacy(profile fs.ProjectProfile, entry fs.CatalogEntry, providerID string, dryRun, jsonOut, force bool) error {
 	if entry.ResourceType == "bundle" {
+		a.progress.step(fmt.Sprintf("Téléchargement de %s…", entry.Name))
 		bundleContents, bundleErr := a.downloadBundleContents(context.Background(), profile, entry)
 		if bundleErr != nil {
 			return bundleErr
 		}
+		a.progress.step("Installation des fichiers…")
 		record, syncErr := fs.SyncManagedBundle(profile.TargetDir, entry, bundleContents)
 		if syncErr != nil {
 			return syncErr
 		}
+		a.progress.step("Finalisation…")
 		a.writeStdout(
 			fmt.Sprintf("Ressource '%s' installée dans %s.", entry.Name, record.InstalledPath),
 			fmt.Sprintf("Type: %s", entry.ResourceType),
@@ -67,6 +89,22 @@ func (a *app) installLegacy(profile fs.ProjectProfile, entry fs.CatalogEntry, pr
 			"Prochaine étape : utilisez `sth update` pour rafraîchir les ressources suivies.",
 		)
 		return nil
+	}
+
+	a.progress.step(fmt.Sprintf("Téléchargement de %s…", entry.Name))
+
+	var resolvedVersionCh chan resolvedVersion
+	if !dryRun {
+		resolvedVersionCh = make(chan resolvedVersion, 1)
+		go func() {
+			v2cfg, cfgErr := fs.ReadProjectConfigV2()
+			if cfgErr != nil {
+				resolvedVersionCh <- resolvedVersion{err: cfgErr}
+				return
+			}
+			sha, shaErr := a.client.GetLatestCommitSHA(context.Background(), v2cfg, providerID)
+			resolvedVersionCh <- resolvedVersion{sha: sha, err: shaErr}
+		}()
 	}
 
 	content, err := a.client.DownloadCatalogEntry(context.Background(), profile, entry)
@@ -155,6 +193,7 @@ func (a *app) installLegacy(profile fs.ProjectProfile, entry fs.CatalogEntry, pr
 		return nil
 	}
 
+	a.progress.step("Installation des fichiers…")
 	record, err := fs.InstallCatalogEntry(profile.TargetDir, entry, content)
 	if err != nil {
 		return err
@@ -163,9 +202,11 @@ func (a *app) installLegacy(profile fs.ProjectProfile, entry fs.CatalogEntry, pr
 	if err != nil {
 		return err
 	}
-	if v2cfg, v2err := fs.ReadProjectConfigV2(); v2err == nil {
-		if sha, shaErr := a.client.GetLatestCommitSHA(context.Background(), v2cfg, providerID); shaErr == nil && sha != "" {
-			v2rec.ResolvedVersion = sha
+	a.progress.step("Finalisation…")
+	if resolvedVersionCh != nil {
+		result := <-resolvedVersionCh
+		if result.err == nil && result.sha != "" {
+			v2rec.ResolvedVersion = result.sha
 			if upsertErr := fs.UpsertInstalledResourceV2(profile.TargetDir, v2rec); upsertErr != nil {
 				a.writeStderr(fmt.Sprintf("warning: failed to persist resolved version: %v", upsertErr))
 			}
@@ -188,15 +229,38 @@ func (a *app) downloadBundleContents(ctx context.Context, profile fs.ProjectProf
 	}
 
 	bundleContents := make(map[string][]byte, len(bundlePaths))
-	for _, sourcePath := range bundlePaths {
-		fileEntry := entry
-		fileEntry.SourcePath = sourcePath
+	var mutex sync.Mutex
+	var firstErr error
+	var group sync.WaitGroup
+	semaphore := make(chan struct{}, bundleDownloadConcurrency)
 
-		content, err := a.client.DownloadCatalogEntry(ctx, profile, fileEntry)
-		if err != nil {
-			return nil, err
-		}
-		bundleContents[sourcePath] = content
+	for _, sourcePath := range bundlePaths {
+		sourcePath := sourcePath
+		group.Add(1)
+		semaphore <- struct{}{}
+		go func() {
+			defer group.Done()
+			defer func() { <-semaphore }()
+
+			fileEntry := entry
+			fileEntry.SourcePath = sourcePath
+			content, downloadErr := a.client.DownloadCatalogEntry(ctx, profile, fileEntry)
+
+			mutex.Lock()
+			defer mutex.Unlock()
+			if downloadErr != nil {
+				if firstErr == nil {
+					firstErr = downloadErr
+				}
+				return
+			}
+			bundleContents[sourcePath] = content
+		}()
+	}
+
+	group.Wait()
+	if firstErr != nil {
+		return nil, firstErr
 	}
 
 	return bundleContents, nil
