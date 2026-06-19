@@ -9,7 +9,7 @@ import (
 	"strings"
 )
 
-const releaseSigningPublicKeyBase64 = ""
+const releaseSigningPublicKeyBase64 = "WHTBjBqQkH59ZpUfEFlYdIjrimM0VXQu5J+AQpzxpE0="
 
 func releaseSigningPublicKey() ed25519.PublicKey {
 	if override := strings.TrimSpace(os.Getenv("STH_RELEASE_SIGNING_PUBKEY")); override != "" {
