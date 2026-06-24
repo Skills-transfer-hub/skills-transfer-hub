@@ -384,8 +384,8 @@ func TestUpgradeCommand_packageManagerHints(t *testing.T) {
 		execErr  error
 		want     string
 	}{
-		{"brew Apple Silicon", "/opt/homebrew/Cellar/sth/0.1.0/bin/sth", nil, "brew upgrade grandpied33/sth/sth"},
-		{"brew Intel", "/usr/local/Cellar/sth/0.1.0/bin/sth", nil, "brew upgrade grandpied33/sth/sth"},
+		{"brew Apple Silicon", "/opt/homebrew/Cellar/sth/0.1.0/bin/sth", nil, "brew upgrade skills-transfer-hub/sth/sth"},
+		{"brew Intel", "/usr/local/Cellar/sth/0.1.0/bin/sth", nil, "brew upgrade skills-transfer-hub/sth/sth"},
 		{"scoop", `C:\Users\hugo\scoop\apps\sth\current\sth.exe`, nil, "scoop update sth"},
 		{"manual install", "/usr/local/bin/sth", nil, "sth update self"},
 		{"os.Executable error", "", errSentinel, "sth update self"},
