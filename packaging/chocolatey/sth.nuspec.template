@@ -3,16 +3,16 @@
   <metadata>
     <id>sth</id>
     <version>__VERSION__</version>
-    <packageSourceUrl>https://github.com/Grandpied33/sth-releases</packageSourceUrl>
-    <owners>Grandpied33</owners>
+    <packageSourceUrl>https://github.com/Skills-transfer-hub/sth-releases</packageSourceUrl>
+    <owners>Skills-Transfer-Hub</owners>
     <title>STH (Skills Transfer Hub)</title>
     <authors>Hugo MR</authors>
-    <projectUrl>https://github.com/Grandpied33/sth-releases</projectUrl>
-    <licenseUrl>https://github.com/Grandpied33/sth-releases/blob/main/LICENSE</licenseUrl>
+    <projectUrl>https://github.com/Skills-transfer-hub/sth-releases</projectUrl>
+    <licenseUrl>https://github.com/Skills-transfer-hub/sth-releases/blob/main/LICENSE</licenseUrl>
     <requireLicenseAcceptance>false</requireLicenseAcceptance>
-    <projectSourceUrl>https://github.com/Grandpied33/sth-releases</projectSourceUrl>
-    <docsUrl>https://github.com/Grandpied33/sth-releases#readme</docsUrl>
-    <bugTrackerUrl>https://github.com/Grandpied33/sth-releases/issues</bugTrackerUrl>
+    <projectSourceUrl>https://github.com/Skills-transfer-hub/sth-releases</projectSourceUrl>
+    <docsUrl>https://github.com/Skills-transfer-hub/sth-releases#readme</docsUrl>
+    <bugTrackerUrl>https://github.com/Skills-transfer-hub/sth-releases/issues</bugTrackerUrl>
     <tags>sth cli ai skills go</tags>
     <summary>CLI to install AI skills from a hosted catalog</summary>
     <description>
@@ -26,7 +26,7 @@ Visible commands:
 - `sth update` refreshes tracked resources
 - `sth update self` self-updates the CLI from GitHub Releases
     </description>
-    <releaseNotes>https://github.com/Grandpied33/sth-releases/releases/tag/v__VERSION__</releaseNotes>
+    <releaseNotes>https://github.com/Skills-transfer-hub/sth-releases/releases/tag/v__VERSION__</releaseNotes>
   </metadata>
   <files>
     <file src="tools\**" target="tools" />

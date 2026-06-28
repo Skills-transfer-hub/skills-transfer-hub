@@ -74,20 +74,20 @@ présent est idempotent (ne consomme pas de quota).
 Sous macOS ou Linux (Homebrew tap personnel) :
 
 ```bash
-brew install Grandpied33/sth/sth
+brew install skills-transfer-hub/sth/sth
 ```
 
 Sous Windows (Scoop) :
 
 ```powershell
-scoop bucket add sth https://github.com/Grandpied33/scoop-sth
+scoop bucket add sth https://github.com/Skills-transfer-hub/scoop-sth
 scoop install sth
 ```
 
 Sous Windows (winget) :
 
 ```powershell
-winget install Grandpied33.STH
+winget install STH.STH
 ```
 
 Sous Windows (Chocolatey) :
@@ -96,7 +96,7 @@ Sous Windows (Chocolatey) :
 choco install sth
 ```
 
-> Si vous installez STH via un gestionnaire de paquets, utilisez ce gestionnaire pour les mises à jour (`brew upgrade sth`, `scoop update sth`, `winget upgrade Grandpied33.STH`, `choco upgrade sth`) plutôt que `sth update self`. La commande `sth update self` reste fonctionnelle mais sera écrasée à la prochaine mise à jour du paquet.
+> Si vous installez STH via un gestionnaire de paquets, utilisez ce gestionnaire pour les mises à jour (`brew upgrade sth`, `scoop update sth`, `winget upgrade STH.STH`, `choco upgrade sth`) plutôt que `sth update self`. La commande `sth update self` reste fonctionnelle mais sera écrasée à la prochaine mise à jour du paquet.
 
 ### Depuis GitHub Releases
 
@@ -152,10 +152,10 @@ Le packaging est orchestré par GoReleaser + un workflow Chocolatey dédié. À 
 1. `auto-release.yml` calcule le prochain tag stable (`vX.Y.Z`) ou pré-release (`vX.Y.Z-rc.N` si la PR a le label `prerelease`) et crée la GitHub Release. Authentifié via `RELEASE_PAT` (un PAT — pas le `GITHUB_TOKEN` par défaut — sinon l'event `release.published` ne déclencherait pas les workflows en aval).
 2. `release.yml` (Linux) lance `goreleaser release --clean` qui :
    - construit les binaires (`linux-amd64`, `darwin-amd64`, `darwin-arm64`, `windows-amd64`)
-   - attache les archives + `SHA256SUMS` à la release publique sur `Grandpied33/sth-releases`
-   - pousse `Formula/sth.rb` sur `Grandpied33/homebrew-sth`
-   - pousse `bucket/sth.json` sur `Grandpied33/scoop-sth`
-   - ouvre une PR sur `microsoft/winget-pkgs` depuis `Grandpied33/winget-pkgs`
+   - attache les archives + `SHA256SUMS` à la release publique sur `Skills-transfer-hub/sth-releases`
+   - pousse `Formula/sth.rb` sur `Skills-transfer-hub/homebrew-sth`
+   - pousse `bucket/sth.json` sur `Skills-transfer-hub/scoop-sth`
+   - ouvre une PR sur `microsoft/winget-pkgs` depuis `Skills-transfer-hub/winget-pkgs`
 3. `publish-chocolatey.yml` (Windows, en parallèle) attend les assets Windows + `SHA256SUMS` sur `sth-releases` (max 5 min de poll), rend le nuspec depuis `packaging/chocolatey/`, puis `choco pack` + `choco push` natifs vers `chocolatey.org`. Découplé de `release.yml` pour ne pas être affecté par une erreur tardive de GoReleaser (création de PR winget par exemple).
 
 ### Secrets requis (GitHub → Settings → Secrets and variables → Actions)
@@ -187,11 +187,11 @@ goreleaser release --snapshot --clean --skip=publish,chocolatey
 
 ### Première soumission Winget (manuelle, une fois)
 
-Le `PackageIdentifier` `Grandpied33.STH` doit être validé manuellement par Microsoft pour la première version. Après publication d'un tag stable :
+Le `PackageIdentifier` `STH.STH` doit être validé manuellement par Microsoft pour la première version. Après publication d'un tag stable :
 
 ```powershell
 winget install Microsoft.WingetCreate
-wingetcreate new --urls https://github.com/Grandpied33/sth-releases/releases/download/<tag>/sth-windows-amd64.zip
+wingetcreate new --urls https://github.com/Skills-transfer-hub/sth-releases/releases/download/<tag>/sth-windows-amd64.zip
 ```
 
 Microsoft review la PR (~3–7 jours). Les versions suivantes sont ouvertes automatiquement par GoReleaser via `WINGET_TOKEN`.

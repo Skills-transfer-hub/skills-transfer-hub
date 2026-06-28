@@ -45,7 +45,7 @@ jobs:
           TAG: ${{ steps.meta.outputs.tag }}
         run: |
           for i in $(seq 1 30); do
-            assets="$(gh release view "$TAG" --repo Grandpied33/sth-releases --json assets --jq '.assets[].name' 2>/dev/null || true)"
+            assets="$(gh release view "$TAG" --repo Skills-transfer-hub/sth-releases --json assets --jq '.assets[].name' 2>/dev/null || true)"
             if echo "$assets" | grep -q '^SHA256SUMS$' && echo "$assets" | grep -q '^sth-windows-amd64.zip$'; then
               echo "Required assets found on sth-releases."
               exit 0
@@ -61,7 +61,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.meta.outputs.tag }}
-        run: gh release download "$TAG" --repo Grandpied33/sth-releases --pattern 'SHA256SUMS' --dir .
+        run: gh release download "$TAG" --repo Skills-transfer-hub/sth-releases --pattern 'SHA256SUMS' --dir .
 
       - name: Extract windows checksum
         id: sums

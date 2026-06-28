@@ -731,7 +731,7 @@ func TestRun_initAcceptsRepositoryURL(t *testing.T) {
 	t.Setenv("STH_GITHUB_RAW_BASE_URL", server.URL)
 
 	// provider, repo=URL, ref/cat/target, access=public, recap
-	input := "github\nhttps://github.com/Grandpied33/sth-dashboard\n\n\n\nn\n\n"
+	input := "github\nhttps://github.com/Skills-transfer-hub/sth-dashboard\n\n\n\nn\n\n"
 	result := runCLIWithInput(t, projectDir, homeDir, input, "init")
 
 	if result.err != nil {
@@ -746,8 +746,8 @@ func TestRun_initAcceptsRepositoryURL(t *testing.T) {
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		t.Fatalf("json.Unmarshal: %v", err)
 	}
-	if cfg.Providers[0].RepositoryID != "Grandpied33/sth-dashboard" {
-		t.Fatalf("repo = %q, want Grandpied33/sth-dashboard", cfg.Providers[0].RepositoryID)
+	if cfg.Providers[0].RepositoryID != "Skills-transfer-hub/sth-dashboard" {
+		t.Fatalf("repo = %q, want Skills-transfer-hub/sth-dashboard", cfg.Providers[0].RepositoryID)
 	}
 }
 

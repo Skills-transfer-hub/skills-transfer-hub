@@ -39,10 +39,10 @@ jobs:
           notes="$RUNNER_TEMP/release-notes.md"
           tag="${{ github.event.release.tag_name }}"
           if [[ -z "$tag" ]]; then tag="$(git describe --tags --abbrev=0)"; fi
-          if ! gh release view "$tag" -R Grandpied33/skills-transfer-hub --json body --jq '.body' > "$notes" 2>/dev/null || [[ ! -s "$notes" ]]; then
+          if ! gh release view "$tag" -R Skills-transfer-hub/skills-transfer-hub --json body --jq '.body' > "$notes" 2>/dev/null || [[ ! -s "$notes" ]]; then
             printf 'Maintenance & internal improvements.\n' > "$notes"
           fi
-          printf '\n---\nSee all releases: https://github.com/Grandpied33/sth-releases/releases\n' >> "$notes"
+          printf '\n---\nSee all releases: https://github.com/Skills-transfer-hub/sth-releases/releases\n' >> "$notes"
 
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v6
@@ -51,7 +51,7 @@ jobs:
           version: "~> v2"
           args: release --clean --release-notes=${{ runner.temp }}/release-notes.md
         env:
-          # GoReleaser creates the release on the public Grandpied33/sth-releases repo
+          # GoReleaser creates the release on the public Skills-transfer-hub/sth-releases repo
           # (cross-repo, the default GITHUB_TOKEN can't push there). RELEASE_PAT must
           # have Contents: R/W on skills-transfer-hub + sth-releases + the 3 tap repos.
           # WINGET_TOKEN must be a CLASSIC PAT with `public_repo` scope (fine-grained

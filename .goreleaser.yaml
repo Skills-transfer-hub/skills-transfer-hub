@@ -1,8 +1,8 @@
 # GoReleaser config for sth.
 # Docs: https://goreleaser.com/customization/
 #
-# Architecture: source code on Grandpied33/skills-transfer-hub (PRIVATE),
-# binaries + manifests on Grandpied33/sth-releases (PUBLIC). All download URLs
+# Architecture: source code on Skills-transfer-hub/skills-transfer-hub (PRIVATE),
+# binaries + manifests on Skills-transfer-hub/sth-releases (PUBLIC). All download URLs
 # referenced by the package managers point at sth-releases so users can install
 # without GitHub auth.
 #
@@ -13,11 +13,11 @@
 # What this produces per stable release:
 #   - sth-{linux,darwin}-{amd64,arm64} + sth-windows-amd64 binaries (Linux/Win arm64 skipped)
 #   - sth-{os}-{arch}.{tar.gz|zip} archives + SHA256SUMS, attached to a NEW GitHub Release
-#     created on Grandpied33/sth-releases (cross-repo, requires RELEASE_PAT)
-#   - Formula/sth.rb pushed to Grandpied33/homebrew-sth (HOMEBREW_TAP_TOKEN)
-#   - bucket/sth.json pushed to Grandpied33/scoop-sth (SCOOP_BUCKET_TOKEN)
+#     created on Skills-transfer-hub/sth-releases (cross-repo, requires RELEASE_PAT)
+#   - Formula/sth.rb pushed to Skills-transfer-hub/homebrew-sth (HOMEBREW_TAP_TOKEN)
+#   - bucket/sth.json pushed to Skills-transfer-hub/scoop-sth (SCOOP_BUCKET_TOKEN)
 #   - sth.nupkg pushed to chocolatey.org (CHOCOLATEY_API_KEY)
-#   - PR opened against microsoft/winget-pkgs from Grandpied33/winget-pkgs (WINGET_TOKEN)
+#   - PR opened against microsoft/winget-pkgs from Skills-transfer-hub/winget-pkgs (WINGET_TOKEN)
 
 version: 2
 
@@ -42,7 +42,7 @@ builds:
       - -X sth/cmd.commit={{.ShortCommit}}
       - -X sth/cmd.buildDate={{.Date}}
       - -X sth/cmd.target={{.Os}}/{{.Arch}}
-      - -X sth/cmd.releaseAPIURL=https://api.github.com/repos/Grandpied33/sth-releases/releases
+      - -X sth/cmd.releaseAPIURL=https://api.github.com/repos/Skills-transfer-hub/sth-releases/releases
       - -X sth/cmd.releaseAssetName=sth-{{.Os}}-{{.Arch}}{{ if eq .Os "windows" }}.zip{{ else }}.tar.gz{{ end }}
       - -X sth/cmd.releaseChecksumName=SHA256SUMS
     goos:
@@ -123,7 +123,7 @@ changelog:
 
 release:
   github:
-    owner: Grandpied33
+    owner: Skills-transfer-hub
     name: sth-releases
   # Alpha period: prefix the release title; the tag stays plain semver.
   name_template: "Alpha {{ .Tag }}"
@@ -132,7 +132,7 @@ release:
 brews:
   - name: sth
     repository:
-      owner: Grandpied33
+      owner: Skills-transfer-hub
       name: homebrew-sth
       branch: main
       token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
@@ -141,7 +141,7 @@ brews:
       email: bot@goreleaser.com
     commit_msg_template: "Brew formula update for {{ .ProjectName }} version {{ .Tag }}"
     directory: Formula
-    homepage: "https://github.com/Grandpied33/sth-releases"
+    homepage: "https://github.com/Skills-transfer-hub/sth-releases"
     description: "Skills Transfer Hub (Alpha) — CLI to install AI skills from a hosted catalog."
     license: MIT
     skip_upload: auto
@@ -153,7 +153,7 @@ brews:
 scoops:
   - name: sth
     repository:
-      owner: Grandpied33
+      owner: Skills-transfer-hub
       name: scoop-sth
       branch: main
       token: "{{ .Env.SCOOP_BUCKET_TOKEN }}"
@@ -161,7 +161,7 @@ scoops:
       name: goreleaserbot
       email: bot@goreleaser.com
     commit_msg_template: "Scoop manifest update for {{ .ProjectName }} version {{ .Tag }}"
-    homepage: "https://github.com/Grandpied33/sth-releases"
+    homepage: "https://github.com/Skills-transfer-hub/sth-releases"
     description: "Skills Transfer Hub (Alpha) — CLI to install AI skills."
     license: MIT
     skip_upload: auto
@@ -175,21 +175,21 @@ scoops:
 winget:
   - name: sth
     publisher: Skills-Transfer-Hub
-    package_identifier: Grandpied33.STH
+    package_identifier: STH.STH
     short_description: (Alpha) CLI to install and update AI skill bundles from a hosted catalog.
     description: |
       STH (Skills Transfer Hub, Alpha) is a single-binary Go CLI that connects a project
       to a hosted catalog of AI resources, reads SKILLS.md, installs resources
       locally, and keeps them in sync.
-    homepage: https://github.com/Grandpied33/sth-releases
+    homepage: https://github.com/Skills-transfer-hub/sth-releases
     license: MIT
-    license_url: https://github.com/Grandpied33/sth-releases/blob/main/LICENSE
+    license_url: https://github.com/Skills-transfer-hub/sth-releases/blob/main/LICENSE
     publisher_url: https://sth-dashboard.vercel.app/
-    publisher_support_url: https://github.com/Grandpied33/sth-releases/issues
-    release_notes_url: https://github.com/Grandpied33/sth-releases/releases/tag/v{{ .Version }}
+    publisher_support_url: https://github.com/Skills-transfer-hub/sth-releases/issues
+    release_notes_url: https://github.com/Skills-transfer-hub/sth-releases/releases/tag/v{{ .Version }}
     skip_upload: auto
     repository:
-      owner: Grandpied33
+      owner: Skills-transfer-hub
       name: winget-pkgs
       branch: "sth-{{ .Version }}"
       token: "{{ .Env.WINGET_TOKEN }}"

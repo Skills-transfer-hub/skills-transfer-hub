@@ -82,7 +82,7 @@ func TestDetectPackageManager(t *testing.T) {
 		},
 		{
 			name:        "winget LocalAppData",
-			execPath:    `C:\Users\hugo\AppData\Local\Microsoft\WinGet\Packages\Grandpied33.STH_Microsoft.Winget.Source_8wekyb3d8bbwe\sth.exe`,
+			execPath:    `C:\Users\hugo\AppData\Local\Microsoft\WinGet\Packages\STH.STH_Microsoft.Winget.Source_8wekyb3d8bbwe\sth.exe`,
 			wantName:    "winget",
 			wantHintHas: "winget upgrade",
 		},

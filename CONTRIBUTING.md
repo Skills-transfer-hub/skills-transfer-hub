@@ -102,9 +102,9 @@ getting the PR title right covers the common case.
 
 ## What ships where
 
-- **Code & history** live on `Grandpied33/skills-transfer-hub` (private).
+- **Code & history** live on `Skills-transfer-hub/skills-transfer-hub` (private).
 - **Binaries, archives, SHA256SUMS, release notes** live on
-  `Grandpied33/sth-releases` (public). Users never see this repo.
+  `Skills-transfer-hub/sth-releases` (public). Users never see this repo.
 - The CLI's `sth update self` reads release metadata (incl. body highlights)
   from the public releases feed.
 
