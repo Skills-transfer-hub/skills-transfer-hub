@@ -201,6 +201,7 @@ func (a *app) runUpdate(args []string) error {
 			}
 
 			a.writeStdout(fmt.Sprintf("Ressource '%s' mise à jour.", record.Name))
+			a.printBundleChangelog(record.Name, bundleContents, installedVersionOf(v2State, v2StateErr, record.CatalogID))
 			continue
 		}
 
@@ -270,6 +271,18 @@ func (a *app) runUpdate(args []string) error {
 	}
 
 	return nil
+}
+
+func installedVersionOf(v2State fs.InstalledResourceStateV2, v2StateErr error, resourceName string) string {
+	if v2StateErr != nil {
+		return ""
+	}
+	for _, record := range v2State.Entries {
+		if record.ResourceName == resourceName {
+			return record.ResolvedVersion
+		}
+	}
+	return ""
 }
 
 // sourcePath derives the catalog source path for a v2 record during dry-run.

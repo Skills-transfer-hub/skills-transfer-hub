@@ -195,26 +195,18 @@ Parse failure (non-Keep-a-Changelog format) — warning only, update proceeds:
 Warning: Could not parse changelog for react-forms
 ```
 
-### JSON Output Addition
+### JSON Output (FR-014) — deferred
 
-The existing per-resource object in `sth update --json` output gains one optional
-field:
+Implementation finding: `sth update` (non-dry-run) emits no per-resource JSON
+objects today — the `--json` flag is parsed but only affects the `--dry-run` path.
+There is no existing object to attach a `changelog` field to; fulfilling FR-014
+would mean designing a whole JSON output mode for `update`, which is its own
+contract decision.
 
-```json
-{
-  "resource_name": "react-forms",
-  "provider_id": "main",
-  "previous_version": "abc1234",
-  "resolved_version": "def5678",
-  "changelog": "## [1.3.0] - 2026-07-01\n### Added\n- Support for nested field arrays\n"
-}
-```
-
-`changelog` is omitted entirely (not `null`, not `""`) when:
-- no `CHANGELOG.md` is present in the bundle, OR
-- `previous_version` was empty (first install — FR-010 does not apply to
-  `sth install`, only `sth update`), OR
-- the resource was already up to date (no version change occurred).
+FR-014 is therefore **deferred** until `sth update --json` gains real per-resource
+output. When it does, the field contract is: a `changelog` string field, omitted
+entirely (not `null`, not `""`) when no `CHANGELOG.md` is present, when
+`previous_version` was empty, or when no version change occurred.
 
 ### No Changes To
 
