@@ -12,7 +12,9 @@ Le flux actuel est centré sur le projet courant, pas sur une configuration part
 - `sth logout` supprime la clé STH Cloud du keychain
 - `sth list` lit `SKILLS.md` ou détecte les bundles compatibles et liste les ressources installables ; avec `--json`, retourne l'état des ressources installées (sémantique différente du mode texte)
 - `sth install <resource-ref>` installe une ressource du catalogue distant
-- `sth update [--fail-on-changes]` met à jour les ressources suivies dans le projet courant ; `--fail-on-changes` exit 1 (sans rien modifier) si une ressource gérée a été éditée localement, utile comme gate CI
+- `sth update [--fail-on-changes]` met à jour les ressources suivies dans le projet courant ; affiche les entrées de `CHANGELOG.md` ajoutées depuis la version installée quand un bundle mis à jour en contient un ; `--fail-on-changes` exit 1 (sans rien modifier) si une ressource gérée a été éditée localement, utile comme gate CI
+- `sth new <category>/<name>` scaffolde un nouveau skill conforme (`SKILL.md` pré-rempli) — pour les mainteneurs de dépôts de skills
+- `sth catalog init [--force]` génère `SKILLS.md` à partir de la structure `category/skill/SKILL.md` du dépôt courant ; le catalogue produit est directement consommable par `sth list`
 - `sth update self` vérifie et applique la dernière release GitHub stable compatible avec la plateforme courante
 - `sth status [--json]` montre l'état (à jour, obsolète, modifié-localement) de chaque ressource installée
 - `sth doctor` diagnostique la configuration STH du projet courant (project.json, sth-state, credentials, accès provider) avec une remédiation par check

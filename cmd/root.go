@@ -204,6 +204,33 @@ var commandCatalog = []commandSpec{
 		},
 	},
 	{
+		name:    "catalog",
+		usage:   "sth catalog init [--force]",
+		summary: "Génère SKILLS.md à partir de la structure category/skill/SKILL.md du dépôt courant",
+		details: []string{
+			"Ne retient que les dossiers contenant un SKILL.md ; la description est lue depuis le front matter.",
+			"Le SKILLS.md généré est un tableau unique trié par catégorie puis nom, directement consommable par sth list.",
+			"Si SKILLS.md existe déjà, une confirmation est demandée avant écrasement ; --force la saute. Les éditions manuelles sont alors perdues.",
+		},
+		examples: []string{
+			"sth catalog init",
+			"sth catalog init --force",
+		},
+		flags: []string{"--force"},
+	},
+	{
+		name:    "new",
+		usage:   "sth new <category>/<name>",
+		summary: "Scaffolde un nouveau skill conforme dans <category>/<name>/SKILL.md",
+		details: []string{
+			"Crée le dossier (catégorie comprise) et un SKILL.md pré-rempli : front matter name/description et section ## Usage.",
+			"Refuse d'écraser un dossier existant. Caractères autorisés par segment : lettres, chiffres, tirets et underscores.",
+		},
+		examples: []string{
+			"sth new prompts/code-review",
+		},
+	},
+	{
 		name:    "alpha",
 		usage:   "sth alpha request",
 		summary: "Demande à tester les options payantes pendant l'Alpha (compte requis)",
@@ -443,6 +470,10 @@ func (a *app) run(args []string) error {
 		err = a.runCompletion(args[1:])
 	case "pack":
 		err = a.runPack(args[1:])
+	case "catalog":
+		err = a.runCatalog(args[1:])
+	case "new":
+		err = a.runNew(args[1:])
 	case "alpha":
 		if len(args) >= 2 && isHelpFlag(args[1]) {
 			a.writeStdout(commandHelpText("alpha"))
