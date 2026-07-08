@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"sth/internal/fs"
+	sthhttp "sth/internal/http"
 )
 
 const doctorReachabilityTimeout = 5 * time.Second
@@ -225,13 +226,13 @@ func (a *app) doctorChecksProviderReachability(cfg fs.ProjectConfigV2, cfgErr er
 	return out
 }
 
-func (a *app) doctorCheckOneProvider(p fs.ProviderEntry) doctorCheck {
-	url := providerReachabilityURL(p)
+func (a *app) doctorCheckOneProvider(entry fs.ProviderEntry) doctorCheck {
+	url := providerReachabilityURL(entry)
 	if url == "" {
 		return doctorCheck{
-			name:   fmt.Sprintf("Provider reachability (%s)", p.ID),
+			name:   fmt.Sprintf("Provider reachability (%s)", entry.ID),
 			status: "skip",
-			detail: fmt.Sprintf("no reachability URL for provider %q", p.Provider),
+			detail: fmt.Sprintf("no reachability URL for provider %q", entry.Provider),
 		}
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), doctorReachabilityTimeout)
@@ -239,7 +240,7 @@ func (a *app) doctorCheckOneProvider(p fs.ProviderEntry) doctorCheck {
 	req, err := stdhttp.NewRequestWithContext(ctx, stdhttp.MethodHead, url, nil)
 	if err != nil {
 		return doctorCheck{
-			name:   fmt.Sprintf("Provider reachability (%s)", p.ID),
+			name:   fmt.Sprintf("Provider reachability (%s)", entry.ID),
 			status: "fail",
 			detail: err.Error(),
 		}
@@ -248,7 +249,7 @@ func (a *app) doctorCheckOneProvider(p fs.ProviderEntry) doctorCheck {
 	if err != nil {
 		a.verbose.HTTP(stdhttp.MethodHead, url, 0)
 		return doctorCheck{
-			name:        fmt.Sprintf("Provider reachability (%s)", p.ID),
+			name:        fmt.Sprintf("Provider reachability (%s)", entry.ID),
 			status:      "fail",
 			detail:      fmt.Sprintf("%s: %s", url, err.Error()),
 			remediation: "Check network access and provider credentials.",
@@ -258,41 +259,45 @@ func (a *app) doctorCheckOneProvider(p fs.ProviderEntry) doctorCheck {
 	a.verbose.HTTP(stdhttp.MethodHead, url, resp.StatusCode)
 	if resp.StatusCode >= 200 && resp.StatusCode < 400 {
 		return doctorCheck{
-			name:   fmt.Sprintf("Provider reachability (%s)", p.ID),
+			name:   fmt.Sprintf("Provider reachability (%s)", entry.ID),
 			status: "pass",
 			detail: fmt.Sprintf("%s → %d", url, resp.StatusCode),
 		}
 	}
 	if resp.StatusCode == stdhttp.StatusUnauthorized || resp.StatusCode == stdhttp.StatusForbidden {
-		// Reachable but not authorized — surface as fail with credential hint.
+		if IsCloudProvider(entry.Provider) {
+			return doctorCheck{
+				name:   fmt.Sprintf("Provider reachability (%s)", entry.ID),
+				status: "pass",
+				detail: fmt.Sprintf("%s → %d (reachable, authentication required)", url, resp.StatusCode),
+			}
+		}
 		return doctorCheck{
-			name:        fmt.Sprintf("Provider reachability (%s)", p.ID),
+			name:        fmt.Sprintf("Provider reachability (%s)", entry.ID),
 			status:      "fail",
 			detail:      fmt.Sprintf("%s → %d (auth required)", url, resp.StatusCode),
 			remediation: "Set a valid STH_TOKEN or provider-specific token.",
 		}
 	}
 	return doctorCheck{
-		name:        fmt.Sprintf("Provider reachability (%s)", p.ID),
+		name:        fmt.Sprintf("Provider reachability (%s)", entry.ID),
 		status:      "fail",
 		detail:      fmt.Sprintf("%s → %d", url, resp.StatusCode),
 		remediation: "Check network access and provider credentials.",
 	}
 }
 
-// providerReachabilityURL returns a no-auth URL to HEAD for a sanity check.
-// Honors STH_*_BASE_URL overrides so test servers (httptest) work.
-func providerReachabilityURL(p fs.ProviderEntry) string {
-	switch strings.ToLower(strings.TrimSpace(p.Provider)) {
+func providerReachabilityURL(entry fs.ProviderEntry) string {
+	switch strings.ToLower(strings.TrimSpace(entry.Provider)) {
 	case "github":
 		base := strings.TrimRight(getEnvOrDefault("STH_GITHUB_API_BASE_URL", "https://api.github.com"), "/")
-		if id := strings.TrimSpace(p.RepositoryID); id != "" {
+		if id := strings.TrimSpace(entry.RepositoryID); id != "" {
 			return fmt.Sprintf("%s/repos/%s", base, id)
 		}
 		return base
 	case "gitlab":
 		base := strings.TrimRight(getEnvOrDefault("STH_GITLAB_API_BASE_URL", "https://gitlab.com/api/v4"), "/")
-		if id := strings.TrimSpace(p.RepositoryID); id != "" {
+		if id := strings.TrimSpace(entry.RepositoryID); id != "" {
 			return fmt.Sprintf("%s/projects/%s", base, neturl.PathEscape(id))
 		}
 		return base
@@ -300,19 +305,17 @@ func providerReachabilityURL(p fs.ProviderEntry) string {
 		return strings.TrimRight(getEnvOrDefault("STH_AZURE_DEVOPS_BASE_URL", "https://dev.azure.com"), "/")
 	case "bitbucket":
 		base := strings.TrimRight(getEnvOrDefault("STH_BITBUCKET_API_BASE_URL", "https://api.bitbucket.org/2.0"), "/")
-		if id := strings.TrimSpace(p.RepositoryID); id != "" {
+		if id := strings.TrimSpace(entry.RepositoryID); id != "" {
 			return fmt.Sprintf("%s/repositories/%s", base, id)
 		}
 		return base
 	case "sth-cloud":
-		return strings.TrimRight(getEnvOrDefault("STH_CLOUD_BASE_URL", "https://api.sth-cloud.example/cli"), "/")
+		return sthhttp.CloudBaseURL()
 	default:
 		return ""
 	}
 }
 
-// getEnvOrDefault is a local copy of the http package helper to avoid an
-// import cycle (cmd → http → cmd doesn't exist, but we need this in cmd).
 func getEnvOrDefault(key, fallback string) string {
 	if value := strings.TrimSpace(os.Getenv(key)); value != "" {
 		return value

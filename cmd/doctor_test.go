@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 
 	"sth/internal/fs"
+	sthhttp "sth/internal/http"
 )
 
 func TestDoctor_skipsAllWhenNoProject(t *testing.T) {
@@ -77,6 +78,79 @@ func TestDoctor_passesOnHealthyProject(t *testing.T) {
 	}
 	if !strings.Contains(res.stdout, "All checks passed.") {
 		t.Fatalf("missing pass summary: %q", res.stdout)
+	}
+}
+
+func TestDoctor_cloudReachabilityTargetsConfiguredCloudBase(t *testing.T) {
+	projectDir := t.TempDir()
+	writeProjectConfigV2ForTest(t, projectDir, fs.ProjectConfigV2{
+		SchemaVersion: 2,
+		Providers: []fs.ProviderEntry{
+			{ID: "sth-cloud", Provider: "sth-cloud", TargetDir: ".claude/skills"},
+		},
+	})
+	t.Setenv("STH_TOKEN", "dummy")
+
+	srv := httptest.NewServer(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		w.WriteHeader(stdhttp.StatusOK)
+	}))
+	defer srv.Close()
+	t.Setenv("STH_CLOUD_BASE_URL", srv.URL)
+
+	res := runCLI(t, projectDir, t.TempDir(), "doctor")
+	if res.err != nil {
+		t.Fatalf("err = %v\nstdout=%s", res.err, res.stdout)
+	}
+	if !strings.Contains(res.stdout, "[✓] Provider reachability (sth-cloud)") {
+		t.Fatalf("missing cloud reachability pass line: %q", res.stdout)
+	}
+	if !strings.Contains(res.stdout, srv.URL) {
+		t.Fatalf("reachability check did not target STH_CLOUD_BASE_URL %q: %q", srv.URL, res.stdout)
+	}
+}
+
+func TestDoctor_cloudReachabilityPassesWhenAuthRequired(t *testing.T) {
+	projectDir := t.TempDir()
+	writeProjectConfigV2ForTest(t, projectDir, fs.ProjectConfigV2{
+		SchemaVersion: 2,
+		Providers: []fs.ProviderEntry{
+			{ID: "sth-cloud", Provider: "sth-cloud", TargetDir: ".claude/skills"},
+		},
+	})
+	t.Setenv("STH_TOKEN", "dummy")
+
+	srv := httptest.NewServer(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		w.WriteHeader(stdhttp.StatusUnauthorized)
+	}))
+	defer srv.Close()
+	t.Setenv("STH_CLOUD_BASE_URL", srv.URL)
+
+	res := runCLI(t, projectDir, t.TempDir(), "doctor")
+	if res.err != nil {
+		t.Fatalf("err = %v, want doctor success on 401 from sth-cloud\nstdout=%s", res.err, res.stdout)
+	}
+	if !strings.Contains(res.stdout, "[✓] Provider reachability (sth-cloud)") {
+		t.Fatalf("missing cloud reachability pass line: %q", res.stdout)
+	}
+	if !strings.Contains(res.stdout, "authentication required") {
+		t.Fatalf("missing authentication detail: %q", res.stdout)
+	}
+}
+
+func TestProviderReachabilityURL_sthCloudMatchesCloudClientBase(t *testing.T) {
+	t.Setenv("STH_CLOUD_BASE_URL", "")
+	url := providerReachabilityURL(fs.ProviderEntry{Provider: "sth-cloud"})
+	if url != sthhttp.CloudBaseURL() {
+		t.Fatalf("providerReachabilityURL = %q, want cloud client base %q", url, sthhttp.CloudBaseURL())
+	}
+	if strings.Contains(url, ".example") {
+		t.Fatalf("providerReachabilityURL still points at a placeholder host: %q", url)
+	}
+
+	t.Setenv("STH_CLOUD_BASE_URL", "http://127.0.0.1:4321/cli/")
+	overridden := providerReachabilityURL(fs.ProviderEntry{Provider: "sth-cloud"})
+	if overridden != "http://127.0.0.1:4321/cli" {
+		t.Fatalf("providerReachabilityURL with override = %q, want http://127.0.0.1:4321/cli", overridden)
 	}
 }
 
