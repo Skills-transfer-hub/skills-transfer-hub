@@ -5,9 +5,7 @@ import (
 	"strings"
 )
 
-// defaultDocsBaseURL is the production docs site. STH_DOCS_URL overrides it
-// so dev/staging environments and tests can point at a different host.
-const defaultDocsBaseURL = "https://sth-cloud.example"
+const defaultDocsBaseURL = "https://sth-dashboard.vercel.app"
 
 // DocsBaseURL returns the docs base URL with the env override applied and
 // any trailing slash stripped.

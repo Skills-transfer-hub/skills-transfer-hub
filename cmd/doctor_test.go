@@ -80,6 +80,59 @@ func TestDoctor_passesOnHealthyProject(t *testing.T) {
 	}
 }
 
+func TestDoctor_cloudProviderReachability(t *testing.T) {
+	cases := []struct {
+		name       string
+		statusCode int
+		wantPass   bool
+	}{
+		{name: "unauthorized means reachable", statusCode: stdhttp.StatusUnauthorized, wantPass: true},
+		{name: "not found means reachable", statusCode: stdhttp.StatusNotFound, wantPass: true},
+		{name: "server error fails", statusCode: stdhttp.StatusInternalServerError, wantPass: false},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			projectDir := t.TempDir()
+			writeProjectConfigV2ForTest(t, projectDir, fs.ProjectConfigV2{
+				SchemaVersion: 2,
+				Providers: []fs.ProviderEntry{
+					{ID: "cloud", Provider: "sth-cloud", TargetDir: ".claude/skills"},
+				},
+			})
+			t.Setenv("STH_TOKEN", "dummy")
+
+			server := httptest.NewServer(stdhttp.HandlerFunc(func(writer stdhttp.ResponseWriter, _ *stdhttp.Request) {
+				writer.WriteHeader(testCase.statusCode)
+			}))
+			defer server.Close()
+			t.Setenv("STH_CLOUD_BASE_URL", server.URL)
+
+			res := runCLI(t, projectDir, t.TempDir(), "doctor")
+			if testCase.wantPass {
+				if res.err != nil {
+					t.Fatalf("err = %v\nstdout=%s", res.err, res.stdout)
+				}
+				if !strings.Contains(res.stdout, "[✓] Provider reachability (cloud)") {
+					t.Fatalf("missing cloud reachability pass line: %q", res.stdout)
+				}
+				if !strings.Contains(res.stdout, "(reachable)") {
+					t.Fatalf("missing reachable detail: %q", res.stdout)
+				}
+				if strings.Contains(res.stdout, "auth required") {
+					t.Fatalf("sth-cloud must not surface an auth failure: %q", res.stdout)
+				}
+				return
+			}
+			if res.err == nil {
+				t.Fatalf("expected non-zero exit on HTTP %d\nstdout=%s", testCase.statusCode, res.stdout)
+			}
+			if !strings.Contains(res.stdout, "[✗] Provider reachability (cloud)") {
+				t.Fatalf("missing cloud reachability fail line: %q", res.stdout)
+			}
+		})
+	}
+}
+
 func TestDoctor_failsOnExpiredLicense(t *testing.T) {
 	configDir := t.TempDir()
 	t.Setenv("STH_USER_CONFIG_DIR", configDir)
