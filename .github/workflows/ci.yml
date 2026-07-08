@@ -1,13 +1,14 @@
 name: CI
 
 on:
-  # Branch pushes are only built on main (post-merge validation). Feature
-  # branches are covered by their pull_request run instead — this avoids the
-  # classic double-run where a push event and a pull_request event both fire
-  # for the same commit on a PR branch.
+  # Branch pushes are only built on main and develop (post-merge validation).
+  # Feature branches are covered by their pull_request run instead — this
+  # avoids the classic double-run where a push event and a pull_request event
+  # both fire for the same commit on a PR branch.
   push:
     branches:
       - main
+      - develop
   pull_request:
 
 # Cancel an in-flight run when a newer commit is pushed to the same ref, so a
