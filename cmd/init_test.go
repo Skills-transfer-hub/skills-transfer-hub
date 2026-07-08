@@ -9,7 +9,10 @@ import (
 	"strings"
 	"testing"
 
+	"sth/internal/auth"
 	"sth/internal/fs"
+
+	"github.com/zalando/go-keyring"
 )
 
 // Wizard input layout (first provider, no env-var token):
@@ -1042,6 +1045,112 @@ func TestRunInit_AlphaGate_AllowsGitProviderAlongsideSthCloud(t *testing.T) {
 	}
 	if len(cfg.Providers) != 2 {
 		t.Fatalf("expected 2 providers (sth-cloud + first), got %d", len(cfg.Providers))
+	}
+}
+
+func startAccessCheckServer(t *testing.T, status int) *httptest.Server {
+	t.Helper()
+	server := httptest.NewServer(stdhttp.HandlerFunc(func(responseWriter stdhttp.ResponseWriter, request *stdhttp.Request) {
+		if request.URL.Path != "/v1/access-check" {
+			stdhttp.NotFound(responseWriter, request)
+			return
+		}
+		if status != stdhttp.StatusOK {
+			responseWriter.WriteHeader(status)
+			return
+		}
+		responseWriter.WriteHeader(stdhttp.StatusOK)
+		_, _ = responseWriter.Write([]byte(`{"ok":true,"org":{"id":"org-1","name":"Acme"},"plan":"pro","expires_at":"2099-01-01"}`))
+	}))
+	t.Cleanup(server.Close)
+	return server
+}
+
+func resetCloudKeychain(t *testing.T) {
+	t.Helper()
+	keyring.MockInit()
+	if err := auth.DeleteAPIKey(); err != nil {
+		t.Fatalf("reset keychain: %v", err)
+	}
+}
+
+func TestRunInit_CloudProvider_LoginConnectsAndAttachesProvider(t *testing.T) {
+	resetCloudKeychain(t)
+	t.Setenv("STH_CLOUD_API_KEY", "")
+	server := startAccessCheckServer(t, stdhttp.StatusOK)
+	t.Setenv("STH_CLOUD_BASE_URL", server.URL)
+	projectDir := t.TempDir()
+
+	providerThenKeyInput := "sth-cloud\nlsk_live_valid\n"
+	result := runCLIWithInput(t, projectDir, t.TempDir(), providerThenKeyInput, "init")
+	if result.err != nil {
+		t.Fatalf("Run() error = %v\nstdout=%s\nstderr=%s", result.err, result.stdout, result.stderr)
+	}
+	assertContains(t, result.stdout, "Connecté à Acme")
+	assertContains(t, result.stdout, "sth list")
+
+	data, err := os.ReadFile(filepath.Join(projectDir, ".sth", "project.json"))
+	if err != nil {
+		t.Fatalf("ReadFile(project.json): %v", err)
+	}
+	var cfg fs.ProjectConfigV2
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		t.Fatalf("json.Unmarshal: %v", err)
+	}
+	if len(cfg.Providers) != 1 {
+		t.Fatalf("providers count = %d, want 1", len(cfg.Providers))
+	}
+	if cfg.Providers[0].Provider != "sth-cloud" {
+		t.Fatalf("provider = %q, want sth-cloud", cfg.Providers[0].Provider)
+	}
+	if cfg.Providers[0].TargetDir != ".claude/skills" {
+		t.Fatalf("target_dir = %q, want .claude/skills", cfg.Providers[0].TargetDir)
+	}
+}
+
+func TestRunInit_CloudProvider_ExistingKeyAttachesSilently(t *testing.T) {
+	resetCloudKeychain(t)
+	t.Setenv("STH_CLOUD_API_KEY", "lsk_live_seed")
+	t.Setenv("STH_CLOUD_BASE_URL", "http://127.0.0.1:1")
+	projectDir := t.TempDir()
+
+	result := runCLIWithInput(t, projectDir, t.TempDir(), "sth-cloud\n", "init")
+	if result.err != nil {
+		t.Fatalf("Run() error = %v\nstdout=%s\nstderr=%s", result.err, result.stdout, result.stderr)
+	}
+	assertContains(t, result.stdout, "rattaché")
+	assertNotContains(t, result.stdout, "Colle ta clé")
+
+	data, err := os.ReadFile(filepath.Join(projectDir, ".sth", "project.json"))
+	if err != nil {
+		t.Fatalf("ReadFile(project.json): %v", err)
+	}
+	var cfg fs.ProjectConfigV2
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		t.Fatalf("json.Unmarshal: %v", err)
+	}
+	if len(cfg.Providers) != 1 || cfg.Providers[0].Provider != "sth-cloud" {
+		t.Fatalf("expected single sth-cloud provider, got %+v", cfg.Providers)
+	}
+}
+
+func TestRunInit_CloudProvider_RejectedKeyFails(t *testing.T) {
+	resetCloudKeychain(t)
+	t.Setenv("STH_CLOUD_API_KEY", "")
+	server := startAccessCheckServer(t, stdhttp.StatusUnauthorized)
+	t.Setenv("STH_CLOUD_BASE_URL", server.URL)
+	projectDir := t.TempDir()
+
+	result := runCLIWithInput(t, projectDir, t.TempDir(), "sth-cloud\nlsk_live_expired\n", "init")
+	if result.err == nil {
+		t.Fatalf("expected error for rejected key\nstdout=%s", result.stdout)
+	}
+	if !strings.Contains(result.err.Error(), "vérification de la clé échouée") {
+		t.Fatalf("error = %v, want access-check failure", result.err)
+	}
+
+	if _, statErr := os.Stat(filepath.Join(projectDir, ".sth", "project.json")); !os.IsNotExist(statErr) {
+		t.Fatalf("project.json should not exist after rejected key, stat err = %v", statErr)
 	}
 }
 

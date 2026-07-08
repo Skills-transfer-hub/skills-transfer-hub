@@ -71,15 +71,15 @@ var providerGuides = map[string]providerGuide{
 	},
 	"sth-cloud": {
 		Key:              "sth-cloud",
-		DisplayName:      "STH Cloud (bientôt)",
-		HostedDomain:     "api.sth-cloud.example",
-		DocumentationURL: "https://sth-cloud.example/docs/cli/login",
-		ActionURL:        "https://app.sth-cloud.example/dashboard/licenses",
+		DisplayName:      "STH Cloud",
+		HostedDomain:     "sth-dashboard.vercel.app",
+		DocumentationURL: "https://sth-dashboard.vercel.app/docs",
+		ActionURL:        "https://sth-dashboard.vercel.app/dashboard/licenses",
 		CredentialKind:   "api-key",
 		EnvVars:          []string{"STH_CLOUD_API_KEY", "STH_TOKEN"},
 		Notes: []string{
-			"Provider SaaS — pas encore disponible en Alpha. Inscris-toi pour être averti au lancement.",
-			"L'option reste sélectionnable mais le wizard t'orientera vers la landing.",
+			"Provider SaaS — authentification par clé API (lsk_live_…) via `sth login` ou `sth init`.",
+			"Aucun dépôt Git à configurer : le catalogue est servi par STH Cloud.",
 		},
 	},
 }

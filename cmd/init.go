@@ -268,7 +268,7 @@ func providerRepositoryIDExample(provider string) string {
 func promptProvider(reader *bufio.Reader, stdout io.Writer, defaultValue string) (string, error) {
 	allowed := supportedProviderKeys()
 	for {
-		value, err := promptValue(reader, stdout, "Provider [github|gitlab|azure-devops|bitbucket]", defaultValue)
+		value, err := promptValue(reader, stdout, "Provider [github|gitlab|azure-devops|bitbucket|sth-cloud]", defaultValue)
 		if err != nil {
 			return "", err
 		}

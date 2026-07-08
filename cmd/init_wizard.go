@@ -177,14 +177,7 @@ func (a *app) runInitWizard(reader *bufio.Reader, existingCfg fs.ProjectConfigV2
 	}
 
 	if IsCloudProvider(draft.Provider) {
-		a.writeStdout(
-			"",
-			"STH Cloud n'est pas encore disponible en Alpha.",
-			"Inscris-toi à la liste d'attente : https://sth-dashboard.vercel.app/pricing",
-			"",
-			"En attendant, choisis un provider Git (github, gitlab, azure-devops, bitbucket).",
-		)
-		return fmt.Errorf("sth-cloud sera disponible après l'Alpha")
+		return a.connectCloudProvider(reader)
 	}
 
 	if err := a.askRepository(reader, &draft); err != nil {

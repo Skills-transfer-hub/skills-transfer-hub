@@ -31,13 +31,10 @@ func TelemetryDocsURL() string { return DocsBaseURL() + "/docs/telemetry" }
 // Surfaced when the CLI refuses to add a second Git provider.
 func AlphaLimitsDocsURL() string { return DocsBaseURL() + "/docs#alphaLimits" }
 
-// dashboardBaseURL returns the user-facing app URL — distinct from
-// DocsBaseURL because the docs site and the dashboard live on different
-// hosts in production. STH_DASHBOARD_URL overrides it for dev/staging.
 func dashboardBaseURL() string {
 	raw := strings.TrimSpace(os.Getenv("STH_DASHBOARD_URL"))
 	if raw == "" {
-		raw = "https://app.sth-cloud.example"
+		raw = "https://sth-dashboard.vercel.app"
 	}
 	return strings.TrimRight(raw, "/")
 }

@@ -126,6 +126,33 @@ func (a *app) promptCloudLoginInteractive(reader *bufio.Reader) error {
 	return nil
 }
 
+func (a *app) connectCloudProvider(reader *bufio.Reader) error {
+	if _, err := auth.LoadAPIKey(); err == nil {
+		if attachErr := ensureCloudProviderEntry(); attachErr != nil {
+			return attachErr
+		}
+		a.narrate(wizardHappy,
+			"Clé STH Cloud déjà présente : provider rattaché au projet.",
+			"Prochaine étape : exécute `sth list` pour voir les skills.",
+		)
+		return nil
+	}
+
+	a.narrate(wizardThinking,
+		"STH Cloud est un provider SaaS : clé API, aucun dépôt Git.",
+		"Récupère ta clé lsk_live_… sur :",
+		DashboardLicensesURL(),
+	)
+	if err := a.promptCloudLoginInteractive(reader); err != nil {
+		return err
+	}
+	a.narrate(wizardHappy,
+		"Tout est bon ! STH Cloud est connecté au projet.",
+		"Prochaine étape : exécute `sth list` pour voir les skills.",
+	)
+	return nil
+}
+
 // downgradeToAnonymous persists telemetry mode = anonymous and prints a
 // one-line stderr hint explaining why the connected path was abandoned.
 // Any error from persistence is swallowed (best-effort).
