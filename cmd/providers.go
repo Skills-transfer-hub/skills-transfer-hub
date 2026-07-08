@@ -1,8 +1,11 @@
 package cmd
 
 import (
+	neturl "net/url"
 	"sort"
 	"strings"
+
+	sthhttp "sth/internal/http"
 )
 
 type providerGuide struct {
@@ -72,9 +75,9 @@ var providerGuides = map[string]providerGuide{
 	"sth-cloud": {
 		Key:              "sth-cloud",
 		DisplayName:      "STH Cloud (bientôt)",
-		HostedDomain:     "api.sth-cloud.example",
-		DocumentationURL: "https://sth-cloud.example/docs/cli/login",
-		ActionURL:        "https://app.sth-cloud.example/dashboard/licenses",
+		HostedDomain:     cloudAPIHost(),
+		DocumentationURL: DocsURL(),
+		ActionURL:        DashboardLicensesURL(),
 		CredentialKind:   "api-key",
 		EnvVars:          []string{"STH_CLOUD_API_KEY", "STH_TOKEN"},
 		Notes: []string{
@@ -82,6 +85,14 @@ var providerGuides = map[string]providerGuide{
 			"L'option reste sélectionnable mais le wizard t'orientera vers la landing.",
 		},
 	},
+}
+
+func cloudAPIHost() string {
+	parsed, err := neturl.Parse(sthhttp.CloudBaseURL())
+	if err != nil {
+		return ""
+	}
+	return parsed.Host
 }
 
 // IsCloudProvider reports whether the provider name targets the STH Cloud SaaS
