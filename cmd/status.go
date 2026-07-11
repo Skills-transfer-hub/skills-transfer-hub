@@ -54,35 +54,20 @@ func (a *app) runStatusInner(jsonOut bool) error {
 		return nil
 	}
 
-	// Fetch latest commit SHA once per unique providerID (SC-001 efficiency).
-	// Provider-not-found and unsupported-provider errors are treated as "latest
-	// unknown" so that the status command still works for legacy or partially
-	// configured projects. Only genuine network/HTTP failures are fatal.
-	latestSHAs := make(map[string]string)
-	seen := make(map[string]bool)
+	var latestByPath map[string]string
 	if err := a.withAuthRecovery(context.Background(), func() error {
-		for _, rec := range state.Entries {
-			if seen[rec.ProviderID] {
-				continue
-			}
-			seen[rec.ProviderID] = true
-			sha, fetchErr := a.client.GetLatestCommitSHA(context.Background(), config, rec.ProviderID)
-			if fetchErr != nil {
-				if isProviderConfigError(fetchErr) {
-					// Non-fatal: leave latest SHA empty for this provider.
-					continue
-				}
-				return fmt.Errorf("network error fetching SHA for provider %q: %w", rec.ProviderID, fetchErr)
-			}
-			latestSHAs[rec.ProviderID] = sha
+		resolved, resolveErr := a.latestVersionsByPath(context.Background(), config, state)
+		if resolveErr != nil {
+			return fmt.Errorf("network error fetching latest versions: %w", resolveErr)
 		}
+		latestByPath = resolved
 		return nil
 	}); err != nil {
 		return err
 	}
 
 	projectRoot, _ := filepath.Abs(".")
-	results := fs.ComputeAllStatuses(state, config, latestSHAs, projectRoot)
+	results := fs.ComputeAllStatuses(state, config, latestByPath, projectRoot)
 
 	if jsonOut {
 		data, marshalErr := json.MarshalIndent(results, "", "  ")

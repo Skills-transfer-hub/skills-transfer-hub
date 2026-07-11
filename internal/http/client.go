@@ -33,7 +33,7 @@ type AccessSource struct {
 	Resolved bool
 }
 
-// ProviderConfigError is returned by GetLatestCommitSHA when the provider
+// ProviderConfigError is returned by commit lookups when the provider
 // configuration is incomplete or unsupported (e.g., unknown provider type,
 // missing repository ID or catalog ref). It is distinct from network errors so
 // callers can decide whether to fail hard or degrade gracefully.
@@ -361,54 +361,68 @@ func (c *Client) DownloadURL(ctx context.Context, rawURL string, headers map[str
 	return c.downloadURLWithLimit(ctx, rawURL, headers, limitBytes)
 }
 
-// GetLatestCommitSHA fetches the HEAD commit SHA for the given provider's catalog ref.
-// It only supports the "github" provider type.
-func (c *Client) GetLatestCommitSHA(ctx context.Context, cfg fs.ProjectConfigV2, providerID string) (string, error) {
+func resolveGithubCatalogRef(cfg fs.ProjectConfigV2, providerID string) (string, string, error) {
 	var provider *fs.ProviderEntry
-	for i, p := range cfg.Providers {
-		if p.ID == providerID {
-			provider = &cfg.Providers[i]
+	for index := range cfg.Providers {
+		if cfg.Providers[index].ID == providerID {
+			provider = &cfg.Providers[index]
 			break
 		}
 	}
 	if provider == nil {
-		return "", &ProviderConfigError{Msg: fmt.Sprintf("provider %q not found in project config", providerID)}
+		return "", "", &ProviderConfigError{Msg: fmt.Sprintf("provider %q not found in project config", providerID)}
 	}
 
-	providerName := strings.ToLower(strings.TrimSpace(provider.Provider))
-	if providerName != "github" {
-		return "", &ProviderConfigError{Msg: fmt.Sprintf("GetLatestCommitSHA: unsupported provider %q", provider.Provider)}
+	if strings.ToLower(strings.TrimSpace(provider.Provider)) != "github" {
+		return "", "", &ProviderConfigError{Msg: fmt.Sprintf("commit lookup: unsupported provider %q", provider.Provider)}
 	}
 
 	repositoryID := strings.TrimSpace(provider.RepositoryID)
 	if repositoryID == "" {
-		return "", &ProviderConfigError{Msg: "GetLatestCommitSHA: provider repository ID is required"}
+		return "", "", &ProviderConfigError{Msg: "commit lookup: provider repository ID is required"}
 	}
 
 	catalogRef := strings.TrimSpace(provider.CatalogRef)
 	if catalogRef == "" {
-		return "", &ProviderConfigError{Msg: "GetLatestCommitSHA: provider catalog ref is required"}
+		return "", "", &ProviderConfigError{Msg: "commit lookup: provider catalog ref is required"}
+	}
+
+	return repositoryID, catalogRef, nil
+}
+
+func (c *Client) GetLatestCommitSHAForPath(ctx context.Context, cfg fs.ProjectConfigV2, providerID, repoPath string) (string, error) {
+	repositoryID, catalogRef, err := resolveGithubCatalogRef(cfg, providerID)
+	if err != nil {
+		return "", err
+	}
+
+	trimmedPath := strings.TrimSpace(repoPath)
+	if trimmedPath == "" {
+		return "", &ProviderConfigError{Msg: "commit lookup: repository path is required"}
 	}
 
 	baseURL := strings.TrimRight(getEnvOrDefault("STH_GITHUB_API_BASE_URL", "https://api.github.com"), "/")
-	apiURL := fmt.Sprintf("%s/repos/%s/commits/%s",
-		baseURL,
-		repositoryID,
-		catalogRef,
-	)
+	query := neturl.Values{}
+	query.Set("sha", catalogRef)
+	query.Set("path", trimmedPath)
+	query.Set("per_page", "1")
+	apiURL := fmt.Sprintf("%s/repos/%s/commits?%s", baseURL, repositoryID, query.Encode())
 
 	data, err := c.downloadURL(ctx, apiURL, nil)
 	if err != nil {
 		return "", err
 	}
 
-	var result struct {
+	var commits []struct {
 		SHA string `json:"sha"`
 	}
-	if err := json.Unmarshal(data, &result); err != nil {
+	if err := json.Unmarshal(data, &commits); err != nil {
 		return "", fmt.Errorf("invalid JSON from commits API: %w", err)
 	}
-	return result.SHA, nil
+	if len(commits) == 0 {
+		return "", nil
+	}
+	return commits[0].SHA, nil
 }
 
 func (c *Client) fetchCatalogBytes(ctx context.Context, profile fs.ProjectProfile) ([]byte, error) {

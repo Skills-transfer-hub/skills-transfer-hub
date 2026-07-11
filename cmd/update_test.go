@@ -692,9 +692,9 @@ func TestRunUpdate_pinnedNewerVersionNotice(t *testing.T) {
 
 	latestSHA := "new-head-sha-12345"
 	apiServer := httptest.NewServer(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
-		if strings.Contains(r.URL.Path, "/commits/") {
+		if strings.Contains(r.URL.Path, "/commits") {
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"sha":"` + latestSHA + `"}`))
+			_, _ = w.Write([]byte(`[{"sha":"` + latestSHA + `"}]`))
 			return
 		}
 		stdhttp.NotFound(w, r)

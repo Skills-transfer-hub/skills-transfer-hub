@@ -2,8 +2,21 @@ package fs
 
 import (
 	"os"
+	"path"
 	"path/filepath"
+	"strings"
 )
+
+func CommitQueryPath(sourcePath, artifactKind string) string {
+	normalized := path.Clean(strings.ReplaceAll(strings.TrimSpace(sourcePath), "\\", "/"))
+	if normalized == "." || normalized == "/" || normalized == "" {
+		return ""
+	}
+	if artifactKind == "skill" || strings.HasSuffix(strings.ToLower(normalized), "/skill.md") {
+		return path.Dir(normalized)
+	}
+	return normalized
+}
 
 // StatusResult holds the computed lifecycle status of an installed resource.
 type StatusResult struct {
@@ -20,14 +33,9 @@ type StatusResult struct {
 // StatusUpToDate is a convenience alias for ResourceStatusUpToDate.
 const StatusUpToDate = ResourceStatusUpToDate
 
-// ComputeAllStatuses returns a StatusResult for every entry in state.
-// latestSHAs maps providerID → latest HEAD commit SHA (empty = unknown).
-// projectRoot is used to resolve relative managed file paths before reading them.
-func ComputeAllStatuses(state InstalledResourceStateV2, config ProjectConfigV2, latestSHAs map[string]string, projectRoot string) []StatusResult {
+func ComputeAllStatuses(state InstalledResourceStateV2, config ProjectConfigV2, latestByPath map[string]string, projectRoot string) []StatusResult {
 	results := make([]StatusResult, 0, len(state.Entries))
 	for _, rec := range state.Entries {
-		// Resolve relative managed file paths against the project root so that
-		// ComputeResourceStatus can read the files regardless of the caller's cwd.
 		resolved := rec
 		if projectRoot != "" {
 			files := make([]ManagedFile, len(rec.ManagedFiles))
@@ -39,7 +47,7 @@ func ComputeAllStatuses(state InstalledResourceStateV2, config ProjectConfigV2, 
 			}
 			resolved.ManagedFiles = files
 		}
-		latestVersion := latestSHAs[rec.ProviderID]
+		latestVersion := latestByPath[CommitQueryPath(rec.SourcePath, rec.ArtifactKind)]
 		status, modFiles := ComputeResourceStatus(resolved, latestVersion)
 		pinnedVer := PinnedVersion(config, rec.ResourceName)
 		results = append(results, StatusResult{
@@ -56,9 +64,6 @@ func ComputeAllStatuses(state InstalledResourceStateV2, config ProjectConfigV2, 
 	return results
 }
 
-// ComputeResourceStatus determines the lifecycle status of an installed resource.
-// latestVersion is the HEAD commit SHA from the provider API (empty string = unknown).
-// Returns the status and list of locally modified file paths (only for modified-locally).
 func ComputeResourceStatus(record InstalledResourceRecordV2, latestVersion string) (ResourceStatus, []string) {
 	if len(record.ManagedFiles) == 0 {
 		return ResourceStatusUnknownBaseline, nil
@@ -68,7 +73,6 @@ func ComputeResourceStatus(record InstalledResourceRecordV2, latestVersion strin
 	for _, mf := range record.ManagedFiles {
 		data, err := os.ReadFile(mf.Path)
 		if err != nil {
-			// File missing or unreadable — treat as modified.
 			modifiedPaths = append(modifiedPaths, mf.Path)
 			continue
 		}
@@ -82,7 +86,7 @@ func ComputeResourceStatus(record InstalledResourceRecordV2, latestVersion strin
 		return ResourceStatusModifiedLocally, modifiedPaths
 	}
 
-	if latestVersion != "" && record.ResolvedVersion != latestVersion {
+	if latestVersion != "" && record.ResolvedVersion != "" && record.ResolvedVersion != latestVersion {
 		return ResourceStatusOutdated, nil
 	}
 

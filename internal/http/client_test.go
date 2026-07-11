@@ -2,6 +2,7 @@ package http
 
 import (
 	"context"
+	"errors"
 	"sth/internal/fs"
 	"strings"
 	"testing"
@@ -314,5 +315,72 @@ func TestClient_CheckProjectAccess_acceptsStructureScanWhenCatalogMissing(t *tes
 	err := client.CheckProjectAccess(context.Background(), githubProfileForTest(".claude/resources"))
 	if err != nil {
 		t.Fatalf("CheckProjectAccess() error = %v", err)
+	}
+}
+
+func commitLookupConfigForTest(providerName string) fs.ProjectConfigV2 {
+	return fs.ProjectConfigV2{
+		SchemaVersion: 2,
+		Providers: []fs.ProviderEntry{
+			{ID: "default", Provider: providerName, RepositoryID: "owner/repo", CatalogRef: "main"},
+		},
+	}
+}
+
+func TestClient_GetLatestCommitSHAForPath_success(t *testing.T) {
+	server := newCatalogServer(t, func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		if r.URL.Path == "/repos/owner/repo/commits" && r.URL.Query().Get("path") == "skills/alpha" {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`[{"sha":"deadbeef"}]`))
+			return
+		}
+		stdhttp.NotFound(w, r)
+	})
+	defer server.Close()
+	t.Setenv("STH_GITHUB_API_BASE_URL", server.URL)
+
+	client := NewClient(server.Client())
+	sha, err := client.GetLatestCommitSHAForPath(context.Background(), commitLookupConfigForTest("github"), "default", "skills/alpha")
+	if err != nil {
+		t.Fatalf("GetLatestCommitSHAForPath() error = %v", err)
+	}
+	if sha != "deadbeef" {
+		t.Fatalf("sha = %q, want %q", sha, "deadbeef")
+	}
+}
+
+func TestClient_GetLatestCommitSHAForPath_emptyArray(t *testing.T) {
+	server := newCatalogServer(t, func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`[]`))
+	})
+	defer server.Close()
+	t.Setenv("STH_GITHUB_API_BASE_URL", server.URL)
+
+	client := NewClient(server.Client())
+	sha, err := client.GetLatestCommitSHAForPath(context.Background(), commitLookupConfigForTest("github"), "default", "skills/alpha")
+	if err != nil {
+		t.Fatalf("GetLatestCommitSHAForPath() error = %v", err)
+	}
+	if sha != "" {
+		t.Fatalf("sha = %q, want empty", sha)
+	}
+}
+
+func TestClient_GetLatestCommitSHAForPath_nonGithubIsConfigError(t *testing.T) {
+	client := NewClient(stdhttp.DefaultClient)
+	_, err := client.GetLatestCommitSHAForPath(context.Background(), commitLookupConfigForTest("gitlab"), "default", "skills/alpha")
+	var configErr *ProviderConfigError
+	if !errors.As(err, &configErr) {
+		t.Fatalf("error = %v, want *ProviderConfigError", err)
+	}
+}
+
+func TestClient_GetLatestCommitSHAForPath_emptyPathIsConfigError(t *testing.T) {
+	client := NewClient(stdhttp.DefaultClient)
+	_, err := client.GetLatestCommitSHAForPath(context.Background(), commitLookupConfigForTest("github"), "default", "")
+	var configErr *ProviderConfigError
+	if !errors.As(err, &configErr) {
+		t.Fatalf("error = %v, want *ProviderConfigError", err)
 	}
 }

@@ -65,20 +65,11 @@ func (a *app) computeBuddyState() fs.BuddyState {
 		return fs.BuddyError
 	}
 
-	latestSHAs := make(map[string]string, len(cfg.Providers))
-	for _, p := range cfg.Providers {
-		sha, fetchErr := a.client.GetLatestCommitSHA(context.Background(), cfg, p.ID)
-		if fetchErr != nil {
-			// Network failure: don't promote to Error — just leave SHA empty
-			// so statuses fall through as up-to-date when a baseline is known.
-			continue
-		}
-		latestSHAs[p.ID] = sha
-	}
+	latestByPath, _ := a.latestVersionsByPath(context.Background(), cfg, state)
 
-	statuses := fs.ComputeAllStatuses(state, cfg, latestSHAs, "")
-	for _, s := range statuses {
-		if s.Status == fs.ResourceStatusOutdated || s.Status == fs.ResourceStatusModifiedLocally {
+	statuses := fs.ComputeAllStatuses(state, cfg, latestByPath, "")
+	for _, status := range statuses {
+		if status.Status == fs.ResourceStatusOutdated || status.Status == fs.ResourceStatusModifiedLocally {
 			return fs.BuddyUpdateAvailable
 		}
 	}
