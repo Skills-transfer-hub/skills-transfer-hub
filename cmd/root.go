@@ -261,6 +261,21 @@ var commandCatalog = []commandSpec{
 		hidden: true,
 	},
 	{
+		name:    "mcp",
+		usage:   "sth mcp [install]",
+		summary: "Branche vos agents IA (Claude, Codex, Gemini) sur la bibliothèque de l'équipe via MCP",
+		details: []string{
+			"sth mcp : démarre le serveur MCP stdio que les agents locaux appellent (library_search, library_get, library_save). Nécessite `sth login` au préalable.",
+			"sth mcp install : écrit ./.mcp.json pour Claude Code et affiche la configuration à coller pour Codex (~/.codex/config.toml) et Gemini (~/.gemini/settings.json).",
+			"Les agents travaillent sur la bibliothèque de votre organisation active, avec les mêmes règles de rôle et de quota que le dashboard.",
+			"Pour Claude sur le web ou mobile, utilisez plutôt le connecteur distant : Réglages → Connecteurs → Ajouter un connecteur perso → https://<domaine>/api/mcp.",
+		},
+		examples: []string{
+			"sth mcp install",
+			"sth mcp",
+		},
+	},
+	{
 		name:    "config",
 		usage:   "sth config <show|pull|push> [--dry-run]",
 		summary: "Synchronise la configuration partagée de l'organisation (Team)",
@@ -482,6 +497,12 @@ func (a *app) run(args []string) error {
 		err = a.runAlpha(args[1:])
 	case "org":
 		err = a.runOrg(args[1:])
+	case "mcp":
+		if len(args) >= 2 && isHelpFlag(args[1]) {
+			a.writeStdout(commandHelpText("mcp"))
+			return nil
+		}
+		err = a.runMCP(args[1:])
 	case "config":
 		err = a.runConfig(args[1:])
 	case "--help", "-h":
