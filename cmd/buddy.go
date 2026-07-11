@@ -68,8 +68,8 @@ func (a *app) computeBuddyState() fs.BuddyState {
 	latestByPath, _ := a.latestVersionsByPath(context.Background(), cfg, state)
 
 	statuses := fs.ComputeAllStatuses(state, cfg, latestByPath, "")
-	for _, s := range statuses {
-		if s.Status == fs.ResourceStatusOutdated || s.Status == fs.ResourceStatusModifiedLocally {
+	for _, status := range statuses {
+		if status.Status == fs.ResourceStatusOutdated || status.Status == fs.ResourceStatusModifiedLocally {
 			return fs.BuddyUpdateAvailable
 		}
 	}
