@@ -13,7 +13,6 @@ import (
 	"net/http/httptest"
 )
 
-// writeV2StateForStatusTest writes a v2 state file directly into the target dir.
 func writeV2StateForStatusTest(t *testing.T, projectDir, targetDir string, state fs.InstalledResourceStateV2) {
 	t.Helper()
 	targetPath := filepath.Join(projectDir, filepath.FromSlash(targetDir))
@@ -27,6 +26,18 @@ func writeV2StateForStatusTest(t *testing.T, projectDir, targetDir string, state
 	if err := os.WriteFile(filepath.Join(targetPath, "sth-state-v2.json"), data, 0o644); err != nil {
 		t.Fatalf("WriteFile(sth-state-v2.json): %v", err)
 	}
+}
+
+func commitsListServer(t *testing.T, sha string) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		if strings.Contains(r.URL.Path, "/commits") {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`[{"sha":"` + sha + `"}]`))
+			return
+		}
+		stdhttp.NotFound(w, r)
+	}))
 }
 
 func TestRunStatus_noResourcesInstalledMessage(t *testing.T) {
@@ -63,14 +74,7 @@ func TestRunStatus_textOutput(t *testing.T) {
 	diskSHA := fs.ComputeSHA256(content)
 	commitSHA := "abc1234567890abc1234567890"
 
-	server := httptest.NewServer(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
-		if strings.Contains(r.URL.Path, "/commits/") {
-			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"sha":"` + commitSHA + `"}`))
-			return
-		}
-		stdhttp.NotFound(w, r)
-	}))
+	server := commitsListServer(t, commitSHA)
 	defer server.Close()
 	t.Setenv("STH_GITHUB_API_BASE_URL", server.URL)
 
@@ -88,6 +92,7 @@ func TestRunStatus_textOutput(t *testing.T) {
 				ResourceName:    "my-skill",
 				ProviderID:      "main",
 				ResolvedVersion: commitSHA,
+				SourcePath:      "skills/my-skill.md",
 				ManagedFiles:    []fs.ManagedFile{{Path: filepath.ToSlash(filePath), SHA256: diskSHA}},
 			},
 		},
@@ -119,14 +124,7 @@ func TestRunStatus_JSONOutput(t *testing.T) {
 	diskSHA := fs.ComputeSHA256(content)
 	commitSHA := "abc123"
 
-	server := httptest.NewServer(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
-		if strings.Contains(r.URL.Path, "/commits/") {
-			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"sha":"` + commitSHA + `"}`))
-			return
-		}
-		stdhttp.NotFound(w, r)
-	}))
+	server := commitsListServer(t, commitSHA)
 	defer server.Close()
 	t.Setenv("STH_GITHUB_API_BASE_URL", server.URL)
 
@@ -144,6 +142,7 @@ func TestRunStatus_JSONOutput(t *testing.T) {
 				ResourceName:    "my-skill",
 				ProviderID:      "main",
 				ResolvedVersion: commitSHA,
+				SourcePath:      "skills/my-skill.md",
 				ManagedFiles:    []fs.ManagedFile{{Path: filepath.ToSlash(filePath), SHA256: diskSHA}},
 			},
 		},
@@ -187,14 +186,7 @@ func TestRunStatus_pinnedAnnotation(t *testing.T) {
 	diskSHA := fs.ComputeSHA256(content)
 	commitSHA := "latest-sha"
 
-	server := httptest.NewServer(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
-		if strings.Contains(r.URL.Path, "/commits/") {
-			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"sha":"` + commitSHA + `"}`))
-			return
-		}
-		stdhttp.NotFound(w, r)
-	}))
+	server := commitsListServer(t, commitSHA)
 	defer server.Close()
 	t.Setenv("STH_GITHUB_API_BASE_URL", server.URL)
 
@@ -214,6 +206,7 @@ func TestRunStatus_pinnedAnnotation(t *testing.T) {
 				ResourceName:    "pinned-skill",
 				ProviderID:      "main",
 				ResolvedVersion: commitSHA,
+				SourcePath:      "skills/pinned-skill.md",
 				ManagedFiles:    []fs.ManagedFile{{Path: filepath.ToSlash(filePath), SHA256: diskSHA}},
 			},
 		},
@@ -227,7 +220,6 @@ func TestRunStatus_pinnedAnnotation(t *testing.T) {
 	assertContains(t, result.stdout, "pinned at v1.0.0")
 }
 
-// T017: Faster status — commit SHA replaces per-resource content download.
 func TestRunStatus_pinnedNewerVersionNotice(t *testing.T) {
 	projectDir := t.TempDir()
 	targetDir := ".claude/resources"
@@ -247,14 +239,7 @@ func TestRunStatus_pinnedNewerVersionNotice(t *testing.T) {
 	installedSHA := "old-commit-sha"
 	latestSHA := "new-commit-sha-abc"
 
-	server := httptest.NewServer(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
-		if strings.Contains(r.URL.Path, "/commits/") {
-			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"sha":"` + latestSHA + `"}`))
-			return
-		}
-		stdhttp.NotFound(w, r)
-	}))
+	server := commitsListServer(t, latestSHA)
 	defer server.Close()
 	t.Setenv("STH_GITHUB_API_BASE_URL", server.URL)
 
@@ -274,6 +259,7 @@ func TestRunStatus_pinnedNewerVersionNotice(t *testing.T) {
 				ResourceName:    "pinned-skill",
 				ProviderID:      "main",
 				ResolvedVersion: installedSHA,
+				SourcePath:      "skills/pinned-skill.md",
 				ManagedFiles:    []fs.ManagedFile{{Path: filepath.ToSlash(filePath), SHA256: diskSHA}},
 			},
 		},
@@ -306,14 +292,7 @@ func TestRunStatus_pinnedJSONHasPinnedFields(t *testing.T) {
 	diskSHA := fs.ComputeSHA256(content)
 	commitSHA := "abc123"
 
-	server := httptest.NewServer(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
-		if strings.Contains(r.URL.Path, "/commits/") {
-			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"sha":"` + commitSHA + `"}`))
-			return
-		}
-		stdhttp.NotFound(w, r)
-	}))
+	server := commitsListServer(t, commitSHA)
 	defer server.Close()
 	t.Setenv("STH_GITHUB_API_BASE_URL", server.URL)
 
@@ -333,6 +312,7 @@ func TestRunStatus_pinnedJSONHasPinnedFields(t *testing.T) {
 				ResourceName:    "pinned-skill",
 				ProviderID:      "main",
 				ResolvedVersion: commitSHA,
+				SourcePath:      "skills/pinned-skill.md",
 				ManagedFiles:    []fs.ManagedFile{{Path: filepath.ToSlash(filePath), SHA256: diskSHA}},
 			},
 		},
@@ -391,6 +371,7 @@ func TestRunStatus_networkErrorExitCode2(t *testing.T) {
 				ResourceName:    "my-skill",
 				ProviderID:      "main",
 				ResolvedVersion: "some-sha",
+				SourcePath:      "skills/my-skill.md",
 				ManagedFiles:    []fs.ManagedFile{{Path: filepath.ToSlash(filePath), SHA256: diskSHA}},
 			},
 		},
@@ -399,5 +380,75 @@ func TestRunStatus_networkErrorExitCode2(t *testing.T) {
 	result := runCLI(t, projectDir, t.TempDir(), "status")
 	if result.err == nil {
 		t.Fatal("expected error on network failure, got nil")
+	}
+}
+
+func TestRunStatus_perPathObsolescence(t *testing.T) {
+	projectDir := t.TempDir()
+	targetDir := ".claude/resources"
+	targetPath := filepath.Join(projectDir, filepath.FromSlash(targetDir))
+	writeSkillFile := func(rel string) (string, string) {
+		full := filepath.Join(targetPath, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		content := []byte("# " + rel + "\n")
+		if err := os.WriteFile(full, content, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return filepath.ToSlash(full), fs.ComputeSHA256(content)
+	}
+	alphaPath, alphaSHA := writeSkillFile("skills/alpha/SKILL.md")
+	betaPath, betaSHA := writeSkillFile("skills/beta/SKILL.md")
+
+	server := httptest.NewServer(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		if !strings.Contains(r.URL.Path, "/commits") {
+			stdhttp.NotFound(w, r)
+			return
+		}
+		sha := ""
+		switch r.URL.Query().Get("path") {
+		case "skills/alpha":
+			sha = "alpha-head"
+		case "skills/beta":
+			sha = "beta-head-new"
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`[{"sha":"` + sha + `"}]`))
+	}))
+	defer server.Close()
+	t.Setenv("STH_GITHUB_API_BASE_URL", server.URL)
+
+	writeProjectConfigV2ForTest(t, projectDir, fs.ProjectConfigV2{
+		SchemaVersion: 2,
+		Providers: []fs.ProviderEntry{
+			{ID: "main", Provider: "github", RepositoryID: "owner/repo", CatalogRef: "main", CatalogPath: "SKILLS.md", TargetDir: targetDir},
+		},
+	})
+	writeV2StateForStatusTest(t, projectDir, targetDir, fs.InstalledResourceStateV2{
+		SchemaVersion: 2,
+		Entries: []fs.InstalledResourceRecordV2{
+			{ResourceName: "alpha", ProviderID: "main", ResolvedVersion: "alpha-head", SourcePath: "skills/alpha/SKILL.md", ArtifactKind: "skill", ManagedFiles: []fs.ManagedFile{{Path: alphaPath, SHA256: alphaSHA}}},
+			{ResourceName: "beta", ProviderID: "main", ResolvedVersion: "beta-head-old", SourcePath: "skills/beta/SKILL.md", ArtifactKind: "skill", ManagedFiles: []fs.ManagedFile{{Path: betaPath, SHA256: betaSHA}}},
+		},
+	})
+
+	result := runCLI(t, projectDir, t.TempDir(), "status", "--json")
+	if result.err != nil {
+		t.Fatalf("status error = %v\nstderr=%s", result.err, result.stderr)
+	}
+	var results []fs.StatusResult
+	if err := json.Unmarshal([]byte(result.stdout), &results); err != nil {
+		t.Fatalf("json.Unmarshal: %v\nstdout=%s", err, result.stdout)
+	}
+	byName := map[string]fs.ResourceStatus{}
+	for _, res := range results {
+		byName[res.ResourceName] = res.Status
+	}
+	if byName["alpha"] != fs.ResourceStatusUpToDate {
+		t.Errorf("alpha status = %q, want up-to-date", byName["alpha"])
+	}
+	if byName["beta"] != fs.ResourceStatusOutdated {
+		t.Errorf("beta status = %q, want outdated", byName["beta"])
 	}
 }

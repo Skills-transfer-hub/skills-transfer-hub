@@ -142,23 +142,21 @@ func (a *app) runUpdate(args []string) error {
 	workingDir, _ := filepath.Abs(".")
 	ignorePats, _ := fs.ReadSTHIgnore(workingDir)
 
-	// T018/T025: pre-fetch latest commit SHA once per unique providerID.
-	// This is best-effort — every error (auth, transient, config) is
-	// silenced and the SHA is left empty for that provider, matching
-	// pre-spec-007 behaviour. The auth recovery path triggers later on
-	// the actual DownloadCatalogEntry call below if a token is invalid.
-	latestSHAs := make(map[string]string)
-	if v2StateErr == nil {
-		seen := make(map[string]bool)
-		for _, v2rec := range v2State.Entries {
-			if seen[v2rec.ProviderID] {
-				continue
-			}
-			seen[v2rec.ProviderID] = true
-			if sha, shaErr := a.client.GetLatestCommitSHA(context.Background(), cfg, v2rec.ProviderID); shaErr == nil {
-				latestSHAs[v2rec.ProviderID] = sha
-			}
+	latestByPath := make(map[string]string)
+	resolveLatest := func(providerID, sourcePath, artifactKind string) string {
+		queryPath := fs.CommitQueryPath(sourcePath, artifactKind)
+		if queryPath == "" {
+			return ""
 		}
+		if cached, ok := latestByPath[queryPath]; ok {
+			return cached
+		}
+		sha, shaErr := a.client.GetLatestCommitSHAForPath(context.Background(), cfg, providerID, queryPath)
+		if shaErr != nil {
+			return ""
+		}
+		latestByPath[queryPath] = sha
+		return sha
 	}
 
 	for _, record := range records {
@@ -168,7 +166,8 @@ func (a *app) runUpdate(args []string) error {
 			if v2StateErr == nil {
 				for _, v2rec := range v2State.Entries {
 					if v2rec.ResourceName == record.CatalogID {
-						if latestSHA := latestSHAs[v2rec.ProviderID]; latestSHA != "" && latestSHA != v2rec.ResolvedVersion {
+						latestSHA := resolveLatest(v2rec.ProviderID, record.SourcePath, record.ResourceType)
+						if latestSHA != "" && v2rec.ResolvedVersion != "" && latestSHA != v2rec.ResolvedVersion {
 							a.writeStdout(fmt.Sprintf("Newer version available for %s (pinned at %s)", record.CatalogID, pinnedVer))
 						}
 						break
@@ -244,11 +243,9 @@ func (a *app) runUpdate(args []string) error {
 				if v2rec.ResourceName == record.CatalogID {
 					v2State.Entries[i] = fs.RefreshManagedFileHashes(v2rec, content)
 					v2State.Entries[i].PreviousVersion = v2rec.ResolvedVersion
-					// T025: prefer commit SHA; fall back to content SHA256.
-					if sha := latestSHAs[v2rec.ProviderID]; sha != "" {
+					v2State.Entries[i].SourcePath = record.SourcePath
+					if sha := resolveLatest(v2rec.ProviderID, record.SourcePath, record.ResourceType); sha != "" {
 						v2State.Entries[i].ResolvedVersion = sha
-					} else {
-						v2State.Entries[i].ResolvedVersion = fs.ComputeSHA256(content)
 					}
 					v2State.Entries[i].InstalledAt = time.Now().UTC().Format(time.RFC3339)
 					v2Updated = true

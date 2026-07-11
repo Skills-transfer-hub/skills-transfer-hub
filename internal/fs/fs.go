@@ -1432,6 +1432,7 @@ func InstallCatalogEntryV2(targetDir string, entry CatalogEntry, content []byte,
 		ProviderID:   providerID,
 		InstalledAt:  time.Now().UTC().Format(time.RFC3339),
 		ManagedFiles: []ManagedFile{managedFile},
+		SourcePath:   entry.SourcePath,
 	}
 
 	if err := UpsertInstalledResourceV2(targetDir, v2record); err != nil {

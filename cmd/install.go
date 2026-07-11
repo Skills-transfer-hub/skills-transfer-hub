@@ -64,7 +64,11 @@ func (a *app) runInstall(args []string) error {
 	}
 
 	if len(cfg.Targets) > 0 {
-		return a.installFanout(*profile, cfg, entry, providerID, dryRun, jsonOut, force)
+		resolvedVersion := ""
+		if !dryRun {
+			resolvedVersion = a.resolveCommitForEntry(context.Background(), cfg, providerID, entry, make(map[string]string))
+		}
+		return a.installFanout(*profile, cfg, entry, providerID, resolvedVersion, dryRun, jsonOut, force)
 	}
 	return a.installLegacy(*profile, entry, providerID, dryRun, jsonOut, force)
 }
@@ -102,7 +106,8 @@ func (a *app) installLegacy(profile fs.ProjectProfile, entry fs.CatalogEntry, pr
 				resolvedVersionCh <- resolvedVersion{err: cfgErr}
 				return
 			}
-			sha, shaErr := a.client.GetLatestCommitSHA(context.Background(), v2cfg, providerID)
+			queryPath := fs.CommitQueryPath(entry.SourcePath, artifactKindOf(entry))
+			sha, shaErr := a.client.GetLatestCommitSHAForPath(context.Background(), v2cfg, providerID, queryPath)
 			resolvedVersionCh <- resolvedVersion{sha: sha, err: shaErr}
 		}()
 	}

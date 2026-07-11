@@ -27,6 +27,8 @@ func fanoutTarget(kind, rootDir string) fs.TargetEntry {
 	return fs.TargetEntry{ID: kind, Kind: kind, RootDir: rootDir, Enabled: true}
 }
 
+const fanoutCommitSHA = "deadbeefcafe0000"
+
 func skillBundleServer(t *testing.T) *httptest.Server {
 	t.Helper()
 	return httptest.NewServer(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
@@ -37,6 +39,9 @@ func skillBundleServer(t *testing.T) *httptest.Server {
 			_, _ = w.Write([]byte(`{"tree":[{"path":"skills/alpha/SKILL.md","type":"blob"}]}`))
 		case "/owner/repo/main/skills/alpha/SKILL.md":
 			_, _ = w.Write([]byte("# Alpha skill\n"))
+		case "/repos/owner/repo/commits":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`[{"sha":"` + fanoutCommitSHA + `"}]`))
 		default:
 			stdhttp.NotFound(w, r)
 		}
@@ -293,5 +298,87 @@ func TestRemoveFanout_DeletesAllCopies(t *testing.T) {
 	state := readStateV2(t, projectDir)
 	if len(state.Entries) != 0 {
 		t.Fatalf("state entries = %d, want 0 after remove", len(state.Entries))
+	}
+}
+
+func TestInstallFanout_RecordsResolvedVersion(t *testing.T) {
+	projectDir := t.TempDir()
+	server := skillBundleServer(t)
+	defer server.Close()
+	t.Setenv("STH_GITHUB_RAW_BASE_URL", server.URL)
+	t.Setenv("STH_GITHUB_API_BASE_URL", server.URL)
+
+	writeProjectConfigV2ForTest(t, projectDir, fanoutConfig(
+		fanoutTarget("claude", ".claude"),
+	))
+
+	result := runCLI(t, projectDir, t.TempDir(), "install", "alpha")
+	if result.err != nil {
+		t.Fatalf("Run() error = %v\nstderr=%s", result.err, result.stderr)
+	}
+
+	state := readStateV2(t, projectDir)
+	if len(state.Entries) == 0 {
+		t.Fatal("no entries recorded")
+	}
+	for _, entry := range state.Entries {
+		if entry.ResolvedVersion != fanoutCommitSHA {
+			t.Errorf("ResolvedVersion = %q, want %q", entry.ResolvedVersion, fanoutCommitSHA)
+		}
+		if entry.SourcePath != "skills/alpha/SKILL.md" {
+			t.Errorf("SourcePath = %q, want %q", entry.SourcePath, "skills/alpha/SKILL.md")
+		}
+	}
+
+	statusResult := runCLI(t, projectDir, t.TempDir(), "status")
+	if statusResult.err != nil {
+		t.Fatalf("status error = %v\nstderr=%s", statusResult.err, statusResult.stderr)
+	}
+	if strings.Contains(statusResult.stdout, "outdated") {
+		t.Errorf("status should not report outdated:\n%s", statusResult.stdout)
+	}
+}
+
+func TestUpdateFanout_PreservesResolvedVersionOnResolveFailure(t *testing.T) {
+	projectDir := t.TempDir()
+	commitsSHA := fanoutCommitSHA
+	server := httptest.NewServer(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		switch r.URL.Path {
+		case "/owner/repo/main/SKILLS.md":
+			_, _ = w.Write([]byte(testCatalogMarkdown("| skill | alpha | skills | skills/alpha/SKILL.md | Alpha |")))
+		case "/repos/owner/repo/git/trees/main":
+			_, _ = w.Write([]byte(`{"tree":[{"path":"skills/alpha/SKILL.md","type":"blob"}]}`))
+		case "/owner/repo/main/skills/alpha/SKILL.md":
+			_, _ = w.Write([]byte("# Alpha skill\n"))
+		case "/repos/owner/repo/commits":
+			if commitsSHA == "" {
+				stdhttp.NotFound(w, r)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`[{"sha":"` + commitsSHA + `"}]`))
+		default:
+			stdhttp.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	t.Setenv("STH_GITHUB_RAW_BASE_URL", server.URL)
+	t.Setenv("STH_GITHUB_API_BASE_URL", server.URL)
+
+	writeProjectConfigV2ForTest(t, projectDir, fanoutConfig(fanoutTarget("claude", ".claude")))
+
+	if result := runCLI(t, projectDir, t.TempDir(), "install", "alpha"); result.err != nil {
+		t.Fatalf("install error = %v\nstderr=%s", result.err, result.stderr)
+	}
+	if got := readStateV2(t, projectDir).Entries[0].ResolvedVersion; got != fanoutCommitSHA {
+		t.Fatalf("after install ResolvedVersion = %q, want %q", got, fanoutCommitSHA)
+	}
+
+	commitsSHA = ""
+	if result := runCLI(t, projectDir, t.TempDir(), "update"); result.err != nil {
+		t.Fatalf("update error = %v\nstderr=%s", result.err, result.stderr)
+	}
+	if got := readStateV2(t, projectDir).Entries[0].ResolvedVersion; got != fanoutCommitSHA {
+		t.Errorf("after failed-resolve update ResolvedVersion = %q, want preserved %q", got, fanoutCommitSHA)
 	}
 }

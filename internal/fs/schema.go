@@ -122,6 +122,7 @@ type InstalledResourceRecordV2 struct {
 	PreviousVersion string        `json:"previous_version"`
 	InstalledAt     string        `json:"installed_at"`
 	ManagedFiles    []ManagedFile `json:"managed_files"`
+	SourcePath      string        `json:"source_path,omitempty"`
 	TargetID        string        `json:"target_id,omitempty"`
 	ArtifactKind    string        `json:"artifact_kind,omitempty"`
 }

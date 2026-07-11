@@ -12,16 +12,16 @@ import (
 	"sth/internal/writer"
 )
 
-func (a *app) installFanout(profile fs.ProjectProfile, cfg fs.ProjectConfigV2, entry fs.CatalogEntry, providerID string, dryRun, jsonOut, force bool) error {
+func (a *app) installFanout(profile fs.ProjectProfile, cfg fs.ProjectConfigV2, entry fs.CatalogEntry, providerID, resolvedVersion string, dryRun, jsonOut, force bool) error {
 	projectRoot, err := filepath.Abs(".")
 	if err != nil {
 		return err
 	}
 
 	if artifactKindOf(entry) == "skill" {
-		return a.installSkillFanout(profile, entry, providerID, projectRoot, enabledTargetKinds(cfg), dryRun, jsonOut)
+		return a.installSkillFanout(profile, entry, providerID, resolvedVersion, projectRoot, enabledTargetKinds(cfg), dryRun, jsonOut)
 	}
-	return a.installArtifactFanout(profile, cfg, entry, providerID, projectRoot, artifactKindOf(entry), dryRun, jsonOut, force)
+	return a.installArtifactFanout(profile, cfg, entry, providerID, resolvedVersion, projectRoot, artifactKindOf(entry), dryRun, jsonOut, force)
 }
 
 func artifactKindOf(entry fs.CatalogEntry) string {
@@ -79,7 +79,7 @@ func enabledTargetKinds(cfg fs.ProjectConfigV2) []string {
 	return kinds
 }
 
-func (a *app) installSkillFanout(profile fs.ProjectProfile, entry fs.CatalogEntry, providerID, projectRoot string, kinds []string, dryRun, jsonOut bool) error {
+func (a *app) installSkillFanout(profile fs.ProjectProfile, entry fs.CatalogEntry, providerID, resolvedVersion, projectRoot string, kinds []string, dryRun, jsonOut bool) error {
 	a.progress.step(fmt.Sprintf("Téléchargement de %s…", entry.Name))
 	sources, fetch, err := a.resolveSkillSources(profile, entry)
 	if err != nil {
@@ -121,12 +121,19 @@ func (a *app) installSkillFanout(profile fs.ProjectProfile, entry fs.CatalogEntr
 
 	a.progress.step("Finalisation…")
 	previous, _, _ := fs.InstalledRecordV2For(profile.TargetDir, entry.CatalogID, "")
+	effectiveVersion := resolvedVersion
+	if effectiveVersion == "" {
+		effectiveVersion = previous.ResolvedVersion
+	}
 	record := fs.InstalledResourceRecordV2{
-		ResourceName: entry.CatalogID,
-		ProviderID:   providerID,
-		InstalledAt:  time.Now().UTC().Format(time.RFC3339),
-		ManagedFiles: managedFiles,
-		ArtifactKind: "skill",
+		ResourceName:    entry.CatalogID,
+		ProviderID:      providerID,
+		ResolvedVersion: effectiveVersion,
+		PreviousVersion: previous.ResolvedVersion,
+		InstalledAt:     time.Now().UTC().Format(time.RFC3339),
+		ManagedFiles:    managedFiles,
+		SourcePath:      entry.SourcePath,
+		ArtifactKind:    "skill",
 	}
 	if err := fs.SyncManagedFilesV2(profile.TargetDir, record, previous.ManagedFiles); err != nil {
 		return err
@@ -141,7 +148,7 @@ type fanoutTargetPlan struct {
 	tool   writer.Target
 }
 
-func (a *app) installArtifactFanout(profile fs.ProjectProfile, cfg fs.ProjectConfigV2, entry fs.CatalogEntry, providerID, projectRoot, kind string, dryRun, jsonOut, force bool) error {
+func (a *app) installArtifactFanout(profile fs.ProjectProfile, cfg fs.ProjectConfigV2, entry fs.CatalogEntry, providerID, resolvedVersion, projectRoot, kind string, dryRun, jsonOut, force bool) error {
 	a.progress.step(fmt.Sprintf("Téléchargement de %s…", entry.Name))
 	content, err := a.client.DownloadCatalogEntry(context.Background(), profile, entry)
 	if err != nil {
@@ -217,13 +224,20 @@ func (a *app) installArtifactFanout(profile fs.ProjectProfile, cfg fs.ProjectCon
 			files = append(files, fs.ManagedFile{Path: file.RelativePath, SHA256: file.SHA256})
 		}
 		previous, _, _ := fs.InstalledRecordV2For(profile.TargetDir, entry.CatalogID, plan.target.ID)
+		effectiveVersion := resolvedVersion
+		if effectiveVersion == "" {
+			effectiveVersion = previous.ResolvedVersion
+		}
 		record := fs.InstalledResourceRecordV2{
-			ResourceName: entry.CatalogID,
-			ProviderID:   providerID,
-			InstalledAt:  time.Now().UTC().Format(time.RFC3339),
-			ManagedFiles: files,
-			TargetID:     plan.target.ID,
-			ArtifactKind: kind,
+			ResourceName:    entry.CatalogID,
+			ProviderID:      providerID,
+			ResolvedVersion: effectiveVersion,
+			PreviousVersion: previous.ResolvedVersion,
+			InstalledAt:     time.Now().UTC().Format(time.RFC3339),
+			ManagedFiles:    files,
+			SourcePath:      entry.SourcePath,
+			TargetID:        plan.target.ID,
+			ArtifactKind:    kind,
 		}
 		if err := fs.SyncManagedFilesV2(profile.TargetDir, record, previous.ManagedFiles); err != nil {
 			return err
@@ -347,6 +361,7 @@ func (a *app) updateFanout(profile *fs.ProjectProfile, cfg fs.ProjectConfigV2, d
 	}
 
 	failures := 0
+	latestCache := make(map[string]string)
 	for _, name := range installedNames {
 		if pinned := fs.PinnedVersion(cfg, name); pinned != "" {
 			a.writeStdout(fmt.Sprintf("  [pinned at %s] %s", pinned, name))
@@ -357,7 +372,11 @@ func (a *app) updateFanout(profile *fs.ProjectProfile, cfg fs.ProjectConfigV2, d
 			a.writeStderr(fmt.Sprintf("Ressource '%s' absente du catalogue ; ignorée.", name))
 			continue
 		}
-		if err := a.installFanout(*profile, cfg, entry, providerID, dryRun, jsonOut, false); err != nil {
+		resolvedVersion := ""
+		if !dryRun {
+			resolvedVersion = a.resolveCommitForEntry(context.Background(), cfg, providerID, entry, latestCache)
+		}
+		if err := a.installFanout(*profile, cfg, entry, providerID, resolvedVersion, dryRun, jsonOut, false); err != nil {
 			a.writeStderr(fmt.Sprintf("Échec de mise à jour pour '%s' : %v", name, err))
 			failures++
 			continue
