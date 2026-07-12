@@ -139,6 +139,15 @@ func (a *app) installSkillFanout(profile fs.ProjectProfile, entry fs.CatalogEntr
 		return err
 	}
 
+	if a.fanoutJSON != nil {
+		a.fanoutJSON.results = append(a.fanoutJSON.results, updateJSONResult{
+			ResourceName:    entry.CatalogID,
+			Outcome:         a.fanoutJSON.outcome,
+			ResolvedVersion: record.ResolvedVersion,
+			PreviousVersion: record.PreviousVersion,
+		})
+		return nil
+	}
 	a.printSkillPlacement(entry, placement)
 	return nil
 }
@@ -246,6 +255,14 @@ func (a *app) installArtifactFanout(profile fs.ProjectProfile, cfg fs.ProjectCon
 	}
 
 	a.progress.step("Finalisation…")
+	if a.fanoutJSON != nil {
+		a.fanoutJSON.results = append(a.fanoutJSON.results, updateJSONResult{
+			ResourceName:    entry.CatalogID,
+			Outcome:         a.fanoutJSON.outcome,
+			ResolvedVersion: resolvedVersion,
+		})
+		return nil
+	}
 	a.writeStdout(fmt.Sprintf("Ressource '%s' (%s) installée sur %d cible(s).", entry.Name, kind, installedCount))
 	return nil
 }
@@ -264,6 +281,13 @@ func (a *app) renderFanoutDryRun(projectRoot, targetDir, catalogID string, incom
 		existing = &merged
 	}
 	changes := fs.ComputeDryRunChanges(existing, incoming, ignorePats)
+	if a.fanoutJSON != nil {
+		for index := range changes {
+			changes[index].ResourceName = catalogID
+		}
+		a.fanoutJSON.changes = append(a.fanoutJSON.changes, changes...)
+		return nil
+	}
 	if jsonOut {
 		data, err := fs.FormatDryRunJSON(changes)
 		if err != nil {
@@ -305,6 +329,9 @@ func invertReadsFrom(readsFrom map[string]string) map[string][]string {
 func (a *app) updateFanout(profile *fs.ProjectProfile, cfg fs.ProjectConfigV2, dryRun, jsonOut, failOnChanges bool) error {
 	state, err := fs.ReadInstalledStateV2(profile.TargetDir)
 	if err != nil {
+		if jsonOut {
+			emitJSONError(a.stdout, err, 1)
+		}
 		return err
 	}
 
@@ -318,13 +345,18 @@ func (a *app) updateFanout(profile *fs.ProjectProfile, cfg fs.ProjectConfigV2, d
 			}
 		}
 		if len(modified) > 0 {
+			changeErr := fmt.Errorf("%d resource(s) have local modifications", len(modified))
+			if jsonOut {
+				emitJSONError(a.stdout, changeErr, 1)
+				return changeErr
+			}
 			a.writeStdout("Modified files detected (--fail-on-changes):")
 			for _, result := range modified {
 				for _, file := range result.ModifiedFiles {
 					a.writeStdout(fmt.Sprintf("  %s — %s", result.ResourceName, file))
 				}
 			}
-			return fmt.Errorf("%d resource(s) have local modifications", len(modified))
+			return changeErr
 		}
 	}
 
@@ -338,7 +370,11 @@ func (a *app) updateFanout(profile *fs.ProjectProfile, cfg fs.ProjectConfigV2, d
 		installedNames = append(installedNames, record.ResourceName)
 	}
 	if len(installedNames) == 0 {
-		a.writeStdout("Aucune ressource à mettre à jour.")
+		if jsonOut {
+			a.writeStdout("[]")
+		} else {
+			a.writeStdout("Aucune ressource à mettre à jour.")
+		}
 		return nil
 	}
 
@@ -348,6 +384,9 @@ func (a *app) updateFanout(profile *fs.ProjectProfile, cfg fs.ProjectConfigV2, d
 		entries, listErr = a.client.ListCatalog(context.Background(), *profile)
 		return listErr
 	}); err != nil {
+		if jsonOut {
+			emitJSONError(a.stdout, err, 1)
+		}
 		return err
 	}
 	byID := make(map[string]fs.CatalogEntry, len(entries))
@@ -360,15 +399,30 @@ func (a *app) updateFanout(profile *fs.ProjectProfile, cfg fs.ProjectConfigV2, d
 		providerID = cfg.Providers[0].ID
 	}
 
+	var accumulator *fanoutJSONAccumulator
+	if jsonOut {
+		accumulator = &fanoutJSONAccumulator{outcome: "updated"}
+		a.fanoutJSON = accumulator
+		defer func() { a.fanoutJSON = nil }()
+	}
+
 	failures := 0
 	latestCache := make(map[string]string)
 	for _, name := range installedNames {
 		if pinned := fs.PinnedVersion(cfg, name); pinned != "" {
+			if accumulator != nil {
+				accumulator.results = append(accumulator.results, updateJSONResult{ResourceName: name, Outcome: "pinned", PreviousVersion: pinned})
+				continue
+			}
 			a.writeStdout(fmt.Sprintf("  [pinned at %s] %s", pinned, name))
 			continue
 		}
 		entry, ok := byID[name]
 		if !ok {
+			if accumulator != nil {
+				accumulator.results = append(accumulator.results, updateJSONResult{ResourceName: name, Outcome: "skipped", Error: "ressource absente du catalogue"})
+				continue
+			}
 			a.writeStderr(fmt.Sprintf("Ressource '%s' absente du catalogue ; ignorée.", name))
 			continue
 		}
@@ -377,11 +431,32 @@ func (a *app) updateFanout(profile *fs.ProjectProfile, cfg fs.ProjectConfigV2, d
 			resolvedVersion = a.resolveCommitForEntry(context.Background(), cfg, providerID, entry, latestCache)
 		}
 		if err := a.installFanout(*profile, cfg, entry, providerID, resolvedVersion, dryRun, jsonOut, false); err != nil {
-			a.writeStderr(fmt.Sprintf("Échec de mise à jour pour '%s' : %v", name, err))
 			failures++
+			if accumulator != nil {
+				accumulator.results = append(accumulator.results, updateJSONResult{ResourceName: name, Outcome: "failed", Error: err.Error()})
+				continue
+			}
+			a.writeStderr(fmt.Sprintf("Échec de mise à jour pour '%s' : %v", name, err))
 			continue
 		}
 	}
+
+	if accumulator != nil {
+		if dryRun {
+			data, marshalErr := fs.FormatDryRunJSON(accumulator.changes)
+			if marshalErr != nil {
+				return marshalErr
+			}
+			a.writeStdout(string(data))
+		} else {
+			payload, marshalErr := marshalUpdateResults(accumulator.results)
+			if marshalErr != nil {
+				return marshalErr
+			}
+			a.writeStdout(payload)
+		}
+	}
+
 	if failures > 0 {
 		return fmt.Errorf("mise à jour incomplète : %d ressource(s) en échec", failures)
 	}
