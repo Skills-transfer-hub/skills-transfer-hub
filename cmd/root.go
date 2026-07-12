@@ -50,11 +50,11 @@ var commandCatalog = []commandSpec{
 	{
 		name:    "list",
 		usage:   "sth list [--json]",
-		summary: "Lit SKILLS.md ou détecte les bundles category/folder/SKILL.md du dépôt courant",
+		summary: "Liste le catalogue du dépôt provider distant configuré (nécessite `sth init`)",
 		details: []string{
-			"SKILLS.md garde toujours la priorité quand il existe et se parse correctement.",
-			"Si SKILLS.md est absent, STH scanne les bundles compatibles et affiche leurs références canoniques category/folder.",
-			"Avec --json, retourne l'état des ressources installées (resource_name, provider_id, status, resolved_version, pinned_version) — sémantique différente du mode texte.",
+			"Mode texte : lit SKILLS.md dans le dépôt provider distant (github, gitlab…) ; s'il est absent, scanne l'arborescence distante pour en déduire les bundles category/folder. Nécessite `sth init` et un accès réseau.",
+			"Pour générer un SKILLS.md local à partir du dépôt courant, utilisez plutôt `catalog init`.",
+			"Avec --json, retourne l'état des ressources installées localement (resource_name, provider_id, status, resolved_version, pinned_version) — sémantique différente du mode texte.",
 		},
 		examples: []string{
 			"sth list",
@@ -302,6 +302,7 @@ type app struct {
 	interactive func() bool
 	verbose     sthlog.Verbose
 	progress    *installProgress
+	fanoutJSON  *fanoutJSONAccumulator
 }
 
 func newApp(stdin io.Reader, stdout, stderr io.Writer, client *sthhttp.Client) *app {
@@ -429,6 +430,10 @@ func (a *app) run(args []string) error {
 			a.writeStdout(helpText())
 			return nil
 		case 2:
+			if args[1] == "login" {
+				a.writeStdout(loginHelpText())
+				return nil
+			}
 			if _, ok := findCommandSpec(args[1]); !ok {
 				err = fmt.Errorf("commande inconnue pour help : %q", args[1])
 				showHelp = true
