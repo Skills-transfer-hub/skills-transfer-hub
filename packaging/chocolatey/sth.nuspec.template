@@ -10,6 +10,7 @@
     <projectUrl>https://github.com/Skills-transfer-hub/sth-releases</projectUrl>
     <licenseUrl>https://github.com/Skills-transfer-hub/sth-releases/blob/main/LICENSE</licenseUrl>
     <requireLicenseAcceptance>false</requireLicenseAcceptance>
+    <icon>tools\icon.png</icon>
     <projectSourceUrl>https://github.com/Skills-transfer-hub/sth-releases</projectSourceUrl>
     <docsUrl>https://github.com/Skills-transfer-hub/sth-releases#readme</docsUrl>
     <bugTrackerUrl>https://github.com/Skills-transfer-hub/sth-releases/issues</bugTrackerUrl>
