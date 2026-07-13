@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/brand/icon-256.png" alt="STH" width="112" height="112">
+</p>
+
 # STH — Skills Transfer Hub
 
 STH est un CLI Go, distribué en binaire unique, pour connecter un projet à un dépôt hébergé de ressources IA, lire un catalogue `SKILLS.md`, installer des ressources dans le projet courant, puis les maintenir à jour.
