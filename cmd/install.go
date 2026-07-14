@@ -22,6 +22,14 @@ func (a *app) runInstall(args []string) error {
 	jsonOut := flags["--json"]
 	force := flags["--force"]
 
+	err := a.installResource(dryRun, jsonOut, force, positional)
+	if err != nil && jsonOut {
+		emitJSONError(a.stdout, err, 1)
+	}
+	return err
+}
+
+func (a *app) installResource(dryRun, jsonOut, force bool, positional []string) error {
 	if len(positional) != 1 {
 		return fmt.Errorf("usage: sth install <resource-ref> [--dry-run] [--force]")
 	}
@@ -48,6 +56,11 @@ func (a *app) runInstall(args []string) error {
 		}()
 	}
 
+	if jsonOut && !dryRun {
+		a.fanoutJSON = &fanoutJSONAccumulator{outcome: "installed"}
+		defer func() { a.fanoutJSON = nil }()
+	}
+
 	a.progress.step("Récupération du catalogue…")
 	var entries []fs.CatalogEntry
 	if err := a.withAuthRecovery(context.Background(), func() error {
@@ -68,9 +81,23 @@ func (a *app) runInstall(args []string) error {
 		if !dryRun {
 			resolvedVersion = a.resolveCommitForEntry(context.Background(), cfg, providerID, entry, make(map[string]string))
 		}
-		return a.installFanout(*profile, cfg, entry, providerID, resolvedVersion, dryRun, jsonOut, force)
+		if fanoutErr := a.installFanout(*profile, cfg, entry, providerID, resolvedVersion, dryRun, jsonOut, force); fanoutErr != nil {
+			return fanoutErr
+		}
+	} else {
+		if legacyErr := a.installLegacy(*profile, entry, providerID, dryRun, jsonOut, force); legacyErr != nil {
+			return legacyErr
+		}
 	}
-	return a.installLegacy(*profile, entry, providerID, dryRun, jsonOut, force)
+
+	if a.fanoutJSON != nil {
+		payload, marshalErr := marshalUpdateResults(a.fanoutJSON.results)
+		if marshalErr != nil {
+			return marshalErr
+		}
+		a.writeStdout(payload)
+	}
+	return nil
 }
 
 func (a *app) installLegacy(profile fs.ProjectProfile, entry fs.CatalogEntry, providerID string, dryRun, jsonOut, force bool) error {
@@ -86,6 +113,13 @@ func (a *app) installLegacy(profile fs.ProjectProfile, entry fs.CatalogEntry, pr
 			return syncErr
 		}
 		a.progress.step("Finalisation…")
+		if a.fanoutJSON != nil {
+			a.fanoutJSON.results = append(a.fanoutJSON.results, updateJSONResult{
+				ResourceName: entry.CatalogID,
+				Outcome:      a.fanoutJSON.outcome,
+			})
+			return nil
+		}
 		a.writeStdout(
 			fmt.Sprintf("Ressource '%s' installée dans %s.", entry.Name, record.InstalledPath),
 			fmt.Sprintf("Type: %s", entry.ResourceType),
@@ -195,6 +229,12 @@ func (a *app) installLegacy(profile fs.ProjectProfile, entry fs.CatalogEntry, pr
 		if upsertErr := fs.UpsertInstalledResource(profile.TargetDir, v1rec); upsertErr != nil {
 			return upsertErr
 		}
+		if a.fanoutJSON != nil {
+			a.fanoutJSON.results = append(a.fanoutJSON.results, updateJSONResult{
+				ResourceName: entry.CatalogID,
+				Outcome:      "excluded",
+			})
+		}
 		return nil
 	}
 
@@ -218,6 +258,14 @@ func (a *app) installLegacy(profile fs.ProjectProfile, entry fs.CatalogEntry, pr
 		}
 	}
 
+	if a.fanoutJSON != nil {
+		a.fanoutJSON.results = append(a.fanoutJSON.results, updateJSONResult{
+			ResourceName:    entry.CatalogID,
+			Outcome:         a.fanoutJSON.outcome,
+			ResolvedVersion: v2rec.ResolvedVersion,
+		})
+		return nil
+	}
 	a.writeStdout(
 		fmt.Sprintf("Ressource '%s' installée dans %s.", entry.Name, record.InstalledPath),
 		fmt.Sprintf("Type: %s", entry.ResourceType),

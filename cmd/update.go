@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sth/internal/fs"
 	sthhttp "sth/internal/http"
@@ -11,6 +12,31 @@ import (
 	"time"
 )
 
+type updateJSONResult struct {
+	ResourceName    string `json:"resource_name"`
+	Outcome         string `json:"outcome"`
+	ResolvedVersion string `json:"resolved_version,omitempty"`
+	PreviousVersion string `json:"previous_version,omitempty"`
+	Error           string `json:"error,omitempty"`
+}
+
+type fanoutJSONAccumulator struct {
+	outcome string
+	changes []fs.DryRunChange
+	results []updateJSONResult
+}
+
+func marshalUpdateResults(results []updateJSONResult) (string, error) {
+	if results == nil {
+		results = []updateJSONResult{}
+	}
+	data, err := json.MarshalIndent(results, "", "  ")
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
+}
+
 func (a *app) runUpdate(args []string) error {
 	flags, _ := parseFlags(args, "--dry-run", "--json", "--fail-on-changes")
 	dryRun := flags["--dry-run"]
@@ -19,12 +45,18 @@ func (a *app) runUpdate(args []string) error {
 
 	profile, release, err := a.prepareStateAccess()
 	if err != nil {
+		if jsonOut {
+			emitJSONError(a.stdout, err, 1)
+		}
 		return err
 	}
 	defer release()
 
 	cfg, err := fs.ReadProjectConfigV2()
 	if err != nil {
+		if jsonOut {
+			emitJSONError(a.stdout, err, 1)
+		}
 		return err
 	}
 
@@ -40,19 +72,24 @@ func (a *app) runUpdate(args []string) error {
 			projectRoot, _ := filepath.Abs(".")
 			results := fs.ComputeAllStatuses(state, cfg, nil, projectRoot)
 			modified := []fs.StatusResult{}
-			for _, r := range results {
-				if r.Status == fs.ResourceStatusModifiedLocally {
-					modified = append(modified, r)
+			for _, result := range results {
+				if result.Status == fs.ResourceStatusModifiedLocally {
+					modified = append(modified, result)
 				}
 			}
 			if len(modified) > 0 {
+				changeErr := fmt.Errorf("%d resource(s) have local modifications", len(modified))
+				if jsonOut {
+					emitJSONError(a.stdout, changeErr, 1)
+					return changeErr
+				}
 				a.writeStdout("Modified files detected (--fail-on-changes):")
-				for _, r := range modified {
-					for _, f := range r.ModifiedFiles {
-						a.writeStdout(fmt.Sprintf("  %s — %s", r.ResourceName, f))
+				for _, result := range modified {
+					for _, file := range result.ModifiedFiles {
+						a.writeStdout(fmt.Sprintf("  %s — %s", result.ResourceName, file))
 					}
 				}
-				return fmt.Errorf("%d resource(s) have local modifications", len(modified))
+				return changeErr
 			}
 		}
 	}
@@ -60,10 +97,17 @@ func (a *app) runUpdate(args []string) error {
 	if dryRun {
 		v2State, err := fs.ReadInstalledStateV2(profile.TargetDir)
 		if err != nil {
+			if jsonOut {
+				emitJSONError(a.stdout, err, 1)
+			}
 			return err
 		}
 		if len(v2State.Entries) == 0 {
-			a.writeStdout("Aucune ressource à mettre à jour.")
+			if jsonOut {
+				a.writeStdout("[]")
+			} else {
+				a.writeStdout("Aucune ressource à mettre à jour.")
+			}
 			return nil
 		}
 		workingDir, _ := filepath.Abs(".")
@@ -127,15 +171,32 @@ func (a *app) runUpdate(args []string) error {
 
 	records, err := fs.ListInstalledResources(profile.TargetDir)
 	if err != nil {
+		if jsonOut {
+			emitJSONError(a.stdout, err, 1)
+		}
 		return err
 	}
 
 	if len(records) == 0 {
-		a.writeStdout("Aucune ressource à mettre à jour.")
+		if jsonOut {
+			a.writeStdout("[]")
+		} else {
+			a.writeStdout("Aucune ressource à mettre à jour.")
+		}
 		return nil
 	}
 
 	failures := 0
+	var updateResults []updateJSONResult
+	recordResult := func(name, outcome, resolved, previous, failure string) {
+		updateResults = append(updateResults, updateJSONResult{
+			ResourceName:    name,
+			Outcome:         outcome,
+			ResolvedVersion: resolved,
+			PreviousVersion: previous,
+			Error:           failure,
+		})
+	}
 	v2State, v2StateErr := fs.ReadInstalledStateV2(profile.TargetDir)
 	v2Updated := false
 
@@ -161,8 +222,11 @@ func (a *app) runUpdate(args []string) error {
 
 	for _, record := range records {
 		if pinnedVer := fs.PinnedVersion(cfg, record.CatalogID); pinnedVer != "" {
+			if jsonOut {
+				recordResult(record.CatalogID, "pinned", "", pinnedVer, "")
+				continue
+			}
 			a.writeStdout(fmt.Sprintf("  [pinned at %s] %s", pinnedVer, record.CatalogID))
-			// T018: Notify if a newer upstream version exists for the pinned resource.
 			if v2StateErr == nil {
 				for _, v2rec := range v2State.Entries {
 					if v2rec.ResourceName == record.CatalogID {
@@ -186,66 +250,100 @@ func (a *app) runUpdate(args []string) error {
 		}
 
 		if len(record.ManagedFiles) > 0 {
-			bundleContents, err := a.downloadBundleContents(context.Background(), *profile, entry)
-			if err != nil {
-				a.writeStderr(fmt.Sprintf("Échec de mise à jour pour '%s' : %v", record.Name, err))
+			bundleContents, bundleErr := a.downloadBundleContents(context.Background(), *profile, entry)
+			if bundleErr != nil {
 				failures++
+				if jsonOut {
+					recordResult(record.Name, "failed", "", "", bundleErr.Error())
+				} else {
+					a.writeStderr(fmt.Sprintf("Échec de mise à jour pour '%s' : %v", record.Name, bundleErr))
+				}
 				continue
 			}
 
-			if _, err := fs.SyncManagedBundle(profile.TargetDir, entry, bundleContents); err != nil {
-				a.writeStderr(fmt.Sprintf("Échec de mise à jour pour '%s' : %v", record.Name, err))
+			if _, syncErr := fs.SyncManagedBundle(profile.TargetDir, entry, bundleContents); syncErr != nil {
 				failures++
+				if jsonOut {
+					recordResult(record.Name, "failed", "", "", syncErr.Error())
+				} else {
+					a.writeStderr(fmt.Sprintf("Échec de mise à jour pour '%s' : %v", record.Name, syncErr))
+				}
 				continue
 			}
 
-			a.writeStdout(fmt.Sprintf("Ressource '%s' mise à jour.", record.Name))
-			a.printBundleChangelog(record.Name, bundleContents, installedVersionOf(v2State, v2StateErr, record.CatalogID))
+			if jsonOut {
+				recordResult(record.Name, "updated", "", installedVersionOf(v2State, v2StateErr, record.CatalogID), "")
+			} else {
+				a.writeStdout(fmt.Sprintf("Ressource '%s' mise à jour.", record.Name))
+				a.printBundleChangelog(record.Name, bundleContents, installedVersionOf(v2State, v2StateErr, record.CatalogID))
+			}
 			continue
 		}
 
-		content, err := a.client.DownloadCatalogEntry(context.Background(), *profile, entry)
-		if err != nil {
-			a.writeStderr(fmt.Sprintf("Échec de mise à jour pour '%s' : %v", record.Name, err))
+		content, downloadErr := a.client.DownloadCatalogEntry(context.Background(), *profile, entry)
+		if downloadErr != nil {
 			failures++
+			if jsonOut {
+				recordResult(record.Name, "failed", "", "", downloadErr.Error())
+			} else {
+				a.writeStderr(fmt.Sprintf("Échec de mise à jour pour '%s' : %v", record.Name, downloadErr))
+			}
 			continue
 		}
 
-		// T021: Skip if installed path is excluded by .sthignore (SC-003).
 		if fs.MatchesIgnorePattern(record.SourcePath, ignorePats) {
-			a.writeStdout(fmt.Sprintf("Ressource '%s' exclue par .sthignore.", record.Name))
+			if jsonOut {
+				recordResult(record.Name, "excluded", "", "", "")
+			} else {
+				a.writeStdout(fmt.Sprintf("Ressource '%s' exclue par .sthignore.", record.Name))
+			}
 			continue
 		}
 
-		// T024: Skip resource if its installed path is owned by another resource.
 		if v2StateErr == nil {
 			if conflict := fs.CheckOwnershipConflict(&v2State, record.CatalogID, record.InstalledPath); conflict != nil {
-				a.writeStderr(fmt.Sprintf("Conflit de propriété pour '%s' : %v", record.Name, conflict))
 				failures++
+				if jsonOut {
+					recordResult(record.Name, "failed", "", "", conflict.Error())
+				} else {
+					a.writeStderr(fmt.Sprintf("Conflit de propriété pour '%s' : %v", record.Name, conflict))
+				}
 				continue
 			}
 		}
 
-		if err := fs.SaveInstalledResource(record, content); err != nil {
-			a.writeStderr(fmt.Sprintf("Échec de mise à jour pour '%s' : %v", record.Name, err))
+		if saveErr := fs.SaveInstalledResource(record, content); saveErr != nil {
 			failures++
+			if jsonOut {
+				recordResult(record.Name, "failed", "", "", saveErr.Error())
+			} else {
+				a.writeStderr(fmt.Sprintf("Échec de mise à jour pour '%s' : %v", record.Name, saveErr))
+			}
 			continue
 		}
 
-		if err := fs.UpsertInstalledResource(profile.TargetDir, record); err != nil {
-			a.writeStderr(fmt.Sprintf("Échec de mise à jour pour '%s' : %v", record.Name, err))
+		if upsertErr := fs.UpsertInstalledResource(profile.TargetDir, record); upsertErr != nil {
 			failures++
+			if jsonOut {
+				recordResult(record.Name, "failed", "", "", upsertErr.Error())
+			} else {
+				a.writeStderr(fmt.Sprintf("Échec de mise à jour pour '%s' : %v", record.Name, upsertErr))
+			}
 			continue
 		}
 
+		resolvedVersion := ""
+		previousVersion := ""
 		if v2StateErr == nil {
 			for i, v2rec := range v2State.Entries {
 				if v2rec.ResourceName == record.CatalogID {
+					previousVersion = v2rec.ResolvedVersion
 					v2State.Entries[i] = fs.RefreshManagedFileHashes(v2rec, content)
 					v2State.Entries[i].PreviousVersion = v2rec.ResolvedVersion
 					v2State.Entries[i].SourcePath = record.SourcePath
 					if sha := resolveLatest(v2rec.ProviderID, record.SourcePath, record.ResourceType); sha != "" {
 						v2State.Entries[i].ResolvedVersion = sha
+						resolvedVersion = sha
 					}
 					v2State.Entries[i].InstalledAt = time.Now().UTC().Format(time.RFC3339)
 					v2Updated = true
@@ -254,13 +352,29 @@ func (a *app) runUpdate(args []string) error {
 			}
 		}
 
-		a.writeStdout(fmt.Sprintf("Ressource '%s' mise à jour.", record.Name))
+		if jsonOut {
+			recordResult(record.Name, "updated", resolvedVersion, previousVersion, "")
+		} else {
+			a.writeStdout(fmt.Sprintf("Ressource '%s' mise à jour.", record.Name))
+		}
 	}
 
 	if v2Updated {
-		if err := fs.WriteInstalledStateV2(profile.TargetDir, v2State); err != nil {
-			return fmt.Errorf("impossible de mettre à jour l'état v2 : %w", err)
+		if writeErr := fs.WriteInstalledStateV2(profile.TargetDir, v2State); writeErr != nil {
+			stateErr := fmt.Errorf("impossible de mettre à jour l'état v2 : %w", writeErr)
+			if jsonOut {
+				emitJSONError(a.stdout, stateErr, 1)
+			}
+			return stateErr
 		}
+	}
+
+	if jsonOut {
+		payload, marshalErr := marshalUpdateResults(updateResults)
+		if marshalErr != nil {
+			return marshalErr
+		}
+		a.writeStdout(payload)
 	}
 
 	if failures > 0 {

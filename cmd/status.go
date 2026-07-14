@@ -50,7 +50,11 @@ func (a *app) runStatusInner(jsonOut bool) error {
 	}
 
 	if len(state.Entries) == 0 {
-		a.writeStdout("No resources installed.")
+		if jsonOut {
+			a.writeStdout("[]")
+		} else {
+			a.writeStdout("No resources installed.")
+		}
 		return nil
 	}
 
