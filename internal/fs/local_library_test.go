@@ -47,3 +47,51 @@ func TestLocalLibraryRejectsSymlinkedStateDirectory(t *testing.T) {
 		t.Fatal("expected symlinked local state to be rejected")
 	}
 }
+
+func TestLocalLibrarySaveUsesSharedStateLock(t *testing.T) {
+	root := t.TempDir()
+	directory, err := localCodeStateDirectory(root, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	releaseLock, err := AcquireStateLock(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer releaseLock()
+
+	if _, err := SaveLocalLibraryItem(root, LocalLibrarySaveInput{
+		Kind: "prompt", Title: "Concurrent", Body: "must wait",
+	}); err == nil {
+		t.Fatal("expected the shared state lock to reject a concurrent save")
+	}
+}
+
+func TestLocalLibraryRejectsInvalidItemsWithoutRewritingThem(t *testing.T) {
+	root := t.TempDir()
+	directory, err := localCodeStateDirectory(root, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	originalData := []byte(`{"version":1,"items":[{"id":"valid","kind":"prompt","title":"Valid","body":"keep me","tags":[],"createdAt":"","updatedAt":"","source":"local"},{"id":"future","kind":"prompt","title":"Future","body":"do not delete me","tags":[],"createdAt":"","updatedAt":"","source":"local","future":"preserve"}]}`)
+	path := filepath.Join(directory, "library.json")
+	if err := os.WriteFile(path, originalData, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := ReadLocalLibrary(root); err == nil {
+		t.Fatal("expected an invalid item to reject the library")
+	}
+	if _, err := SaveLocalLibraryItem(root, LocalLibrarySaveInput{
+		Kind: "prompt", Title: "New", Body: "must not overwrite",
+	}); err == nil {
+		t.Fatal("expected save to preserve an invalid library")
+	}
+	currentData, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(currentData) != string(originalData) {
+		t.Fatalf("library changed after rejected save: %q", currentData)
+	}
+}

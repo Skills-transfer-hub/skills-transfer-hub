@@ -1,11 +1,13 @@
 package fs
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -43,9 +45,6 @@ type localLibraryDocument struct {
 	Items   []LocalLibraryItem `json:"items"`
 }
 
-// ReadLocalLibrary reads the STH Code-compatible local library without
-// creating state or following a symlink out of the project. Missing state is
-// an empty library so Starter works fully offline on a fresh checkout.
 func ReadLocalLibrary(projectRoot string) ([]LocalLibraryItem, error) {
 	directory, err := localCodeStateDirectory(projectRoot, false)
 	if err != nil {
@@ -73,20 +72,22 @@ func ReadLocalLibrary(projectRoot string) ([]LocalLibraryItem, error) {
 		return nil, err
 	}
 	var document localLibraryDocument
-	if err := json.Unmarshal(data, &document); err != nil || document.Version != 1 {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&document); err != nil || document.Version != 1 {
 		return nil, errors.New("la bibliothèque locale est invalide")
 	}
-	items := make([]LocalLibraryItem, 0, len(document.Items))
-	for _, item := range document.Items {
-		if validateLocalLibraryItem(item) == nil {
-			items = append(items, item)
+	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		return nil, errors.New("la bibliothèque locale est invalide")
+	}
+	for itemIndex, item := range document.Items {
+		if err := validateLocalLibraryItem(item); err != nil {
+			return nil, fmt.Errorf("la bibliothèque locale contient un item invalide à l'index %d: %w", itemIndex, err)
 		}
 	}
-	return items, nil
+	return append([]LocalLibraryItem(nil), document.Items...), nil
 }
 
-// SaveLocalLibraryItem performs a voluntary local capture. It writes the same
-// version-1 document consumed by STH Code and never contacts the cloud.
 func SaveLocalLibraryItem(projectRoot string, input LocalLibrarySaveInput) (LocalLibraryItem, error) {
 	localLibraryMutationMutex.Lock()
 	defer localLibraryMutationMutex.Unlock()
@@ -127,6 +128,11 @@ func SaveLocalLibraryItem(projectRoot string, input LocalLibrarySaveInput) (Loca
 	if err != nil {
 		return LocalLibraryItem{}, err
 	}
+	releaseLock, err := AcquireStateLock(directory)
+	if err != nil {
+		return LocalLibraryItem{}, err
+	}
+	defer releaseLock()
 	items, err := ReadLocalLibrary(projectRoot)
 	if err != nil {
 		return LocalLibraryItem{}, err

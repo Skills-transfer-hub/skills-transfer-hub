@@ -19,6 +19,9 @@ import (
 const mcpServerVersion = "1"
 const mcpConfigPath = ".mcp.json"
 
+var errLocalAssetNotFound = errors.New("local STH asset not found")
+var errLocalLibraryItemNotFound = errors.New("local library item not found")
+
 const mcpCodexConfig = `[mcp_servers.sth]
 command = "sth"
 args = ["mcp"]`
@@ -107,23 +110,40 @@ func handleAssetSearch(
 	_ *mcp.CallToolRequest,
 	input assetSearchArgs,
 ) (*mcp.CallToolResult, any, error) {
-	if !mcpCloudConnected() {
-		matches, err := localAssetSearch(input)
-		if err != nil {
-			return mcpErrorResult(err), nil, nil
-		}
-		return renderAssetSearch(matches), nil, nil
-	}
-	matches, err := cloud.SearchAssets(ctx, nil, input.Query, input.Family, input.Kind)
+	localMatches, err := localAssetSearch(input)
 	if err != nil {
 		return mcpErrorResult(err), nil, nil
 	}
-	return renderAssetSearch(matches), nil, nil
+	if !mcpCloudConnected() {
+		return renderAssetSearch(localMatches, nil), nil, nil
+	}
+	sharedMatches, sharedErr := cloud.SearchAssets(ctx, nil, input.Query, input.Family, input.Kind)
+	matches := mergeAssetSearchResults(localMatches, sharedMatches)
+	return renderAssetSearch(matches, sharedErr), nil, nil
 }
 
-func renderAssetSearch(matches []cloud.AssetSummary) *mcp.CallToolResult {
+func mergeAssetSearchResults(localMatches, sharedMatches []cloud.AssetSummary) []cloud.AssetSummary {
+	matches := make([]cloud.AssetSummary, 0, len(localMatches)+len(sharedMatches))
+	seenAssets := make(map[string]struct{}, len(localMatches)+len(sharedMatches))
+	for _, match := range localMatches {
+		key := match.Family + "\x00" + match.ID
+		seenAssets[key] = struct{}{}
+		matches = append(matches, match)
+	}
+	for _, match := range sharedMatches {
+		key := match.Family + "\x00" + match.ID
+		if _, seen := seenAssets[key]; seen {
+			continue
+		}
+		seenAssets[key] = struct{}{}
+		matches = append(matches, match)
+	}
+	return matches
+}
+
+func renderAssetSearch(matches []cloud.AssetSummary, sharedErr error) *mcp.CallToolResult {
 	if len(matches) == 0 {
-		return mcpTextResult("No matching STH assets.")
+		return mcpTextResultWithSharedWarning("No matching STH assets.", sharedErr)
 	}
 	lines := make([]string, 0, len(matches))
 	for _, match := range matches {
@@ -133,7 +153,7 @@ func renderAssetSearch(matches []cloud.AssetSummary) *mcp.CallToolResult {
 		}
 		lines = append(lines, line)
 	}
-	return mcpTextResult(strings.Join(lines, "\n"))
+	return mcpTextResultWithSharedWarning(strings.Join(lines, "\n"), sharedErr)
 }
 
 func handleAssetGet(
@@ -141,12 +161,15 @@ func handleAssetGet(
 	_ *mcp.CallToolRequest,
 	input assetGetArgs,
 ) (*mcp.CallToolResult, any, error) {
-	if !mcpCloudConnected() {
-		asset, err := localAssetGet(input.ID)
-		if err != nil {
-			return mcpErrorResult(err), nil, nil
-		}
+	asset, localErr := localAssetGet(input.ID)
+	if localErr == nil {
 		return renderAssetGet(asset), nil, nil
+	}
+	if !errors.Is(localErr, errLocalAssetNotFound) {
+		return mcpErrorResult(localErr), nil, nil
+	}
+	if !mcpCloudConnected() {
+		return mcpErrorResult(localErr), nil, nil
 	}
 	asset, err := cloud.GetAsset(ctx, nil, input.ID)
 	if err != nil {
@@ -183,40 +206,48 @@ func handleLibrarySearch(
 	_ *mcp.CallToolRequest,
 	input librarySearchArgs,
 ) (*mcp.CallToolResult, any, error) {
-	if !mcpCloudConnected() {
-		items, err := fs.ReadLocalLibrary(".")
-		if err != nil {
-			return mcpErrorResult(err), nil, nil
-		}
-		matches := make([]fs.LocalLibraryItem, 0, len(items))
-		query := strings.ToLower(strings.TrimSpace(input.Query))
-		for _, item := range items {
-			if input.Kind != "" && item.Kind != input.Kind {
-				continue
-			}
-			if query != "" && !strings.Contains(strings.ToLower(item.Title+" "+item.Body), query) {
-				continue
-			}
-			matches = append(matches, item)
-		}
-		if len(matches) == 0 {
-			return mcpTextResult("No matching local library items."), nil, nil
-		}
-		lines := make([]string, 0, len(matches))
-		for _, match := range matches {
-			lines = append(lines, fmt.Sprintf("- [%s] %s (id %s) — local", match.Kind, match.Title, match.ID))
-		}
-		return mcpTextResult(strings.Join(lines, "\n")), nil, nil
-	}
-	matches, err := cloud.SearchLibrary(ctx, nil, input.Query, input.Kind)
+	localMatches, err := searchLocalLibrary(input)
 	if err != nil {
 		return mcpErrorResult(err), nil, nil
 	}
-	if len(matches) == 0 {
-		return mcpTextResult("No matching library items."), nil, nil
+	if !mcpCloudConnected() {
+		return renderLibrarySearch(localMatches, nil, nil), nil, nil
 	}
-	lines := make([]string, 0, len(matches))
-	for _, match := range matches {
+	sharedMatches, sharedErr := cloud.SearchLibrary(ctx, nil, input.Query, input.Kind)
+	return renderLibrarySearch(localMatches, sharedMatches, sharedErr), nil, nil
+}
+
+func searchLocalLibrary(input librarySearchArgs) ([]fs.LocalLibraryItem, error) {
+	items, err := fs.ReadLocalLibrary(".")
+	if err != nil {
+		return nil, err
+	}
+	matches := make([]fs.LocalLibraryItem, 0, len(items))
+	query := strings.ToLower(strings.TrimSpace(input.Query))
+	for _, item := range items {
+		if input.Kind != "" && item.Kind != input.Kind {
+			continue
+		}
+		if query != "" && !strings.Contains(strings.ToLower(item.Title+" "+item.Body), query) {
+			continue
+		}
+		matches = append(matches, item)
+	}
+	return matches, nil
+}
+
+func renderLibrarySearch(localMatches []fs.LocalLibraryItem, sharedMatches []cloud.LibraryMatch, sharedErr error) *mcp.CallToolResult {
+	lines := make([]string, 0, len(localMatches)+len(sharedMatches))
+	seenItems := make(map[string]struct{}, len(localMatches)+len(sharedMatches))
+	for _, match := range localMatches {
+		seenItems[match.ID] = struct{}{}
+		lines = append(lines, fmt.Sprintf("- [%s] %s (id %s) — local", match.Kind, match.Title, match.ID))
+	}
+	for _, match := range sharedMatches {
+		if _, seen := seenItems[match.ID]; seen {
+			continue
+		}
+		seenItems[match.ID] = struct{}{}
 		source := joinSource(match.SourceTool, match.SourceModel)
 		line := fmt.Sprintf("- [%s] %s (id %s)", match.Kind, match.Title, match.ID)
 		if source != "" {
@@ -224,7 +255,10 @@ func handleLibrarySearch(
 		}
 		lines = append(lines, line)
 	}
-	return mcpTextResult(strings.Join(lines, "\n")), nil, nil
+	if len(lines) == 0 {
+		return mcpTextResultWithSharedWarning("No matching library items.", sharedErr)
+	}
+	return mcpTextResultWithSharedWarning(strings.Join(lines, "\n"), sharedErr)
 }
 
 func handleLibraryGet(
@@ -232,17 +266,15 @@ func handleLibraryGet(
 	_ *mcp.CallToolRequest,
 	input libraryGetArgs,
 ) (*mcp.CallToolResult, any, error) {
+	localItem, localErr := findLocalLibraryItem(input.ID)
+	if localErr == nil {
+		return renderLocalLibraryGet(localItem), nil, nil
+	}
+	if !errors.Is(localErr, errLocalLibraryItemNotFound) {
+		return mcpErrorResult(localErr), nil, nil
+	}
 	if !mcpCloudConnected() {
-		items, err := fs.ReadLocalLibrary(".")
-		if err != nil {
-			return mcpErrorResult(err), nil, nil
-		}
-		for _, item := range items {
-			if item.ID == strings.TrimSpace(input.ID) {
-				return mcpTextResult(fmt.Sprintf("# %s [%s]\nsource: local\n\n%s", item.Title, item.Kind, item.Body)), nil, nil
-			}
-		}
-		return mcpErrorResult(errors.New("local library item not found")), nil, nil
+		return mcpErrorResult(localErr), nil, nil
 	}
 	item, err := cloud.GetLibrary(ctx, nil, input.ID)
 	if err != nil {
@@ -259,6 +291,24 @@ func handleLibraryGet(
 	return mcpTextResult(header + "\n\n" + item.Body), nil, nil
 }
 
+func findLocalLibraryItem(itemID string) (fs.LocalLibraryItem, error) {
+	items, err := fs.ReadLocalLibrary(".")
+	if err != nil {
+		return fs.LocalLibraryItem{}, err
+	}
+	itemID = strings.TrimSpace(itemID)
+	for _, item := range items {
+		if item.ID == itemID {
+			return item, nil
+		}
+	}
+	return fs.LocalLibraryItem{}, errLocalLibraryItemNotFound
+}
+
+func renderLocalLibraryGet(item fs.LocalLibraryItem) *mcp.CallToolResult {
+	return mcpTextResult(fmt.Sprintf("# %s [%s]\nsource: local\n\n%s", item.Title, item.Kind, item.Body))
+}
+
 func handleLibrarySave(
 	ctx context.Context,
 	_ *mcp.CallToolRequest,
@@ -269,14 +319,7 @@ func handleLibrarySave(
 		kind = "prompt"
 	}
 	if !mcpCloudConnected() {
-		tags := []string{"mcp"}
-		if sourceTool := strings.TrimSpace(input.SourceTool); sourceTool != "" {
-			tags = append(tags, sourceTool)
-		}
-		item, err := fs.SaveLocalLibraryItem(".", fs.LocalLibrarySaveInput{
-			Kind: kind, Title: input.Title, Body: input.Body,
-			Tags: tags,
-		})
+		item, err := saveLocalLibraryItem(input, kind)
 		if err != nil {
 			return mcpErrorResult(err), nil, nil
 		}
@@ -290,9 +333,24 @@ func handleLibrarySave(
 		SourceModel: input.SourceModel,
 	})
 	if err != nil {
-		return mcpErrorResult(err), nil, nil
+		item, localErr := saveLocalLibraryItem(input, kind)
+		if localErr != nil {
+			return mcpErrorResult(fmt.Errorf("shared library save failed: %v; local fallback failed: %w", err, localErr)), nil, nil
+		}
+		text := fmt.Sprintf("Shared STH library unavailable: %v\n\nSaved to the local STH library (id %s).", err, item.ID)
+		return mcpTextResult(text), nil, nil
 	}
 	return mcpTextResult(fmt.Sprintf("Saved to the STH library (id %s).", id)), nil, nil
+}
+
+func saveLocalLibraryItem(input librarySaveArgs, kind string) (fs.LocalLibraryItem, error) {
+	tags := []string{"mcp"}
+	if sourceTool := strings.TrimSpace(input.SourceTool); sourceTool != "" {
+		tags = append(tags, sourceTool)
+	}
+	return fs.SaveLocalLibraryItem(".", fs.LocalLibrarySaveInput{
+		Kind: kind, Title: input.Title, Body: input.Body, Tags: tags,
+	})
 }
 
 func mcpCloudConnected() bool {
@@ -361,7 +419,7 @@ func localAssetGet(id string) (cloud.AssetSummary, error) {
 			return asset, nil
 		}
 	}
-	return cloud.AssetSummary{}, errors.New("local STH asset not found")
+	return cloud.AssetSummary{}, errLocalAssetNotFound
 }
 
 func localAssetExcerpt(value string) string {
@@ -375,6 +433,13 @@ func localAssetExcerpt(value string) string {
 
 func mcpTextResult(text string) *mcp.CallToolResult {
 	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: text}}}
+}
+
+func mcpTextResultWithSharedWarning(text string, sharedErr error) *mcp.CallToolResult {
+	if sharedErr == nil {
+		return mcpTextResult(text)
+	}
+	return mcpTextResult(fmt.Sprintf("%s\n\nShared STH data unavailable: %v", text, sharedErr))
 }
 
 func mcpErrorResult(err error) *mcp.CallToolResult {

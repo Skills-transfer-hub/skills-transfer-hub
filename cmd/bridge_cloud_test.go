@@ -176,6 +176,56 @@ func TestBridgeCloudInstallFansOutAndTracksImmutableVersion(t *testing.T) {
 	}
 }
 
+func TestBridgeCloudInstallCanBeRemovedWithoutProjectConfig(t *testing.T) {
+	newBridgeCloudFixture(t)
+	projectDir := t.TempDir()
+	installInput := `{"jsonrpc":"2.0","id":1,"method":"cloud.install","params":{"asset_id":"skill::skills::review-pr","expected_version_id":"version-1","confirmed":true}}` + "\n"
+	installResult := runCLIWithInput(t, projectDir, t.TempDir(), installInput, "bridge", "--stdio")
+	if installResult.err != nil {
+		t.Fatalf("install: %v\nstderr=%s", installResult.err, installResult.stderr)
+	}
+
+	previewInput := `{"jsonrpc":"2.0","id":1,"method":"remove.preview","params":{"resource_ref":"review-pr"}}` + "\n"
+	previewResult := runCLIWithInput(t, projectDir, t.TempDir(), previewInput, "bridge", "--stdio")
+	if previewResult.err != nil {
+		t.Fatalf("preview removal: %v", previewResult.err)
+	}
+	previewResponse := decodeBridgeTestResponses(t, previewResult.stdout)[0]["result"].(map[string]any)
+	previewResource := previewResponse["resource"].(map[string]any)
+	if previewResource["resource_ref"] != "skill::skills::review-pr" {
+		t.Fatalf("preview resource = %v", previewResource)
+	}
+
+	removeInput := `{"jsonrpc":"2.0","id":1,"method":"remove","params":{"resource_ref":"review-pr","confirmed":true}}` + "\n"
+	removeResult := runCLIWithInput(t, projectDir, t.TempDir(), removeInput, "bridge", "--stdio")
+	if removeResult.err != nil {
+		t.Fatalf("remove: %v\nstderr=%s", removeResult.err, removeResult.stderr)
+	}
+	removeResponse := decodeBridgeTestResponses(t, removeResult.stdout)[0]["result"].(map[string]any)
+	if removeResponse["removed"] != true {
+		t.Fatalf("remove response = %v", removeResponse)
+	}
+	for _, path := range []string{
+		filepath.Join(projectDir, ".claude", "skills", "review-pr", "SKILL.md"),
+		filepath.Join(projectDir, ".agents", "skills", "review-pr", "SKILL.md"),
+	} {
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Fatalf("managed file still exists at %s: %v", path, err)
+		}
+	}
+	stateData, err := os.ReadFile(filepath.Join(projectDir, ".sth", "local", "code", "sth-state-v2.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var state fs.InstalledResourceStateV2
+	if err := json.Unmarshal(stateData, &state); err != nil {
+		t.Fatal(err)
+	}
+	if len(state.Entries) != 0 {
+		t.Fatalf("state after removal = %+v", state)
+	}
+}
+
 func TestBridgeCloudInstallRequiresConfirmationAndExpectedVersionBeforeNetwork(t *testing.T) {
 	fixture := newBridgeCloudFixture(t)
 	projectDir := t.TempDir()
@@ -242,6 +292,19 @@ func TestBridgeCloudPackageComponentRejectsTrailingDot(t *testing.T) {
 		if !validBridgeCloudIDSegment(valid) {
 			t.Fatalf("safe package component rejected: %q", valid)
 		}
+	}
+}
+
+func TestBridgeCloudRemovalFindsSlugWithoutCodexPlacement(t *testing.T) {
+	state := fs.InstalledResourceStateV2{Entries: []fs.InstalledResourceRecordV2{{
+		ResourceName: "skill::skills::review-pr",
+		ProviderID:   "sth-cloud",
+		ArtifactKind: "skill",
+		ManagedFiles: []fs.ManagedFile{{Path: ".claude/skills/review-pr/SKILL.md"}},
+	}}}
+	recordIndex, found, err := bridgeCloudRemovalRecord(state, "review-pr")
+	if err != nil || !found || recordIndex != 0 {
+		t.Fatalf("record index=%d found=%t err=%v", recordIndex, found, err)
 	}
 }
 

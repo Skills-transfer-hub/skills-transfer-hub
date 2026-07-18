@@ -59,9 +59,6 @@ func resolveBridgeCloudSkill(ctx context.Context, assetID, expectedVersionID str
 	if err != nil {
 		return bridgeCloudResolvedSkill{}, err
 	}
-	// Cloud manifests are bundle-relative. Prefix only inside the local writer
-	// adapter so the existing multi-file skill planner can retain directories;
-	// the canonical manifest and download mappings remain relative.
 	bundleRoot := strings.Split(asset.ID, "::")[1] + "/" + slug
 	writableContents := make(map[string][]byte, len(contents))
 	sources := make([]string, 0, len(contents))
@@ -165,7 +162,9 @@ func planBridgeCloudSkill(resolved bridgeCloudResolvedSkill, force bool) ([]fs.M
 			managedFiles = append(managedFiles, fs.ManagedFile{Path: filepath.ToSlash(file.RelativePath), SHA256: file.SHA256})
 		}
 	}
-	sort.Slice(managedFiles, func(i, j int) bool { return managedFiles[i].Path < managedFiles[j].Path })
+	sort.Slice(managedFiles, func(leftIndex, rightIndex int) bool {
+		return managedFiles[leftIndex].Path < managedFiles[rightIndex].Path
+	})
 
 	if err := verifyBridgeManagedPath(projectRoot, filepath.ToSlash(filepath.Join(bridgeCloudStateDirectory, "sth-state-v2.json"))); err != nil {
 		return nil, nil, nil, nil, err
@@ -230,6 +229,11 @@ func installBridgeCloudSkill(assetID, expectedVersionID string, force bool) (str
 	if err != nil {
 		return "", err
 	}
+	releaseLock, err := acquireBridgeCloudStateLock()
+	if err != nil {
+		return "", err
+	}
+	defer releaseLock()
 	managedFiles, folders, _, _, err := planBridgeCloudSkill(resolved, force)
 	if err != nil {
 		return "", err
@@ -238,6 +242,25 @@ func installBridgeCloudSkill(assetID, expectedVersionID string, force bool) (str
 		return "", err
 	}
 	return resolved.manifest.VersionID, nil
+}
+
+func acquireBridgeCloudStateLock() (func(), error) {
+	projectRoot, err := canonicalBridgeProjectRoot()
+	if err != nil {
+		return nil, err
+	}
+	stateRelativePath := filepath.ToSlash(filepath.Join(bridgeCloudStateDirectory, "sth-state-v2.json"))
+	if err := verifyBridgeManagedPath(projectRoot, stateRelativePath); err != nil {
+		return nil, err
+	}
+	stateDirectory := filepath.Join(projectRoot, filepath.FromSlash(bridgeCloudStateDirectory))
+	if err := os.MkdirAll(stateDirectory, 0o700); err != nil {
+		return nil, fmt.Errorf("création de l’état local STH Code échouée : %w", err)
+	}
+	if err := os.Chmod(stateDirectory, 0o700); err != nil {
+		return nil, fmt.Errorf("protection de l’état local STH Code échouée : %w", err)
+	}
+	return fs.AcquireStateLock(stateDirectory)
 }
 
 func applyBridgeCloudSkill(resolved bridgeCloudResolvedSkill, managedFiles []fs.ManagedFile, folders []string, force bool) (returnErr error) {
@@ -384,12 +407,111 @@ func upsertBridgeCloudRecord(state *fs.InstalledResourceStateV2, record fs.Insta
 		}
 	}
 	state.Entries = append(state.Entries, record)
-	sort.Slice(state.Entries, func(i, j int) bool {
-		if state.Entries[i].ResourceName == state.Entries[j].ResourceName {
-			return state.Entries[i].TargetID < state.Entries[j].TargetID
+	sort.Slice(state.Entries, func(leftIndex, rightIndex int) bool {
+		if state.Entries[leftIndex].ResourceName == state.Entries[rightIndex].ResourceName {
+			return state.Entries[leftIndex].TargetID < state.Entries[rightIndex].TargetID
 		}
-		return state.Entries[i].ResourceName < state.Entries[j].ResourceName
+		return state.Entries[leftIndex].ResourceName < state.Entries[rightIndex].ResourceName
 	})
+}
+
+func removeBridgeCloudResource(resourceRef string) (bool, error) {
+	state, err := fs.ReadInstalledStateV2(bridgeCloudStateDirectory)
+	if err != nil {
+		return false, err
+	}
+	_, found, err := bridgeCloudRemovalRecord(state, resourceRef)
+	if err != nil || !found {
+		return false, err
+	}
+	projectRoot, err := canonicalBridgeProjectRoot()
+	if err != nil {
+		return false, err
+	}
+	releaseLock, err := acquireBridgeCloudStateLock()
+	if err != nil {
+		return false, err
+	}
+	defer releaseLock()
+
+	state, err = fs.ReadInstalledStateV2(bridgeCloudStateDirectory)
+	if err != nil {
+		return false, err
+	}
+	recordIndex, found, err := bridgeCloudRemovalRecord(state, resourceRef)
+	if err != nil || !found {
+		return false, err
+	}
+	record := state.Entries[recordIndex]
+	paths := make([]string, 0, len(record.ManagedFiles)+1)
+	for _, file := range record.ManagedFiles {
+		if err := verifyBridgeManagedPath(projectRoot, file.Path); err != nil {
+			return false, fmt.Errorf("état local invalide : %w", err)
+		}
+		paths = append(paths, filepath.Join(projectRoot, filepath.FromSlash(file.Path)))
+	}
+	statePath := filepath.Join(projectRoot, filepath.FromSlash(bridgeCloudStateDirectory), "sth-state-v2.json")
+	paths = append(paths, statePath)
+	snapshots, _, err := snapshotBridgeFiles(projectRoot, paths)
+	if err != nil {
+		return false, err
+	}
+	completed := false
+	defer func() {
+		if !completed {
+			_ = restoreBridgeFiles(snapshots)
+		}
+	}()
+
+	for _, file := range record.ManagedFiles {
+		path := filepath.Join(projectRoot, filepath.FromSlash(file.Path))
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			return false, fmt.Errorf("suppression de %s échouée : %w", file.Path, err)
+		}
+	}
+	state.Entries = append(state.Entries[:recordIndex], state.Entries[recordIndex+1:]...)
+	if err := fs.WriteInstalledStateV2(bridgeCloudStateDirectory, state); err != nil {
+		return false, err
+	}
+	completed = true
+	return true, nil
+}
+
+func bridgeCloudRemovalRecord(state fs.InstalledResourceStateV2, resourceRef string) (int, bool, error) {
+	resourceRef = strings.TrimSpace(resourceRef)
+	for recordIndex, record := range state.Entries {
+		if record.ProviderID == "sth-cloud" && record.TargetID == "" && record.ResourceName == resourceRef {
+			return recordIndex, true, nil
+		}
+	}
+	matchingIndexes := make([]int, 0, 1)
+	for recordIndex, record := range state.Entries {
+		kind := strings.TrimSpace(record.ArtifactKind)
+		if kind == "" {
+			kind = "skill"
+		}
+		if record.ProviderID == "sth-cloud" && record.TargetID == "" && bridgeCloudRecordShortName(record, kind) == resourceRef {
+			matchingIndexes = append(matchingIndexes, recordIndex)
+		}
+	}
+	if len(matchingIndexes) > 1 {
+		return 0, false, fmt.Errorf("plusieurs ressources Cloud correspondent à %q ; utilisez leur resource_ref", resourceRef)
+	}
+	if len(matchingIndexes) == 0 {
+		return 0, false, nil
+	}
+	return matchingIndexes[0], true, nil
+}
+
+func bridgeCloudRecordShortName(record fs.InstalledResourceRecordV2, kind string) string {
+	if skillName := bridgeInstalledSkillName(record, kind); skillName != "" {
+		return skillName
+	}
+	parts := strings.Split(record.ResourceName, "::")
+	if kind == "skill" && len(parts) == 3 && validBridgeCloudIDSegment(parts[2]) {
+		return parts[2]
+	}
+	return ""
 }
 
 func bridgeCloudDryRunChanges(projectRoot, assetID string, previous fs.InstalledResourceRecordV2, found bool, incoming []fs.ManagedFile) ([]fs.DryRunChange, error) {
@@ -424,7 +546,9 @@ func bridgeCloudDryRunChanges(projectRoot, assetID string, previous fs.Installed
 			}
 		}
 	}
-	sort.Slice(changes, func(i, j int) bool { return changes[i].Path < changes[j].Path })
+	sort.Slice(changes, func(leftIndex, rightIndex int) bool {
+		return changes[leftIndex].Path < changes[rightIndex].Path
+	})
 	return changes, nil
 }
 
@@ -520,8 +644,8 @@ func snapshotBridgeFiles(projectRoot string, paths []string) ([]bridgeFileSnapsh
 	for directory := range missingDirectories {
 		directories = append(directories, directory)
 	}
-	sort.Slice(directories, func(i, j int) bool {
-		return strings.Count(directories[i], string(filepath.Separator)) > strings.Count(directories[j], string(filepath.Separator))
+	sort.Slice(directories, func(leftIndex, rightIndex int) bool {
+		return strings.Count(directories[leftIndex], string(filepath.Separator)) > strings.Count(directories[rightIndex], string(filepath.Separator))
 	})
 	return snapshots, directories, nil
 }

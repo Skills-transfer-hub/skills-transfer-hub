@@ -403,11 +403,11 @@ func (a *app) readBridgeCatalogue() ([]bridgeCatalogResource, error) {
 			Description: entry.Description,
 		})
 	}
-	sort.Slice(resources, func(i, j int) bool {
-		if resources[i].Name == resources[j].Name {
-			return resources[i].ResourceRef < resources[j].ResourceRef
+	sort.Slice(resources, func(leftIndex, rightIndex int) bool {
+		if resources[leftIndex].Name == resources[rightIndex].Name {
+			return resources[leftIndex].ResourceRef < resources[rightIndex].ResourceRef
 		}
-		return resources[i].Name < resources[j].Name
+		return resources[leftIndex].Name < resources[rightIndex].Name
 	})
 	return resources, nil
 }
@@ -452,6 +452,13 @@ func previewBridgeRemoval(resourceRef string) (bridgeResource, error) {
 }
 
 func (a *app) removeBridgeResource(resourceRef string) error {
+	removed, err := removeBridgeCloudResource(resourceRef)
+	if err != nil {
+		return err
+	}
+	if removed {
+		return nil
+	}
 	removeApp := newApp(strings.NewReader(""), io.Discard, io.Discard, a.client)
 	return removeApp.runRemove([]string{resourceRef, "--yes"})
 }
@@ -495,9 +502,6 @@ func readBridgeResources(config *fs.ProjectConfigV2) ([]bridgeResource, error) {
 		targetByID[target.ID] = target
 	}
 
-	// Installed state belongs to the provider state directory (normally .sth),
-	// not to each materialization root. Skills can be deduplicated into
-	// .claude/skills and .agents/skills while retaining a single state record.
 	stateDirectories := []string{bridgeCloudStateDirectory}
 	seenStateDirectories := map[string]struct{}{bridgeCloudStateDirectory: {}}
 	if config != nil {
