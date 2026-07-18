@@ -3,6 +3,7 @@ package fs
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -26,7 +27,7 @@ func TestLocalLibraryRoundTripUsesPrivateCodeState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if info.Mode().Perm() != 0o600 {
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 {
 		t.Fatalf("library mode=%o, want 600", info.Mode().Perm())
 	}
 }

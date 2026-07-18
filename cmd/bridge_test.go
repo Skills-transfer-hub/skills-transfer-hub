@@ -61,11 +61,22 @@ func TestRun_bridgeNegotiatesAndReadsProjectWithoutMutation(t *testing.T) {
 		}
 	}
 	project := responses[1]["result"].(map[string]any)
-	canonicalProjectDir, err := filepath.EvalSymlinks(projectDir)
+	if project["configured"] != true {
+		t.Fatalf("project=%v", project)
+	}
+	projectRoot, ok := project["root"].(string)
+	if !ok {
+		t.Fatalf("project root=%v", project["root"])
+	}
+	expectedRootInfo, err := os.Stat(projectDir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if project["configured"] != true || project["root"] != canonicalProjectDir {
+	actualRootInfo, err := os.Stat(projectRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !os.SameFile(expectedRootInfo, actualRootInfo) {
 		t.Fatalf("project=%v", project)
 	}
 	status := responses[2]["result"].(map[string]any)
