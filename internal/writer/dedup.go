@@ -6,10 +6,8 @@ const (
 )
 
 type SkillPlacement struct {
-	Folders       []string
-	ReadsFrom     map[string]string
-	CodexFolder   string
-	NeedsCodexCfg bool
+	Folders   []string
+	ReadsFrom map[string]string
 }
 
 func PlanSkillPlacement(selectedKinds []string) SkillPlacement {
@@ -18,26 +16,26 @@ func PlanSkillPlacement(selectedKinds []string) SkillPlacement {
 		selected[kind] = true
 	}
 
-	hasNonAntigravity := selected[KindClaude] || selected[KindCursor] || selected[KindCopilot] || selected[KindCodex]
-	hasAntigravity := selected[KindAntigravity]
+	hasClaudeSkills := selected[KindClaude] || selected[KindCursor] || selected[KindCopilot]
+	hasAgentSkills := selected[KindCodex] || selected[KindAntigravity]
 
 	placement := SkillPlacement{ReadsFrom: map[string]string{}}
 
-	if hasNonAntigravity {
+	if hasClaudeSkills {
 		placement.Folders = append(placement.Folders, claudeSkillsDir)
-		for _, kind := range []string{KindClaude, KindCursor, KindCopilot, KindCodex} {
+		for _, kind := range []string{KindClaude, KindCursor, KindCopilot} {
 			if selected[kind] {
 				placement.ReadsFrom[kind] = claudeSkillsDir
 			}
 		}
 	}
-	if hasAntigravity {
+	if hasAgentSkills {
 		placement.Folders = append(placement.Folders, agentsSkillsDir)
-		placement.ReadsFrom[KindAntigravity] = agentsSkillsDir
-	}
-	if selected[KindCodex] {
-		placement.NeedsCodexCfg = true
-		placement.CodexFolder = claudeSkillsDir
+		for _, kind := range []string{KindCodex, KindAntigravity} {
+			if selected[kind] {
+				placement.ReadsFrom[kind] = agentsSkillsDir
+			}
+		}
 	}
 
 	return placement

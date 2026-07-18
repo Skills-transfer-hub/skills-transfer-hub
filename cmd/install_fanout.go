@@ -111,14 +111,6 @@ func (a *app) installSkillFanout(profile fs.ProjectProfile, entry fs.CatalogEntr
 		return a.renderFanoutDryRun(projectRoot, profile.TargetDir, entry.CatalogID, managedFiles, jsonOut)
 	}
 
-	if placement.NeedsCodexCfg {
-		a.progress.note("Configuration de Codex…")
-		codexSkillPath := placement.CodexFolder + "/" + entry.Name + "/SKILL.md"
-		if _, cfgErr := fs.EnsureCodexSkillsConfig(projectRoot, codexSkillPath); cfgErr != nil {
-			a.writeStderr(fmt.Sprintf("warning: configuration codex non mise à jour : %v", cfgErr))
-		}
-	}
-
 	a.progress.step("Finalisation…")
 	previous, _, _ := fs.InstalledRecordV2For(profile.TargetDir, entry.CatalogID, "")
 	effectiveVersion := resolvedVersion
@@ -198,7 +190,7 @@ func (a *app) installArtifactFanout(profile fs.ProjectProfile, cfg fs.ProjectCon
 				return conflict
 			}
 		}
-	} else {
+	} else if !dryRun {
 		transferred := false
 		for _, file := range plannedFiles {
 			if conflict := fs.CheckOwnershipConflict(&state, entry.CatalogID, file.Path); conflict != nil {
@@ -305,9 +297,6 @@ func (a *app) printSkillPlacement(entry fs.CatalogEntry, placement writer.SkillP
 	lines := []string{fmt.Sprintf("Skill '%s' installé :", entry.Name)}
 	for _, folder := range placement.Folders {
 		lines = append(lines, fmt.Sprintf("  → %s/%s (lu par %s)", folder, entry.Name, strings.Join(readers[folder], ", ")))
-	}
-	if placement.NeedsCodexCfg {
-		lines = append(lines, fmt.Sprintf("  → .codex/config.toml (skills.config → %s/%s/SKILL.md)", placement.CodexFolder, entry.Name))
 	}
 	lines = append(lines, "Prochaine étape : utilisez `sth update` pour rafraîchir les ressources suivies.")
 	a.writeStdout(lines...)
