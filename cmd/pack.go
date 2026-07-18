@@ -1,20 +1,18 @@
 package cmd
 
 import (
-	"context"
 	"errors"
 	"fmt"
 )
 
-// runPack dispatches `sth pack <subcommand>`. Today the only subcommand is
-// `init` (scaffold a new skills repository); `publish` / `validate` are
-// reserved for later.
+// runPack dispatches local, open-source Git pack operations.
 //
-// Pack is gated Pro — every subcommand re-enters enforceProGate so a future
-// addition can't accidentally leak into Free without an explicit decision.
+// Local pack creation is part of the open-source Starter workstation. A
+// future cloud publish operation must enforce its own hosted capability at
+// the server boundary; it must not make this local scaffold paywalled.
 func (a *app) runPack(args []string) error {
 	if len(args) == 0 {
-		return errors.New("usage : sth pack <init>")
+		return errors.New("usage : sth pack <init|promote>")
 	}
 	if isHelpFlag(args[0]) {
 		a.writeStdout(commandHelpText("pack"))
@@ -26,10 +24,13 @@ func (a *app) runPack(args []string) error {
 			a.writeStdout(commandHelpText("pack"))
 			return nil
 		}
-		if err := a.enforceProGate(context.Background()); err != nil {
-			return err
-		}
 		return a.runPackInit(args[1:])
+	case "promote":
+		if len(args) >= 2 && isHelpFlag(args[1]) {
+			a.writeStdout(commandHelpText("pack"))
+			return nil
+		}
+		return a.runPackPromote(args[1:])
 	}
 	return fmt.Errorf("commande pack inconnue : %q", args[0])
 }

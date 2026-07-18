@@ -217,11 +217,7 @@ func TestRunGuidedMenu_configuredReadyShowsProviderGuidance(t *testing.T) {
 	assertEmpty(t, stderr.String())
 }
 
-func TestRunGuidedMenu_alphaGateBlocksOutdatedAndReusesCache(t *testing.T) {
-	// Once the Alpha gate is in place, an outdated binary never reaches the
-	// guided menu's update-offer rendering — the gate blocks first. We keep
-	// this test (with v1.0.0 < v1.2.0 setup) to verify the gate's cache reuse
-	// across no-args invocations: both runs block, server is hit once.
+func TestRunGuidedMenu_releaseMetadataNeverBlocksLocalUse(t *testing.T) {
 	projectDir := t.TempDir()
 	cacheDir := t.TempDir()
 	writeProjectProfileForCommandTest(t, projectDir, fs.ProjectProfile{
@@ -272,20 +268,21 @@ func TestRunGuidedMenu_alphaGateBlocksOutdatedAndReusesCache(t *testing.T) {
 	}
 
 	first := runCLIWithOptions(t, options)
-	if first.err == nil {
-		t.Fatalf("first Run() error = nil, want gate block\nstdout=%s\nstderr=%s", first.stdout, first.stderr)
+	if first.err != nil {
+		t.Fatalf("first Run() error = %v, want local menu to remain usable\nstdout=%s\nstderr=%s", first.err, first.stdout, first.stderr)
 	}
-	assertContains(t, first.stderr, "obsolète")
-	assertContains(t, first.stderr, "v1.2.0")
+	assertNotContains(t, first.stderr, "obsolète")
+	assertContains(t, first.stdout, "Menu guidé STH")
 	if releaseRequests != 1 {
 		t.Fatalf("releaseRequests after first run = %d, want 1", releaseRequests)
 	}
 
 	second := runCLIWithOptions(t, options)
-	if second.err == nil {
-		t.Fatalf("second Run() error = nil, want gate block\nstdout=%s\nstderr=%s", second.stdout, second.stderr)
+	if second.err != nil {
+		t.Fatalf("second Run() error = %v, want cached offer to remain non-blocking\nstdout=%s\nstderr=%s", second.err, second.stdout, second.stderr)
 	}
-	assertContains(t, second.stderr, "obsolète")
+	assertNotContains(t, second.stderr, "obsolète")
+	assertContains(t, second.stdout, "Menu guidé STH")
 	if releaseRequests != 1 {
 		t.Fatalf("releaseRequests after second run = %d, want cache reuse without new network call", releaseRequests)
 	}

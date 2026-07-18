@@ -163,7 +163,7 @@ func TestInstallFanout_FlatSkillSingleFile(t *testing.T) {
 	assertFileExists(t, filepath.Join(projectDir, ".claude", "skills", "alpha", "alpha.md"))
 }
 
-func TestInstallFanout_CodexConfigEntry(t *testing.T) {
+func TestInstallFanout_CodexUsesNativeAgentsSkillsDiscovery(t *testing.T) {
 	projectDir := t.TempDir()
 	server := skillBundleServer(t)
 	defer server.Close()
@@ -177,15 +177,9 @@ func TestInstallFanout_CodexConfigEntry(t *testing.T) {
 		t.Fatalf("Run() error = %v\nstderr=%s", result.err, result.stderr)
 	}
 
-	assertFileExists(t, filepath.Join(projectDir, ".claude", "skills", "alpha", "SKILL.md"))
-	configData, err := os.ReadFile(filepath.Join(projectDir, ".codex", "config.toml"))
-	if err != nil {
-		t.Fatalf("ReadFile(.codex/config.toml): %v", err)
-	}
-	content := string(configData)
-	if !strings.Contains(content, "[[skills.config]]") || !strings.Contains(content, `path = ".claude/skills/alpha/SKILL.md"`) {
-		t.Fatalf("codex config missing skill entry: %q", content)
-	}
+	assertFileExists(t, filepath.Join(projectDir, ".agents", "skills", "alpha", "SKILL.md"))
+	assertNoFile(t, filepath.Join(projectDir, ".claude", "skills", "alpha", "SKILL.md"))
+	assertNoFile(t, filepath.Join(projectDir, ".codex", "config.toml"))
 }
 
 func TestInstallFanout_AgentAcrossTargets(t *testing.T) {
@@ -223,6 +217,56 @@ func TestInstallFanout_AgentAcrossTargets(t *testing.T) {
 	state := readStateV2(t, projectDir)
 	if len(state.Entries) != 4 {
 		t.Fatalf("state entries = %d, want 4 (one per target)", len(state.Entries))
+	}
+}
+
+func TestInstallFanout_ForcedDryRunDoesNotTransferOwnership(t *testing.T) {
+	projectDir := t.TempDir()
+	server := httptest.NewServer(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		switch r.URL.Path {
+		case "/owner/repo/main/SKILLS.md":
+			_, _ = w.Write([]byte(testCatalogMarkdown("| agent | reviewer | agents | agents/reviewer.md | Reviewer |")))
+		case "/owner/repo/main/agents/reviewer.md":
+			_, _ = w.Write([]byte("# Reviewer\n"))
+		default:
+			stdhttp.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	t.Setenv("STH_GITHUB_RAW_BASE_URL", server.URL)
+
+	writeProjectConfigV2ForTest(t, projectDir, fanoutConfig(fanoutTarget("claude", ".claude")))
+	state := fs.InstalledResourceStateV2{
+		SchemaVersion: 2,
+		Entries: []fs.InstalledResourceRecordV2{{
+			ResourceName: "agent::agents::other",
+			ProviderID:   "default",
+			TargetID:     "claude",
+			ArtifactKind: "agent",
+			ManagedFiles: []fs.ManagedFile{{
+				Path: ".claude/agents/reviewer.md", SHA256: "existing-owner",
+			}},
+		}},
+	}
+	stateBytes, err := json.Marshal(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	statePath := filepath.Join(projectDir, ".sth", "sth-state-v2.json")
+	if err := os.WriteFile(statePath, stateBytes, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	result := runCLI(t, projectDir, t.TempDir(), "install", "reviewer", "--dry-run", "--json", "--force")
+	if result.err != nil {
+		t.Fatalf("forced dry-run: %v\nstderr=%s", result.err, result.stderr)
+	}
+	after, err := os.ReadFile(statePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(after) != string(stateBytes) {
+		t.Fatalf("forced dry-run mutated ownership state:\nbefore=%s\nafter=%s", stateBytes, after)
 	}
 }
 

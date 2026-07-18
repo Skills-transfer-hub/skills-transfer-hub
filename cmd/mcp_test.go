@@ -11,6 +11,8 @@ import (
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"sth/internal/fs"
 )
 
 func readMCPConfig(t *testing.T, path string) map[string]any {
@@ -117,6 +119,10 @@ func TestLibraryMCPServerToolsEndToEnd(t *testing.T) {
 		case request.Method == http.MethodPost && request.URL.Path == "/v1/library":
 			writer.WriteHeader(http.StatusCreated)
 			_, _ = writer.Write([]byte(`{"id":"22222222-2222-2222-2222-222222222222"}`))
+		case request.Method == http.MethodGet && request.URL.Path == "/v2/assets":
+			_, _ = writer.Write([]byte(`{"items":[{"id":"skill::skills::review-pr","family":"package","kind":"skill","name":"Review PR","description":"Review a pull request","status":"available","source_path":"skills/review-pr/SKILL.md"}],"next_cursor":null}`))
+		case request.Method == http.MethodGet && request.URL.Path == "/v2/assets/skill::skills::review-pr":
+			_, _ = writer.Write([]byte(`{"id":"skill::skills::review-pr","family":"package","kind":"skill","name":"Review PR","description":"Review a pull request","status":"available","source_path":"skills/review-pr/SKILL.md"}`))
 		default:
 			writer.WriteHeader(http.StatusNotFound)
 		}
@@ -145,8 +151,8 @@ func TestLibraryMCPServerToolsEndToEnd(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list tools: %v", err)
 	}
-	if len(tools.Tools) != 3 {
-		t.Fatalf("expected 3 tools, got %d", len(tools.Tools))
+	if len(tools.Tools) != 5 {
+		t.Fatalf("expected 5 tools, got %d", len(tools.Tools))
 	}
 
 	searchResult, err := session.CallTool(ctx, &mcp.CallToolParams{
@@ -182,7 +188,85 @@ func TestLibraryMCPServerToolsEndToEnd(t *testing.T) {
 		t.Fatalf("save text = %q", got)
 	}
 
+	assetSearchResult, err := session.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "asset_search",
+		Arguments: map[string]any{"query": "review", "family": "package"},
+	})
+	if err != nil {
+		t.Fatalf("call asset_search: %v", err)
+	}
+	if got := toolText(t, assetSearchResult); !strings.Contains(got, "Review PR") {
+		t.Fatalf("asset search text = %q", got)
+	}
+
+	assetGetResult, err := session.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "asset_get",
+		Arguments: map[string]any{"id": "skill::skills::review-pr"},
+	})
+	if err != nil {
+		t.Fatalf("call asset_get: %v", err)
+	}
+	if got := toolText(t, assetGetResult); !strings.Contains(got, "skills/review-pr/SKILL.md") {
+		t.Fatalf("asset get text = %q", got)
+	}
+
 	if !sawMCPHeader {
 		t.Fatalf("backend never saw the X-STH-Client: mcp header")
+	}
+}
+
+func TestMCPServerWorksLocallyWithoutCloudCredential(t *testing.T) {
+	project := t.TempDir()
+	previousDirectory, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(project); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = os.Chdir(previousDirectory) }()
+	t.Setenv("STH_MCP_LOCAL_ONLY", "1")
+	seed, err := fs.SaveLocalLibraryItem(project, fs.LocalLibrarySaveInput{
+		Kind: "prompt", Title: "Local review", Body: "Review this change locally",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ctx := context.Background()
+	serverTransport, clientTransport := mcp.NewInMemoryTransports()
+	serverSession, err := newLibraryMCPServer().Connect(ctx, serverTransport, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer serverSession.Close()
+	client := mcp.NewClient(&mcp.Implementation{Name: "local-test", Version: "1"}, nil)
+	session, err := client.Connect(ctx, clientTransport, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+
+	search, err := session.CallTool(ctx, &mcp.CallToolParams{
+		Name: "library_search", Arguments: map[string]any{"query": "review"},
+	})
+	if err != nil || !strings.Contains(toolText(t, search), seed.ID) {
+		t.Fatalf("local search err=%v result=%v", err, search)
+	}
+	asset, err := session.CallTool(ctx, &mcp.CallToolParams{
+		Name: "asset_get", Arguments: map[string]any{"id": seed.ID},
+	})
+	if err != nil || !strings.Contains(toolText(t, asset), "Review this change locally") {
+		t.Fatalf("local asset get err=%v result=%v", err, asset)
+	}
+	saved, err := session.CallTool(ctx, &mcp.CallToolParams{
+		Name: "library_save", Arguments: map[string]any{"title": "Captured", "body": "Explicit local capture"},
+	})
+	if err != nil || !strings.Contains(toolText(t, saved), "local STH library") {
+		t.Fatalf("local save err=%v result=%v", err, saved)
+	}
+	items, err := fs.ReadLocalLibrary(project)
+	if err != nil || len(items) != 2 {
+		t.Fatalf("local items=%v err=%v", items, err)
 	}
 }

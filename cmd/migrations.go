@@ -44,3 +44,22 @@ func (a *app) prepareStateAccess() (*fs.ProjectProfile, func(), error) {
 
 	return profile, release, nil
 }
+
+func (a *app) prepareStateReadAccess() (*fs.ProjectProfile, error) {
+	configPath, err := fs.ProjectProfilePath()
+	if err != nil {
+		return nil, err
+	}
+	if absolutePath, pathErr := filepath.Abs(configPath); pathErr == nil {
+		a.verbose.Path("project.json", absolutePath)
+	}
+
+	profile, err := fs.ReadProjectProfile()
+	if err != nil {
+		return nil, err
+	}
+	if absolutePath, pathErr := filepath.Abs(filepath.Join(profile.TargetDir, "sth-state-v2.json")); pathErr == nil {
+		a.verbose.Path("sth-state-v2.json", absolutePath)
+	}
+	return profile, nil
+}

@@ -6,12 +6,14 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"sth/internal/auth"
 	"sth/internal/cloud"
+	"sth/internal/fs"
 )
 
 const mcpServerVersion = "1"
@@ -44,6 +46,16 @@ type librarySaveArgs struct {
 	SourceModel string `json:"source_model,omitempty" jsonschema:"the model, e.g. claude-opus-4"`
 }
 
+type assetSearchArgs struct {
+	Query  string `json:"query,omitempty" jsonschema:"free-text matched against package and library assets"`
+	Family string `json:"family,omitempty" jsonschema:"restrict to package or library"`
+	Kind   string `json:"kind,omitempty" jsonschema:"restrict to skill, agent, command, instruction, prompt or artifact"`
+}
+
+type assetGetArgs struct {
+	ID string `json:"id" jsonschema:"the asset id returned by asset_search"`
+}
+
 func (a *app) runMCP(args []string) error {
 	if len(args) > 0 && isHelpFlag(args[0]) {
 		a.writeStdout(commandHelpText("mcp"))
@@ -61,9 +73,6 @@ func (a *app) runMCP(args []string) error {
 }
 
 func (a *app) runMCPServe() error {
-	if _, err := auth.LoadAPIKey(); err != nil {
-		return errors.New("aucune clé STH Cloud configurée — exécute `sth login` avant `sth mcp`.")
-	}
 	server := newLibraryMCPServer()
 	return server.Run(context.Background(), &mcp.StdioTransport{})
 }
@@ -82,7 +91,91 @@ func newLibraryMCPServer() *mcp.Server {
 		Name:        "library_save",
 		Description: "Save a prompt or an AI output to the team STH library.",
 	}, handleLibrarySave)
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "asset_search",
+		Description: "Search deployable packages and collaborative library assets through one STH read model.",
+	}, handleAssetSearch)
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "asset_get",
+		Description: "Fetch one package or library asset returned by asset_search.",
+	}, handleAssetGet)
 	return server
+}
+
+func handleAssetSearch(
+	ctx context.Context,
+	_ *mcp.CallToolRequest,
+	input assetSearchArgs,
+) (*mcp.CallToolResult, any, error) {
+	if !mcpCloudConnected() {
+		matches, err := localAssetSearch(input)
+		if err != nil {
+			return mcpErrorResult(err), nil, nil
+		}
+		return renderAssetSearch(matches), nil, nil
+	}
+	matches, err := cloud.SearchAssets(ctx, nil, input.Query, input.Family, input.Kind)
+	if err != nil {
+		return mcpErrorResult(err), nil, nil
+	}
+	return renderAssetSearch(matches), nil, nil
+}
+
+func renderAssetSearch(matches []cloud.AssetSummary) *mcp.CallToolResult {
+	if len(matches) == 0 {
+		return mcpTextResult("No matching STH assets.")
+	}
+	lines := make([]string, 0, len(matches))
+	for _, match := range matches {
+		line := fmt.Sprintf("- [%s/%s] %s (id %s)", match.Family, match.Kind, match.Name, match.ID)
+		if strings.TrimSpace(match.Description) != "" {
+			line += " — " + strings.TrimSpace(match.Description)
+		}
+		lines = append(lines, line)
+	}
+	return mcpTextResult(strings.Join(lines, "\n"))
+}
+
+func handleAssetGet(
+	ctx context.Context,
+	_ *mcp.CallToolRequest,
+	input assetGetArgs,
+) (*mcp.CallToolResult, any, error) {
+	if !mcpCloudConnected() {
+		asset, err := localAssetGet(input.ID)
+		if err != nil {
+			return mcpErrorResult(err), nil, nil
+		}
+		return renderAssetGet(asset), nil, nil
+	}
+	asset, err := cloud.GetAsset(ctx, nil, input.ID)
+	if err != nil {
+		return mcpErrorResult(err), nil, nil
+	}
+	return renderAssetGet(asset), nil, nil
+}
+
+func renderAssetGet(asset cloud.AssetSummary) *mcp.CallToolResult {
+	header := fmt.Sprintf("# %s [%s/%s]", asset.Name, asset.Family, asset.Kind)
+	details := make([]string, 0, 2)
+	if asset.SourcePath != "" {
+		details = append(details, "source: "+asset.SourcePath)
+	}
+	if asset.Status != "" {
+		details = append(details, "status: "+asset.Status)
+	}
+	content := strings.TrimSpace(asset.Body)
+	if content == "" {
+		content = strings.TrimSpace(asset.Description)
+	}
+	parts := []string{header}
+	if len(details) > 0 {
+		parts = append(parts, strings.Join(details, "\n"))
+	}
+	if content != "" {
+		parts = append(parts, content)
+	}
+	return mcpTextResult(strings.Join(parts, "\n\n"))
 }
 
 func handleLibrarySearch(
@@ -90,6 +183,31 @@ func handleLibrarySearch(
 	_ *mcp.CallToolRequest,
 	input librarySearchArgs,
 ) (*mcp.CallToolResult, any, error) {
+	if !mcpCloudConnected() {
+		items, err := fs.ReadLocalLibrary(".")
+		if err != nil {
+			return mcpErrorResult(err), nil, nil
+		}
+		matches := make([]fs.LocalLibraryItem, 0, len(items))
+		query := strings.ToLower(strings.TrimSpace(input.Query))
+		for _, item := range items {
+			if input.Kind != "" && item.Kind != input.Kind {
+				continue
+			}
+			if query != "" && !strings.Contains(strings.ToLower(item.Title+" "+item.Body), query) {
+				continue
+			}
+			matches = append(matches, item)
+		}
+		if len(matches) == 0 {
+			return mcpTextResult("No matching local library items."), nil, nil
+		}
+		lines := make([]string, 0, len(matches))
+		for _, match := range matches {
+			lines = append(lines, fmt.Sprintf("- [%s] %s (id %s) — local", match.Kind, match.Title, match.ID))
+		}
+		return mcpTextResult(strings.Join(lines, "\n")), nil, nil
+	}
 	matches, err := cloud.SearchLibrary(ctx, nil, input.Query, input.Kind)
 	if err != nil {
 		return mcpErrorResult(err), nil, nil
@@ -114,6 +232,18 @@ func handleLibraryGet(
 	_ *mcp.CallToolRequest,
 	input libraryGetArgs,
 ) (*mcp.CallToolResult, any, error) {
+	if !mcpCloudConnected() {
+		items, err := fs.ReadLocalLibrary(".")
+		if err != nil {
+			return mcpErrorResult(err), nil, nil
+		}
+		for _, item := range items {
+			if item.ID == strings.TrimSpace(input.ID) {
+				return mcpTextResult(fmt.Sprintf("# %s [%s]\nsource: local\n\n%s", item.Title, item.Kind, item.Body)), nil, nil
+			}
+		}
+		return mcpErrorResult(errors.New("local library item not found")), nil, nil
+	}
 	item, err := cloud.GetLibrary(ctx, nil, input.ID)
 	if err != nil {
 		return mcpErrorResult(err), nil, nil
@@ -138,6 +268,20 @@ func handleLibrarySave(
 	if kind == "" {
 		kind = "prompt"
 	}
+	if !mcpCloudConnected() {
+		tags := []string{"mcp"}
+		if sourceTool := strings.TrimSpace(input.SourceTool); sourceTool != "" {
+			tags = append(tags, sourceTool)
+		}
+		item, err := fs.SaveLocalLibraryItem(".", fs.LocalLibrarySaveInput{
+			Kind: kind, Title: input.Title, Body: input.Body,
+			Tags: tags,
+		})
+		if err != nil {
+			return mcpErrorResult(err), nil, nil
+		}
+		return mcpTextResult(fmt.Sprintf("Saved to the local STH library (id %s).", item.ID)), nil, nil
+	}
 	id, err := cloud.SaveLibrary(ctx, nil, cloud.LibrarySaveInput{
 		Kind:        kind,
 		Title:       input.Title,
@@ -149,6 +293,84 @@ func handleLibrarySave(
 		return mcpErrorResult(err), nil, nil
 	}
 	return mcpTextResult(fmt.Sprintf("Saved to the STH library (id %s).", id)), nil, nil
+}
+
+func mcpCloudConnected() bool {
+	if os.Getenv("STH_MCP_LOCAL_ONLY") == "1" {
+		return false
+	}
+	_, err := auth.LoadAPIKey()
+	return err == nil
+}
+
+func localAssetSearch(input assetSearchArgs) ([]cloud.AssetSummary, error) {
+	assets := []cloud.AssetSummary{}
+	if input.Family == "" || input.Family == "package" {
+		project, err := readBridgeProject()
+		if err != nil {
+			return nil, err
+		}
+		resources, err := readBridgeResources(project.Config)
+		if err != nil {
+			return nil, err
+		}
+		for _, resource := range resources {
+			assets = append(assets, cloud.AssetSummary{
+				ID: resource.ResourceRef, Family: "package", Kind: resource.Kind,
+				Name: resource.ResourceRef, Status: resource.Status,
+			})
+		}
+	}
+	if input.Family == "" || input.Family == "library" {
+		items, err := fs.ReadLocalLibrary(".")
+		if err != nil {
+			return nil, err
+		}
+		for _, item := range items {
+			assets = append(assets, cloud.AssetSummary{
+				ID: item.ID, Family: "library", Kind: item.Kind, Name: item.Title,
+				Description: localAssetExcerpt(item.Body), Body: item.Body, Status: "available",
+			})
+		}
+	}
+	query := strings.ToLower(strings.TrimSpace(input.Query))
+	filtered := make([]cloud.AssetSummary, 0, len(assets))
+	for _, asset := range assets {
+		if input.Kind != "" && asset.Kind != input.Kind {
+			continue
+		}
+		if query != "" && !strings.Contains(strings.ToLower(asset.Name+" "+asset.Description), query) {
+			continue
+		}
+		filtered = append(filtered, asset)
+	}
+	return filtered, nil
+}
+
+func localAssetGet(id string) (cloud.AssetSummary, error) {
+	id = strings.TrimSpace(id)
+	assets, err := localAssetSearch(assetSearchArgs{})
+	if err != nil {
+		return cloud.AssetSummary{}, err
+	}
+	for _, asset := range assets {
+		if asset.ID == id {
+			if asset.Family == "package" {
+				asset.SourcePath = filepath.ToSlash(filepath.Join(".sth", "project.json"))
+			}
+			return asset, nil
+		}
+	}
+	return cloud.AssetSummary{}, errors.New("local STH asset not found")
+}
+
+func localAssetExcerpt(value string) string {
+	value = strings.TrimSpace(value)
+	runes := []rune(value)
+	if len(runes) <= 240 {
+		return value
+	}
+	return string(runes[:240])
 }
 
 func mcpTextResult(text string) *mcp.CallToolResult {
@@ -192,7 +414,7 @@ func (a *app) runMCPInstall(_ []string) error {
 		mcpGeminiConfig,
 		"",
 		"Claude Desktop réutilise la même entrée mcpServers que Claude Code.",
-		"Rappel : lancez `sth login` une fois pour vous identifier avec votre clé de licence.",
+		"Sans connexion, le serveur reste local. Lancez `sth login` uniquement pour accéder aux assets partagés de votre organisation.",
 	)
 	return nil
 }

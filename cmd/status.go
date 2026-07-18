@@ -5,9 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"sth/internal/fs"
 	sthhttp "sth/internal/http"
-	"path/filepath"
 )
 
 func (a *app) runStatus(args []string) error {
@@ -22,12 +22,12 @@ func (a *app) runStatus(args []string) error {
 }
 
 func (a *app) runStatusInner(jsonOut bool) error {
-	if cfgPath, err := fs.ProjectProfilePath(); err == nil {
-		if abs, absErr := filepath.Abs(cfgPath); absErr == nil {
-			a.verbose.Path("project.json", abs)
+	if configPath, err := fs.ProjectProfilePath(); err == nil {
+		if absolutePath, absolutePathErr := filepath.Abs(configPath); absolutePathErr == nil {
+			a.verbose.Path("project.json", absolutePath)
 		}
 	}
-	config, err := fs.ReadProjectConfigV2()
+	config, err := fs.ReadProjectConfigV2ReadOnly()
 	if err != nil {
 		return err
 	}
@@ -82,38 +82,32 @@ func (a *app) runStatusInner(jsonOut bool) error {
 		return nil
 	}
 
-	for _, res := range results {
-		line := fmt.Sprintf("%-30s  %s", res.ResourceName, res.Status)
-		if res.Status == fs.ResourceStatusOutdated && !res.Pinned {
-			line += fmt.Sprintf("  installed: %.8s  available: %.8s", res.InstalledVersion, res.LatestVersion)
+	for _, result := range results {
+		line := fmt.Sprintf("%-30s  %s", result.ResourceName, result.Status)
+		if result.Status == fs.ResourceStatusOutdated && !result.Pinned {
+			line += fmt.Sprintf("  installed: %.8s  available: %.8s", result.InstalledVersion, result.LatestVersion)
 		}
-		if res.Pinned {
-			line += fmt.Sprintf("  (pinned at %s)", res.PinnedVersion)
+		if result.Pinned {
+			line += fmt.Sprintf("  (pinned at %s)", result.PinnedVersion)
 		}
 		a.writeStdout(line)
-		if res.Pinned && res.LatestVersion != "" && res.LatestVersion != res.InstalledVersion {
-			a.writeStdout(fmt.Sprintf("  → Newer version available for %s (pinned at %s)", res.ResourceName, res.PinnedVersion))
+		if result.Pinned && result.LatestVersion != "" && result.LatestVersion != result.InstalledVersion {
+			a.writeStdout(fmt.Sprintf("  → Newer version available for %s (pinned at %s)", result.ResourceName, result.PinnedVersion))
 		}
-		if res.Status == fs.ResourceStatusModifiedLocally {
-			for _, f := range res.ModifiedFiles {
-				a.writeStdout(fmt.Sprintf("    modified: %s", f))
+		if result.Status == fs.ResourceStatusModifiedLocally {
+			for _, modifiedFile := range result.ModifiedFiles {
+				a.writeStdout(fmt.Sprintf("    modified: %s", modifiedFile))
 			}
 		}
-		if res.Status == fs.ResourceStatusUnknownBaseline {
-			a.writeStdout(fmt.Sprintf("  → re-install with `sth install --force %s` to establish integrity tracking", res.ResourceName))
+		if result.Status == fs.ResourceStatusUnknownBaseline {
+			a.writeStdout(fmt.Sprintf("  → re-install with `sth install --force %s` to establish integrity tracking", result.ResourceName))
 		}
 	}
 
 	return nil
 }
 
-// isProviderConfigError reports whether err is a ProviderConfigError —
-// a configuration problem (missing provider, unsupported type, missing required
-// fields) rather than a genuine network or HTTP failure. Such errors are
-// non-fatal for the status command: the resource is reported with an unknown
-// latest version.
 func isProviderConfigError(err error) bool {
-	var pce *sthhttp.ProviderConfigError
-	return errors.As(err, &pce)
+	var providerConfigErr *sthhttp.ProviderConfigError
+	return errors.As(err, &providerConfigErr)
 }
-

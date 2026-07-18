@@ -4,7 +4,7 @@
 
 # STH — Skills Transfer Hub
 
-STH est un CLI Go, distribué en binaire unique, pour connecter un projet à un dépôt hébergé de ressources IA, lire un catalogue `SKILLS.md`, installer des ressources dans le projet courant, puis les maintenir à jour.
+STH est un moteur et CLI Go MIT, distribué en binaire unique, pour connecter un projet à un dépôt Git de ressources IA, lire un catalogue `SKILLS.md`, matérialiser des bundles multi-fichiers pour plusieurs agents, puis les maintenir à jour.
 
 Le flux actuel est centré sur le projet courant, pas sur une configuration partagée entre tous les dépôts. STH écrit donc un profil local dans `.sth/project.json` et ne stocke jamais de secret privé dans ce fichier.
 
@@ -19,6 +19,10 @@ Le flux actuel est centré sur le projet courant, pas sur une configuration part
 - `sth update [--fail-on-changes]` met à jour les ressources suivies dans le projet courant ; affiche les entrées de `CHANGELOG.md` ajoutées depuis la version installée quand un bundle mis à jour en contient un ; `--fail-on-changes` exit 1 (sans rien modifier) si une ressource gérée a été éditée localement, utile comme gate CI
 - `sth new <category>/<name>` scaffolde un nouveau skill conforme (`SKILL.md` pré-rempli) — pour les mainteneurs de dépôts de skills
 - `sth catalog init [--force]` génère `SKILLS.md` à partir de la structure `category/skill/SKILL.md` du dépôt courant ; le catalogue produit est directement consommable par `sth list`
+- `sth pack init` initialise gratuitement et hors ligne un dépôt de packs Git
+- `sth pack promote <library-id> [--output skills/<slug>] [--dry-run] [--yes]` transforme volontairement un élément de `.sth/local/code/library.json` en bundle Git multi-fichiers, sans commit ni push
+- `sth mcp` expose `library_search`, `library_get`, `library_save`, `asset_search` et `asset_get`. Sans compte, les données restent sous `.sth/local/code/`; `STH_MCP_LOCAL_ONLY=1` force ce mode
+- `sth bridge --stdio` expose à STH Code le protocole JSON-RPC versionné (`status`, catalogue, preview/install/update/remove et `promote.preview`/`promote`). Toute mutation exige une confirmation explicite
 - `sth update self` vérifie et applique la dernière release GitHub stable compatible avec la plateforme courante
 - `sth status [--json]` montre l'état (à jour, obsolète, modifié-localement) de chaque ressource installée
 - `sth doctor` diagnostique la configuration STH du projet courant (project.json, sth-state, credentials, accès provider) avec une remédiation par check
@@ -37,6 +41,13 @@ Le flux actuel est centré sur le projet courant, pas sur une configuration part
 En plus des providers Git classiques (GitHub / GitLab / Azure DevOps / Bitbucket), STH peut
 maintenant pointer sur le SaaS **STH Cloud** : pas de PAT Git à gérer, l'auth passe par
 une API key hashée côté serveur.
+
+### Frontière freemium
+
+- L'accès direct à un dépôt Git public ou privé avec les credentials du développeur reste local, illimité et gratuit.
+- Les packs locaux, les cibles multiples, la bibliothèque locale et le MCP local fonctionnent sans compte ni réseau.
+- STH Cloud monétise le service : catalogues privés hébergés, synchronisation entre personnes, mémoire d'organisation, MCP distant et gouvernance.
+- Les anciennes clés `/v1` restent acceptées pendant la migration. STH Code utilise le flux device-code `/v2`, avec access token court et refresh token dans le coffre système.
 
 ### Workflow
 
@@ -62,16 +73,9 @@ une API key hashée côté serveur.
 | `STH_CLOUD_API_KEY` | Fallback de la clé si le keychain n'est pas dispo (CI headless) |
 | `STH_CLOUD_BASE_URL` | Override l'URL de base (default : prod). Ex. dev local : `http://127.0.0.1:54321/functions/v1/cli` |
 
-### Quotas (Phase 1)
+### Quotas cloud
 
-| Plan | Skills installés max |
-|---|---|
-| starter | 3 |
-| pro | 10 |
-| team | ∞ |
-
-Au-delà du quota, `sth install` renvoie 402 `quota_exceeded`. Réinstaller un skill déjà
-présent est idempotent (ne consomme pas de quota).
+Starter Cloud comprend une organisation personnelle, trois packages hébergés et 25 éléments de bibliothèque. Pro et Team lèvent ces plafonds de contenu selon le contrat canonique de `sth-back`. Ces quotas ne limitent jamais un dépôt Git lu directement ni une ressource locale ; les mutations cloud renvoient une décision structurée avant toute écriture.
 
 ## Installation
 
