@@ -118,6 +118,9 @@ func bridgeCloudTargetKinds() ([]string, error) {
 	if len(config.Targets) == 0 {
 		return []string{writer.KindClaude, writer.KindCodex}, nil
 	}
+	if validationErr := validateFanoutTargetRoots(config); validationErr != nil {
+		return nil, validationErr
+	}
 	kinds := enabledTargetKinds(config)
 	if len(kinds) == 0 {
 		return nil, fmt.Errorf("aucune cible agent activée dans .sth/project.json")
@@ -144,6 +147,9 @@ func planBridgeCloudSkill(resolved bridgeCloudResolvedSkill, force bool) ([]fs.M
 			return nil, fmt.Errorf("fichier du bundle absent : %s", source)
 		}
 		return content, nil
+	}
+	if validationErr := validateSkillConsumerContracts(projectRoot, resolved.slug, resolved.sources, kinds, fetch); validationErr != nil {
+		return nil, nil, nil, nil, validationErr
 	}
 	managedFiles := make([]fs.ManagedFile, 0, len(resolved.sources)*len(placement.Folders))
 	for _, folder := range placement.Folders {

@@ -36,7 +36,7 @@ func (AntigravityWriter) Write(req WriteRequest) (WriteResult, error) {
 }
 
 func (AntigravityWriter) Plan(artifactKind, artifactName, _ string, sources []string) PlanResult {
-	if artifactName == "" || len(sources) == 0 {
+	if strings.TrimSpace(artifactName) == "" || len(sources) == 0 {
 		return PlanResult{}
 	}
 	switch artifactKind {
@@ -47,7 +47,7 @@ func (AntigravityWriter) Plan(artifactKind, artifactName, _ string, sources []st
 	case "command":
 		return PlanResult{Files: []PlannedFile{{SourcePath: sources[0], RelativePath: ".agents/workflows/" + artifactName + ".md"}}}
 	case "instruction":
-		return PlanResult{Skipped: true, Reason: "antigravity instructions hors scope; skipping " + artifactName}
+		return PlanResult{Files: []PlannedFile{{SourcePath: sources[0], RelativePath: ".agents/rules/" + artifactName + ".md"}}}
 	}
 	return PlanResult{Skipped: true, Reason: "unknown artifact kind: " + artifactKind}
 }

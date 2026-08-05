@@ -122,9 +122,9 @@ func scaffoldPack(targetDir, name, layout string) error {
 	}
 
 	files := map[string]string{
-		"README.md":   renderReadme(name, layout),
-		".sthignore":  defaultSthignore,
-		"SKILLS.md":   renderSkillsMd(layout),
+		"README.md":     renderReadme(name, layout),
+		".sthignore":    defaultSthignore,
+		"SKILLS.md":     renderSkillsMd(layout),
 		"manifest.json": renderManifest(name, layout),
 	}
 
@@ -214,7 +214,7 @@ func renderSkillsMd(layout string) string {
 }
 
 func renderManifest(name, layout string) string {
-	supportedTargets := `["claude","copilot","codex","cursor"]`
+	supportedTargets := `["claude","copilot","codex","cursor","antigravity","gemini"]`
 	return fmt.Sprintf(`{
   "name": %q,
   "layout": %q,
@@ -241,8 +241,6 @@ func sampleAgentContent(name string) string {
 	return fmt.Sprintf(`---
 name: %s
 description: Agent d'exemple scaffold par sth pack init.
-tools: Read, Grep, Glob
-model: sonnet
 ---
 
 Tu es un agent d'exemple. Remplace ce prompt par les instructions réelles
@@ -257,7 +255,8 @@ description: Commande slash d'exemple scaffold par sth pack init.
 ---
 
 Documente ici ce que la commande doit accomplir. Le contenu est exposé en
-tant que `+"`/%s`"+` dans les outils compatibles (Claude Code, Cursor, Codex).
+tant que `+"`/%s`"+` dans les outils compatibles (Claude Code, Copilot CLI,
+Cursor, Antigravity et Gemini CLI).
 `, name, name)
 }
 
@@ -268,7 +267,7 @@ applyTo: '**/*.md'
 ---
 
 Cette instruction sera injectée comme contexte ambiant pour les fichiers
-matchant `+"`applyTo`"+`. Format compatible GitHub Copilot, mappé en
-` + "`globs:`" + ` côté Cursor par sth.
+matchant ` + "`applyTo`" + `. Format compatible GitHub Copilot, mappé en
+` + "`globs:`" + ` côté Cursor et en règles projet pour Claude Code et Antigravity.
 `
 }

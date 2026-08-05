@@ -18,8 +18,10 @@ func TestPlanSkillPlacement_HubRule(t *testing.T) {
 		{"claude+antigravity", []string{KindClaude, KindAntigravity}, []string{claudeSkillsDir, agentsSkillsDir}},
 		{"cursor+copilot+antigravity", []string{KindCursor, KindCopilot, KindAntigravity}, []string{claudeSkillsDir, agentsSkillsDir}},
 		{"codex", []string{KindCodex}, []string{agentsSkillsDir}},
+		{"gemini", []string{KindGemini}, []string{agentsSkillsDir}},
 		{"codex+antigravity", []string{KindCodex, KindAntigravity}, []string{agentsSkillsDir}},
-		{"all", []string{KindClaude, KindCursor, KindCopilot, KindCodex, KindAntigravity}, []string{claudeSkillsDir, agentsSkillsDir}},
+		{"codex+antigravity+gemini", []string{KindCodex, KindAntigravity, KindGemini}, []string{agentsSkillsDir}},
+		{"all", []string{KindClaude, KindCursor, KindCopilot, KindCodex, KindAntigravity, KindGemini}, []string{claudeSkillsDir, agentsSkillsDir}},
 	}
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -32,12 +34,13 @@ func TestPlanSkillPlacement_HubRule(t *testing.T) {
 }
 
 func TestPlanSkillPlacement_ReadsFrom(t *testing.T) {
-	placement := PlanSkillPlacement([]string{KindCursor, KindCopilot, KindCodex, KindAntigravity})
+	placement := PlanSkillPlacement([]string{KindCursor, KindCopilot, KindCodex, KindAntigravity, KindGemini})
 	want := map[string]string{
 		KindCursor:      claudeSkillsDir,
 		KindCopilot:     claudeSkillsDir,
 		KindCodex:       agentsSkillsDir,
 		KindAntigravity: agentsSkillsDir,
+		KindGemini:      agentsSkillsDir,
 	}
 	if !reflect.DeepEqual(placement.ReadsFrom, want) {
 		t.Errorf("ReadsFrom = %v, want %v", placement.ReadsFrom, want)

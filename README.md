@@ -452,6 +452,60 @@ go test ./...
 go vet ./...
 ```
 
+Certification de compatibilité Claude, Codex, Copilot, Antigravity et Gemini :
+
+```bash
+for script in scripts/compat-*.sh testdata/runtime/fake-cli/*.sh; do
+  sh -n "$script"
+done
+sh scripts/compat-runtime-test.sh
+sh scripts/compat-sth-lifecycle-test.sh
+RUN_MODEL_SMOKES=0 sh scripts/compat-runtime.sh
+sh scripts/compat-runtime.sh
+
+go build -o /abs/cert/sth .
+STH_BIN=/abs/cert/sth \
+COMPAT_FIXTURE_EXPORT_ROOT=/abs/cert/fixtures \
+sh scripts/compat-sth-lifecycle-test.sh
+
+CLAUDE_BIN=/abs/cli/claude \
+CLAUDE_COMPAT_EXPECTED_VERSION=2.1.201 \
+CLAUDE_COMPAT_EXPECTED_SHA256='<sha256-claude-resolu>' \
+CODEX_BIN=/abs/cli/codex \
+CODEX_COMPAT_EXPECTED_VERSION=0.147.0-alpha.1.2 \
+CODEX_COMPAT_EXPECTED_SHA256='<sha256-codex-resolu>' \
+COPILOT_BIN=/abs/cli/copilot \
+COPILOT_COMPAT_EXPECTED_VERSION=1.0.78 \
+COPILOT_COMPAT_EXPECTED_SHA256='<sha256-copilot-resolu>' \
+GEMINI_BIN=/abs/cli/gemini \
+GEMINI_COMPAT_EXPECTED_VERSION=0.53.1 \
+GEMINI_COMPAT_EXPECTED_SHA256='<sha256-gemini-resolu>' \
+ANTIGRAVITY_BIN=/abs/cli/agy \
+ANTIGRAVITY_COMPAT_EXPECTED_VERSION=1.1.10 \
+ANTIGRAVITY_COMPAT_EXPECTED_SHA256='<sha256-antigravity-resolu>' \
+COMPAT_STH_BIN=/abs/cert/sth \
+COMPAT_FIXTURE_ROOT=/abs/cert/fixtures \
+STH_RUNTIME_SENTINEL_SUFFIX=UPDATED \
+COMPAT_HERMETIC=0 \
+COPILOT_IDE_TRANSCRIPT=/abs/copilot-transcript.jsonl \
+COPILOT_IDE_EXTENSION_VERSION=0.59.0 \
+ANTIGRAVITY_IDE_TRANSCRIPT=/abs/transcript_full.jsonl \
+ANTIGRAVITY_IDE_VERSION=2.1.1 \
+ANTIGRAVITY_IDE_APP='/Applications/Antigravity IDE.app' \
+STRICT_RUNTIME_CERTIFICATION=1 \
+sh scripts/compat-runtime.sh \
+  >/abs/cert/runtime-results.tsv \
+  2>/abs/cert/runtime-identities.log
+```
+
+Le test hermétique construit un vrai binaire `sth`, exporte ses fixtures `UPDATED`, vérifie leur provenance puis exige une matrice stricte de 38 preuves avec les cinq faux CLI et les deux transcripts IDE. Il valide le runner, pas les services externes. Chaque ligne TSV porte un champ `mode` égal à `hermetic` ou `real`; la recette réelle force `COMPAT_HERMETIC=0`. Le test lifecycle génère les vingt contrats via `install`, puis valide `update --dry-run`, `update`, `status` et `remove` contre un fournisseur local isolé.
+
+Le mode normal signale les surfaces indisponibles par `NON_EXECUTE` sans faire échouer l'audit. Le mode strict réel exige en plus une version et un SHA-256 préalablement enregistrés pour chacun des cinq CLI. Il résout chaque chemin canonique, vérifie la sortie `--version` et le contenu exact du fichier avant le premier appel runtime, puis écrit cinq lignes `Identité runtime vérifiée: ...` sur stderr; conserver ce log avec le TSV. Les valeurs `<sha256-...>` de l'exemple sont volontairement invalides jusqu'à leur remplacement par 64 chiffres hexadécimaux issus d'un relevé indépendant. Cette empreinte atteste le fichier local résolu au moment du contrôle, pas sa provenance éditeur, sa signature ni les dépendances transitives d'un lanceur script.
+
+Le mode strict exige aussi les fixtures générées par le même `COMPAT_STH_BIN` depuis moins de six heures, les deux transcripts IDE, les versions IDE, la co-présence d'une app Antigravity signée par l'équipe Google attendue et acceptée par Gatekeeper, exactement 38 contrats et aucun statut non certifiant. L'export affiche un challenge aléatoire : il doit apparaître dans la dernière invocation IDE de chaque preuve, ce qui interdit de réutiliser un transcript provenant d'un export antérieur. Le transcript natif Antigravity n'exposant pas l'identifiant de build de l'app, cette preuve atteste une co-présence de la version annoncée et non un lien cryptographique entre ce processus et le transcript. Une préparation invalide sort `2`; une matrice exécutée mais non certifiante sort `1`; une certification complète sort `0`. Seul `copilot-cli/instruction-discovery` accepte `INFO`, car Copilot CLI 1.0.78 n'expose pas cette inspection. Le rapport détaillé et daté se trouve dans [`docs/compatibility-report-2026-08-05.md`](docs/compatibility-report-2026-08-05.md).
+
+Les captures IDE fraîches peuvent être préparées avec `scripts/compat-copilot-ide-launch.sh` et `scripts/compat-antigravity-ide-launch.sh`. Leurs frontières d'isolation, les requêtes exactes et la collecte des transcripts sont détaillées dans [`docs/copilot-ide-runtime.md`](docs/copilot-ide-runtime.md) et [`docs/antigravity-ide-runtime.md`](docs/antigravity-ide-runtime.md). Ces helpers ne terminent aucun OAuth automatiquement.
+
 Build local avec métadonnées de release :
 
 ```bash

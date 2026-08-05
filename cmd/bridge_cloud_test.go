@@ -31,7 +31,7 @@ type bridgeCloudFixture struct {
 func newBridgeCloudFixture(t *testing.T) *bridgeCloudFixture {
 	t.Helper()
 	fixture := &bridgeCloudFixture{files: map[string][]byte{
-		"SKILL.md":                []byte("---\nname: review-pr\n---\n# Review PR\n"),
+		"SKILL.md":                []byte("---\nname: review-pr\ndescription: Review pull requests\n---\n# Review PR\n"),
 		"references/checklist.md": []byte("# Checklist\n"),
 	}}
 	fixture.latest.Store("version-1")

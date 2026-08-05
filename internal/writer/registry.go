@@ -11,6 +11,7 @@ const (
 	KindCodex       = "codex"
 	KindCursor      = "cursor"
 	KindAntigravity = "antigravity"
+	KindGemini      = "gemini"
 )
 
 type DetectMarker struct {
@@ -70,14 +71,27 @@ func AllTargetSpecs() []TargetSpec {
 		},
 		{
 			Kind:        KindAntigravity,
-			DisplayName: "Google Antigravity (Gemini)",
+			DisplayName: "Google Antigravity",
 			RootDir:     ".agents",
 			DetectMarkers: []DetectMarker{
-				{Path: ".agents", Evidence: ".agents"},
+				{Path: ".agents/agents", Evidence: ".agents/agents/"},
+				{Path: ".agents/workflows", Evidence: ".agents/workflows/"},
+				{Path: ".agents/rules", Evidence: ".agents/rules/"},
 				{Path: ".agent", Evidence: ".agent"},
-				{Path: "GEMINI.md", Evidence: "GEMINI.md"},
 			},
 			Writer: AntigravityWriter{},
+		},
+		{
+			Kind:        KindGemini,
+			DisplayName: "Gemini CLI",
+			RootDir:     ".gemini",
+			DetectMarkers: []DetectMarker{
+				{Path: ".gemini/agents", Evidence: ".gemini/agents/"},
+				{Path: ".gemini/commands", Evidence: ".gemini/commands/"},
+				{Path: ".gemini/settings.json", Evidence: ".gemini/settings.json"},
+				{Path: "GEMINI.md", Evidence: "GEMINI.md"},
+			},
+			Writer: GeminiWriter{},
 		},
 	}
 }

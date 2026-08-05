@@ -492,7 +492,7 @@ func readBridgeProject() (bridgeProject, error) {
 func readBridgeResources(config *fs.ProjectConfigV2) ([]bridgeResource, error) {
 	targets := []fs.TargetEntry{
 		{ID: "sth-code-claude", Kind: "claude", RootDir: ".claude", Enabled: true},
-		{ID: "sth-code-codex", Kind: "codex", RootDir: ".agents", Enabled: true},
+		{ID: "sth-code-codex", Kind: "codex", RootDir: ".codex", Enabled: true},
 	}
 	if config != nil && len(config.Targets) > 0 {
 		targets = fs.EffectiveTargets(*config)
@@ -594,7 +594,7 @@ func bridgeInstalledTargetKinds(
 		}
 		kind := strings.TrimSpace(target.Kind)
 		if (hasClaudePlacement && (kind == "claude" || kind == "cursor" || kind == "copilot")) ||
-			(hasAgentsPlacement && (kind == "codex" || kind == "antigravity")) {
+			(hasAgentsPlacement && (kind == "codex" || kind == "antigravity" || kind == "gemini")) {
 			result = append(result, kind)
 		}
 	}

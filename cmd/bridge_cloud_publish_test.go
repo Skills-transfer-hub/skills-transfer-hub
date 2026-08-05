@@ -183,6 +183,11 @@ func TestBridgeCloudPublicationUsesExactHEADAndReturnsConcreteAsset(t *testing.T
 	if len(manifest.Files) != 2 || manifest.Files[0].Path != "SKILL.md" || manifest.Files[1].Path != "references/checklist.md" {
 		t.Fatalf("manifest files = %+v", manifest.Files)
 	}
+	for _, targetKind := range []string{"antigravity", "claude", "codex", "copilot", "gemini"} {
+		if manifest.Compatibility[targetKind] != "supported" {
+			t.Fatalf("manifest compatibility = %+v, missing %s", manifest.Compatibility, targetKind)
+		}
+	}
 	fixture.mu.Lock()
 	uploadedSkill := append([]byte(nil), fixture.uploaded["SKILL.md"]...)
 	errors := append([]string(nil), fixture.errors...)
@@ -345,4 +350,12 @@ func bridgeTestGitOutput(t *testing.T, repository string, arguments ...string) s
 
 func bridgePublicationAssetID(manifest cloud.PublicationManifestInput) string {
 	return manifest.Asset.Kind + "::" + manifest.Asset.FolderName + "::" + manifest.Asset.Slug
+}
+
+func TestBridgePublicationMetadataUsesParsedYAMLDescription(t *testing.T) {
+	content := []byte("---\nname: review-pr\ndescription: >-\n  Review pull requests\n  safely.\n---\n# Review\n")
+	name, description := bridgePublicationMetadata(content, "fallback")
+	if name != "review-pr" || description == nil || *description != "Review pull requests safely." {
+		t.Fatalf("name = %q, description = %v", name, description)
+	}
 }

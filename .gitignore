@@ -13,8 +13,8 @@ Thumbs.db
 *.swp
 .idea/
 .vscode/
-sth
-sth.exe
+/sth
+/sth.exe
 .claude/settings.local.json
 # Created by crazy-max/ghaction-chocolatey@v3 on Linux runners; would otherwise
 # leave the working dir dirty and break GoReleaser's git-state validation.

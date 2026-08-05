@@ -7,64 +7,145 @@ import (
 	"testing"
 )
 
-func TestAntigravity_PlanPaths(t *testing.T) {
-	target := AntigravityWriter{}
+func TestAntigravityPlanPaths(t *testing.T) {
+	target := NewAntigravityWriter()
+	if target.Kind() != "antigravity" {
+		t.Fatalf("Kind() = %q, want antigravity", target.Kind())
+	}
 
-	skill := target.Plan("skill", "form-wizard", "", []string{
+	skillPlan := target.Plan("skill", "form-wizard", "", []string{
 		"react/form-wizard/SKILL.md",
 		"react/form-wizard/references/patterns.md",
 	})
-	wantSkill := map[string]string{
+	expectedSkillPaths := map[string]string{
 		"react/form-wizard/SKILL.md":               ".agents/skills/form-wizard/SKILL.md",
 		"react/form-wizard/references/patterns.md": ".agents/skills/form-wizard/references/patterns.md",
 	}
-	if len(skill.Files) != len(wantSkill) {
-		t.Fatalf("skill: got %d files, want %d", len(skill.Files), len(wantSkill))
+	if skillPlan.Skipped || skillPlan.Reason != "" {
+		t.Fatalf("skill plan should be supported, got %+v", skillPlan)
 	}
-	for _, planned := range skill.Files {
-		if wantSkill[planned.SourcePath] != planned.RelativePath {
-			t.Errorf("skill %q: got %q, want %q", planned.SourcePath, planned.RelativePath, wantSkill[planned.SourcePath])
+	if len(skillPlan.Files) != len(expectedSkillPaths) {
+		t.Fatalf("skill: got %d files, want %d", len(skillPlan.Files), len(expectedSkillPaths))
+	}
+	for _, plannedFile := range skillPlan.Files {
+		expectedPath, exists := expectedSkillPaths[plannedFile.SourcePath]
+		if !exists {
+			t.Errorf("unexpected skill source %q", plannedFile.SourcePath)
+			continue
+		}
+		if expectedPath != plannedFile.RelativePath {
+			t.Errorf("skill %q: got %q, want %q", plannedFile.SourcePath, plannedFile.RelativePath, expectedPath)
 		}
 	}
 
-	agent := target.Plan("agent", "code-reviewer", "", []string{"src/agent.md"})
-	if len(agent.Files) != 1 || agent.Files[0].RelativePath != ".agents/agents/code-reviewer.md" {
-		t.Errorf("agent: got %+v, want .agents/agents/code-reviewer.md", agent.Files)
+	planCases := []struct {
+		name         string
+		artifactKind string
+		artifactName string
+		sourcePath   string
+		expectedPath string
+	}{
+		{name: "agent", artifactKind: "agent", artifactName: "code-reviewer", sourcePath: "src/agent.md", expectedPath: ".agents/agents/code-reviewer.md"},
+		{name: "workflow", artifactKind: "command", artifactName: "deploy", sourcePath: "src/cmd.md", expectedPath: ".agents/workflows/deploy.md"},
+		{name: "rule", artifactKind: "instruction", artifactName: "style", sourcePath: "src/style.md", expectedPath: ".agents/rules/style.md"},
 	}
-
-	command := target.Plan("command", "deploy", "", []string{"src/cmd.md"})
-	if len(command.Files) != 1 || command.Files[0].RelativePath != ".agents/workflows/deploy.md" {
-		t.Errorf("command: got %+v, want .agents/workflows/deploy.md", command.Files)
-	}
-
-	instruction := target.Plan("instruction", "style", "", []string{"src/style.md"})
-	if !instruction.Skipped || instruction.Reason == "" {
-		t.Errorf("instruction should be skipped with reason, got %+v", instruction)
+	for _, planCase := range planCases {
+		t.Run(planCase.name, func(t *testing.T) {
+			plan := target.Plan(planCase.artifactKind, planCase.artifactName, "", []string{planCase.sourcePath})
+			if plan.Skipped || plan.Reason != "" {
+				t.Fatalf("plan should be supported, got %+v", plan)
+			}
+			if len(plan.Files) != 1 {
+				t.Fatalf("got %d files, want 1", len(plan.Files))
+			}
+			if plan.Files[0].SourcePath != planCase.sourcePath {
+				t.Errorf("SourcePath = %q, want %q", plan.Files[0].SourcePath, planCase.sourcePath)
+			}
+			if plan.Files[0].RelativePath != planCase.expectedPath {
+				t.Errorf("RelativePath = %q, want %q", plan.Files[0].RelativePath, planCase.expectedPath)
+			}
+		})
 	}
 }
 
-func TestAntigravity_WriteMarkerIdempotent(t *testing.T) {
-	dir := t.TempDir()
-	installedPath := filepath.Join(dir, ".agents", "skills", "x", "SKILL.md")
-	target := AntigravityWriter{}
-
-	first, err := target.Write(WriteRequest{InstalledPath: installedPath, Content: []byte("# Title\n"), AddManagedHeader: true})
-	if err != nil {
-		t.Fatal(err)
+func TestAntigravityPlanValidatesInput(t *testing.T) {
+	target := NewAntigravityWriter()
+	invalidPlans := []PlanResult{
+		target.Plan("skill", "", "", []string{"src/SKILL.md"}),
+		target.Plan("skill", "   ", "", []string{"src/SKILL.md"}),
+		target.Plan("skill", "form-wizard", "", nil),
 	}
-	data, err := os.ReadFile(installedPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.HasPrefix(string(data), minimalManagedMarker) {
-		t.Errorf("expected minimal marker prefix, got %q", string(data))
+	for _, invalidPlan := range invalidPlans {
+		if invalidPlan.Skipped || invalidPlan.Reason != "" || len(invalidPlan.Files) != 0 {
+			t.Errorf("incomplete input should return an empty plan, got %+v", invalidPlan)
+		}
 	}
 
-	second, err := target.Write(WriteRequest{InstalledPath: installedPath, Content: data, AddManagedHeader: true})
+	unknownPlan := target.Plan("unsupported", "form-wizard", "", []string{"src/SKILL.md"})
+	if !unknownPlan.Skipped || unknownPlan.Reason == "" || len(unknownPlan.Files) != 0 {
+		t.Errorf("unknown artifact should be skipped with a reason, got %+v", unknownPlan)
+	}
+}
+
+func TestAntigravityWritePreservesFrontmatterAndIsIdempotent(t *testing.T) {
+	temporaryDirectory := t.TempDir()
+	installedPath := filepath.Join(temporaryDirectory, ".agents", "skills", "x", "SKILL.md")
+	target := NewAntigravityWriter()
+	sourceContent := []byte("---\nname: x\ndescription: X skill\n---\n# Title\n")
+
+	firstResult, err := target.Write(WriteRequest{InstalledPath: installedPath, Content: sourceContent, AddManagedHeader: true})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if first.SHA256 != second.SHA256 {
-		t.Errorf("re-write changed content: %s vs %s", first.SHA256, second.SHA256)
+	writtenContent, err := os.ReadFile(installedPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expectedContent := "---\nname: x\ndescription: X skill\n---\n" + minimalManagedMarker + "# Title\n"
+	if string(writtenContent) != expectedContent {
+		t.Errorf("written content = %q, want %q", string(writtenContent), expectedContent)
+	}
+	expectedPath := filepath.ToSlash(filepath.Clean(installedPath))
+	if firstResult.Path != expectedPath {
+		t.Errorf("Path = %q, want %q", firstResult.Path, expectedPath)
+	}
+	if firstResult.SHA256 != computeSHA256(writtenContent) {
+		t.Errorf("SHA256 = %q, want digest of written content", firstResult.SHA256)
+	}
+
+	secondResult, err := target.Write(WriteRequest{InstalledPath: installedPath, Content: writtenContent, AddManagedHeader: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if firstResult.SHA256 != secondResult.SHA256 {
+		t.Errorf("re-write changed content: %s vs %s", firstResult.SHA256, secondResult.SHA256)
+	}
+}
+
+func TestAntigravityWriteValidatesPathAndLeavesAssetsUnmarked(t *testing.T) {
+	target := NewAntigravityWriter()
+	if _, err := target.Write(WriteRequest{InstalledPath: "   ", Content: []byte("ignored")}); err == nil {
+		t.Fatal("blank installed path should fail")
+	}
+
+	temporaryDirectory := t.TempDir()
+	installedPath := filepath.Join(temporaryDirectory, ".agents", "skills", "x", "references", "schema.json")
+	sourceContent := []byte(`{"type":"object"}`)
+	result, err := target.Write(WriteRequest{InstalledPath: installedPath, Content: sourceContent, AddManagedHeader: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	writtenContent, err := os.ReadFile(installedPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(writtenContent) != string(sourceContent) {
+		t.Errorf("non-Markdown asset changed: got %q, want %q", string(writtenContent), string(sourceContent))
+	}
+	if strings.Contains(string(writtenContent), minimalManagedMarker) {
+		t.Errorf("non-Markdown asset contains managed marker: %q", string(writtenContent))
+	}
+	if result.SHA256 != computeSHA256(sourceContent) {
+		t.Errorf("SHA256 = %q, want digest of source content", result.SHA256)
 	}
 }
