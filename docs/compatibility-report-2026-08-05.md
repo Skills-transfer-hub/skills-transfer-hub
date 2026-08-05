@@ -8,8 +8,9 @@
 - **Runner strict hermétique : OK, sortie 0 et matrice 38/38.** Il utilise un vrai binaire STH pour produire les fixtures `UPDATED`, lie leur provenance au SHA de ce binaire, à un challenge aléatoire et à un horodatage valable six heures, puis valide les cinq faux CLI et les preuves IDE Copilot et Antigravity. Chaque ligne atteste aussi le mode `hermetic` ou `real`.
 - **Préparation stricte réelle renforcée : OK dans le harness.** Les cinq CLI doivent désormais fournir une version attendue et le SHA-256 attendu de leur exécutable résolu; les valeurs absentes ou divergentes sortent `2` avant le premier appel runtime. La preuve positive et les échecs version/SHA sont testés, sans modifier le strict hermétique ni le mode normal.
 - **Runtime réel Codex : OK, 7 preuves sur 7.** Codex `0.147.0-alpha.1.2`, authentifié via ChatGPT, a validé trois découvertes et quatre sentinelles modèle réelles sur les fixtures `UPDATED`.
-- **Certification globale des runtimes externes réels : NON ACQUISE.** Claude reste non authentifié malgré l'affichage `Login successful`, Gemini refuse désormais l'OAuth individuel utilisé, Copilot et Antigravity attendent encore leurs OAuth, et les deux IDE exigent une validation interactive avec transcripts frais.
-- **CI distante : NON OBSERVÉE.** Le workflow est renforcé localement, mais ces changements ne sont pas encore prouvés par une exécution GitHub Actions sur un commit propre.
+- **Runtime réel Copilot CLI : OK, 6 preuves `OK` et une inspection `INFO` autorisée.** Copilot `1.0.78` a validé les découvertes de skill et de commande puis les quatre sentinelles modèle réelles. Il a utilisé le jeton déjà détenu par `gh`, injecté uniquement dans l'environnement du processus; une comparaison après exécution trouve zéro copie de ce jeton dans le profil Copilot temporaire.
+- **Certification globale des runtimes externes réels : NON ACQUISE.** Claude reste non authentifié malgré l'affichage `Login successful`, Gemini attend encore une clé ou un ADC explicite, Antigravity attend l'échange final de son OAuth, et les deux IDE exigent une validation interactive avec transcripts frais.
+- **CI distante : NON OBSERVÉE.** Le commit `0be0051` est poussé sur `codex/runtime-five-client-certification`, mais le workflow de cette branche ne se déclenche que sur `pull_request`; aucune PR n'est encore ouverte vers `develop`.
 
 Une découverte `OK` prouve que le consommateur a chargé l'artefact. Seule une sentinelle runtime `OK` issue de la réponse du modèle prouve son exécution. Une preuve hermétique valide le mécanisme de certification, pas le service externe.
 
@@ -25,10 +26,10 @@ Une découverte `OK` prouve que le consommateur a chargé l'artefact. Seule une 
 | Codex | Agent | `.codex/agents/<name>.toml` | OK | smoke modèle réel et délégation 0.147 OK |
 | Codex | Commande | `.agents/skills/<name>/SKILL.md` | OK | découverte fraîche et smoke modèle réel 0.147 OK |
 | Codex | Instruction | `.codex/sth/instructions/<name>.md` + région `AGENTS.md` | OK | découverte fraîche et smoke modèle réel 0.147 OK |
-| Copilot | Skill | `.claude/skills/<name>/SKILL.md` | OK | découverte CLI fraîche OK; modèle à relancer après OAuth |
-| Copilot | Agent | `.github/agents/<name>.agent.md` | OK | modèle à relancer après OAuth |
+| Copilot | Skill | `.claude/skills/<name>/SKILL.md` | OK | découverte CLI fraîche et smoke modèle réel 1.0.78 OK |
+| Copilot | Agent | `.github/agents/<name>.agent.md` | OK | smoke modèle réel 1.0.78 OK |
 | Copilot | Commande | `.claude/commands/<name>.md` + `.github/prompts/<name>.prompt.md` | OK | découverte CLI fraîche OK; transcript IDE frais requis |
-| Copilot | Instruction | `.github/instructions/<name>.instructions.md` | OK | inspection optionnelle indisponible en CLI 1.0.78; modèle à relancer |
+| Copilot | Instruction | `.github/instructions/<name>.instructions.md` | OK | inspection optionnelle indisponible en CLI 1.0.78; smoke modèle réel OK |
 | Antigravity | Skill | `.agents/skills/<name>/SKILL.md` | OK | modèle à relancer après OAuth |
 | Antigravity | Agent | `.agents/agents/<name>.md` | OK | découverte CLI fraîche OK; modèle à relancer après OAuth |
 | Antigravity | Commande | `.agents/workflows/<name>.md` | OK | smoke CLI et preuve IDE prêts; OAuth et transcript frais requis |
@@ -80,7 +81,7 @@ Le test coupe les tokens, la télémétrie et les proxys externes. Le fichier Co
 |---|---:|---|
 | Claude Code | `2.1.201` | trois découvertes `system/init` et `InstructionsLoaded` OK; quatre modèles `NON_EXECUTE`; `auth status` reste faux après `Login successful`; `doctor` confirme l'échec d'écriture du macOS Keychain `-25293`, et `login.keychain-db` reste inaccessible en lecture hors sandbox même pendant une session graphique déverrouillée |
 | Codex | `0.147.0-alpha.1.2` | authentifié via ChatGPT; trois découvertes et quatre smokes modèle réels OK, soit 7/7 |
-| GitHub Copilot CLI | `1.0.78` | installation temporaire; skill et commande découverts; OAuth réel encore en attente |
+| GitHub Copilot CLI | `1.0.78` | installation temporaire; skill et commande découverts; quatre smokes modèle réels OK avec le jeton `gh` transmis uniquement en mémoire du processus; aucune copie du jeton détectée dans le profil temporaire après exécution |
 | VS Code / Copilot intégré | `1.131.0` / `0.59.0` | l'interface affiche `Se connecter`, `Models, sign in to use Copilot` et l'erreur de porte-clés; aucun mode `--password-store=basic` n'est actif; transcript réel frais toujours requis |
 | Gemini CLI | `0.53.1` | skill découvert; OAuth individuel refusé par le service; aucune clé ni projet configuré |
 | Antigravity CLI | `1.1.10` | binaire temporaire; agent découvert avec `--add-dir`; OAuth réel encore en attente |
@@ -105,9 +106,11 @@ Gemini          skill-discovery        OK
 Antigravity CLI agent-discovery        OK
 ```
 
-Le cumul indépendant actuellement acquis est donc de 16 clés sur 38 : ces douze découvertes ou inspections, dont l'`INFO` Copilot autorisé par la matrice, plus les quatre smokes modèle Codex. Vingt-deux clés restent sans preuve réelle. Ce décompte rapproche des exécutions ciblées distinctes; il ne constitue pas une sortie stricte unique, ne fusionne pas leurs TSV et ne certifie pas la matrice réelle globale.
+Le cumul indépendant actuellement acquis est donc de 20 clés sur 38 : ces douze découvertes ou inspections, dont l'`INFO` Copilot autorisé par la matrice, plus les quatre smokes modèle Codex et les quatre smokes modèle Copilot CLI. Dix-huit clés restent sans preuve réelle. Ce décompte rapproche des exécutions ciblées distinctes; il ne constitue pas une sortie stricte unique, ne fusionne pas leurs TSV et ne certifie pas la matrice réelle globale.
 
 L'exécution ciblée réelle Codex est conservée dans `/private/tmp/sth-cert-final-20260805.Is2iWu/codex-real.tsv`. Ses sept lignes Codex portent toutes le mode `real` : `skill-discovery`, `command-discovery`, `instruction-discovery`, puis `skill`, `agent`, `command` et `instruction` avec les quatre sentinelles `UPDATED` exactes. Les autres consommateurs y sont volontairement absents ou `NON_EXECUTE`; ce fichier certifie Codex, pas la matrice externe globale.
+
+La passe combinée Codex et Copilot CLI est conservée dans `/private/tmp/sth-cert-real-20260805.YphY1Z/normal-codex-copilot.tsv`. Elle contient treize lignes `OK`, une ligne `INFO` Copilot autorisée et dix-sept `NON_EXECUTE` volontairement neutralisés. Les sept lignes Codex sont toutes `OK`; Copilot fournit `skill-discovery`, `command-discovery` et les quatre sentinelles `COPILOT_*_UPDATED` en `OK`, plus `instruction-discovery` en `INFO`. Le jeton retourné par `gh auth token` n'a jamais été affiché ni écrit par le harness; la comparaison exacte de sa valeur avec tous les fichiers du profil temporaire après les quatre appels renvoie `COPILOT_RUNNER_TOKEN_PERSISTED_MATCHES=0`.
 
 L'exécution ciblée Claude est conservée dans `/private/tmp/sth-cert-final-20260805.Is2iWu/claude-real.tsv`. Elle prouve trois découvertes `system/init` et le chargement d'instruction `InstructionsLoaded`, puis quatre smokes modèle `NON_EXECUTE`. Le flux OAuth a affiché `Login successful`, mais `auth status` reste faux; `doctor` rattache ce désaccord à l'impossibilité d'écrire dans le macOS Keychain, code `-25293`. Aucun succès modèle Claude n'est donc revendiqué.
 
@@ -232,12 +235,12 @@ Le mode normal accepte `NON_EXECUTE` et échoue sur `KO`. Le mode strict vérifi
 ## Conditions restantes pour 100 % runtime
 
 1. Déverrouiller ou réparer manuellement `login.keychain-db`, rétablir une persistance d'authentification Claude malgré l'erreur Keychain `-25293`, puis confirmer `auth status` avant de relancer ses quatre modèles.
-2. Terminer les OAuth GitHub Copilot et Antigravity avec les comptes choisis, puis relancer leurs quatre smokes CLI respectifs.
+2. Terminer l'échange OAuth Antigravity avec le compte choisi, puis relancer ses quatre smokes CLI; les quatre smokes Copilot CLI sont déjà `OK` sans persistance supplémentaire.
 3. Fournir à Gemini une méthode d'authentification encore supportée et le projet ou la clé requis, puis relancer ses quatre smokes; le flux OAuth individuel refusé ne peut pas servir de certification.
 4. Résoudre la connexion et l'erreur de porte-clés de VS Code, exécuter `/sth-runtime-command` avec le challenge frais et valider la réponse exacte dans le transcript de la version Copilot annoncée.
 5. Ouvrir la fixture générée dans l'app Antigravity signée connectée, exécuter le workflow et la règle avec le challenge frais, puis fournir le `transcript_full.jsonl` natif.
 6. Exécuter le strict réel et obtenir la sortie `0` sur les 38 preuves exactes.
-7. Committer les changements et observer le `CI gate` GitHub vert depuis un checkout propre.
+7. Ouvrir une PR vers `develop` depuis la branche déjà poussée, puis observer le `CI gate` GitHub vert depuis le commit distant.
 
 Tant que ces étapes externes ne sont pas terminées, le verdict exact reste : **STH, son lifecycle et son certificateur strict hermétique sont certifiés localement; le runtime multi-consommateur réel et la CI distante ne le sont pas encore**.
 
