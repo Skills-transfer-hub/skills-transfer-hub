@@ -25,6 +25,18 @@ jobs:
         with:
           go-version-file: go.mod
 
+      - name: Verify the exact STH Code consumer contract
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.STH_CODE_READ_TOKEN }}
+        run: |
+          go test ./cmd -run 'TestBridge' -count=1
+          gh api --method GET repos/Skills-transfer-hub/sth-code/contents/scripts/verify-sth-code-engine-contract.mjs \
+            -f ref=develop \
+            --jq .content | base64 --decode > "$RUNNER_TEMP/verify-sth-code-engine-contract.mjs"
+          go build -trimpath -o "$RUNNER_TEMP/sth-contract-candidate" .
+          node "$RUNNER_TEMP/verify-sth-code-engine-contract.mjs" "$RUNNER_TEMP/sth-contract-candidate"
+
       # The curated, user-facing notes were written by auto-release.yml as the
       # body of the (private) source-repo release. Reuse them verbatim so the
       # public release and `sth update` highlights show exactly what we authored

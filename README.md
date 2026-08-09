@@ -162,7 +162,9 @@ Le packaging est orchestré par GoReleaser + un workflow Chocolatey dédié. À 
 1. `auto-release.yml` calcule le prochain tag stable (`vX.Y.Z`) ou pré-release (`vX.Y.Z-rc.N` si la PR a le label `prerelease`) et crée la GitHub Release. Authentifié via `RELEASE_PAT` (un PAT — pas le `GITHUB_TOKEN` par défaut — sinon l'event `release.published` ne déclencherait pas les workflows en aval).
 2. `release.yml` (Linux) lance `goreleaser release --clean` qui :
    - construit les binaires (`linux-amd64`, `darwin-amd64`, `darwin-arm64`, `windows-amd64`)
-   - attache les archives + `SHA256SUMS` à la release publique sur `Skills-transfer-hub/sth-releases`
+   - exécute le contrat consommateur `sth-code-bridge-v1` sur le binaire exact
+   - attache les archives CLI, les binaires moteur bruts et `sth-code-engine.json` à la release publique sur `Skills-transfer-hub/sth-releases`
+   - inclut le manifeste moteur et tous les binaires dans `SHA256SUMS`, puis signe ce manifeste en Ed25519
    - pousse `Formula/sth.rb` sur `Skills-transfer-hub/homebrew-sth`
    - pousse `bucket/sth.json` sur `Skills-transfer-hub/scoop-sth`
    - ouvre une PR sur `microsoft/winget-pkgs` depuis `Skills-transfer-hub/winget-pkgs`
@@ -173,6 +175,7 @@ Le packaging est orchestré par GoReleaser + un workflow Chocolatey dédié. À 
 | Secret | Usage | Type / Permissions |
 |---|---|---|
 | `RELEASE_PAT` | `auto-release.yml` crée la release sur `skills-transfer-hub` ET GoReleaser la publie cross-repo sur `sth-releases` | Fine-grained PAT `Contents: R/W` sur `skills-transfer-hub` + `sth-releases` |
+| `STH_CODE_READ_TOKEN` | Le CI et la release chargent le contrat consommateur officiel depuis `sth-code` | Fine-grained PAT `Contents: R` sur `sth-code` |
 | `HOMEBREW_TAP_TOKEN` | Push Formula sur `homebrew-sth` | Fine-grained PAT `Contents: R/W` sur `homebrew-sth` |
 | `SCOOP_BUCKET_TOKEN` | Push manifest sur `scoop-sth` | Fine-grained PAT `Contents: R/W` sur `scoop-sth` |
 | `WINGET_TOKEN` | Push branche `sth-X.Y.Z` sur le fork + créer PR cross-fork vers `microsoft/winget-pkgs` | **PAT classique** avec scope `public_repo` |

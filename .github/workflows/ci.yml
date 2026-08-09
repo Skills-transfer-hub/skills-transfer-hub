@@ -21,6 +21,31 @@ permissions:
   contents: read
 
 jobs:
+  sth-code-contract:
+    name: STH Code bridge contract
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Download the authoritative STH Code contract
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.STH_CODE_READ_TOKEN }}
+        run: |
+          gh api --method GET repos/Skills-transfer-hub/sth-code/contents/scripts/verify-sth-code-engine-contract.mjs \
+            -f ref=develop \
+            --jq .content | base64 --decode > "$RUNNER_TEMP/verify-sth-code-engine-contract.mjs"
+      - name: Build candidate and verify the consumer contract
+        shell: bash
+        run: |
+          go test ./cmd -run 'TestBridge' -count=1
+          go build -trimpath -o "$RUNNER_TEMP/sth" .
+          node "$RUNNER_TEMP/verify-sth-code-engine-contract.mjs" "$RUNNER_TEMP/sth"
+
   test-and-build:
     name: Test and build (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
@@ -83,7 +108,7 @@ jobs:
   ci-gate:
     name: CI gate
     if: always()
-    needs: [test-and-build]
+    needs: [sth-code-contract, test-and-build]
     runs-on: ubuntu-latest
     steps:
       - name: Verify all matrix jobs passed
@@ -93,4 +118,9 @@ jobs:
             echo "test-and-build did not succeed (result: $result)"
             exit 1
           fi
-          echo "All test-and-build matrix jobs succeeded."
+          sth_code_contract='${{ needs.sth-code-contract.result }}'
+          if [ "$sth_code_contract" != "success" ]; then
+            echo "sth-code-contract did not succeed (result: $sth_code_contract)"
+            exit 1
+          fi
+          echo "All test-and-build matrix jobs and the STH Code contract succeeded."
