@@ -29,12 +29,6 @@ func NewClaudeWriter() ClaudeWriter { return ClaudeWriter{} }
 // Kind implements TargetWriter.
 func (ClaudeWriter) Kind() string { return "claude" }
 
-// Plan implements TargetPlanner for Claude Code.
-//
-//   - skill       -> .claude/skills/<category>/<name>/<file>
-//   - agent       -> .claude/agents/<name>.md
-//   - command     -> .claude/commands/<name>.md
-//   - instruction -> .claude/skills/instructions/<name>.md (no native concept)
 func (ClaudeWriter) Plan(artifactKind, artifactName, _ string, sources []string) PlanResult {
 	if artifactName == "" || len(sources) == 0 {
 		return PlanResult{}
@@ -47,7 +41,7 @@ func (ClaudeWriter) Plan(artifactKind, artifactName, _ string, sources []string)
 	case "command":
 		return PlanResult{Files: []PlannedFile{{SourcePath: sources[0], RelativePath: ".claude/commands/" + artifactName + ".md"}}}
 	case "instruction":
-		return PlanResult{Files: []PlannedFile{{SourcePath: sources[0], RelativePath: ".claude/skills/instructions/" + artifactName + ".md"}}}
+		return PlanResult{Files: []PlannedFile{{SourcePath: sources[0], RelativePath: ".claude/rules/" + artifactName + ".md"}}}
 	}
 	return PlanResult{Skipped: true, Reason: "unknown artifact kind: " + artifactKind}
 }
@@ -62,6 +56,9 @@ func relForSkillBundle(skillsRoot, name string, sources []string) []PlannedFile 
 			rel = source[len(skillRoot)+1:]
 		} else if idx := strings.LastIndex(source, "/"); idx >= 0 {
 			rel = source[idx+1:]
+		}
+		if len(sources) == 1 && !strings.EqualFold(rel, "SKILL.md") {
+			rel = "SKILL.md"
 		}
 		files = append(files, PlannedFile{
 			SourcePath:   source,

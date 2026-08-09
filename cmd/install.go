@@ -132,7 +132,7 @@ func (a *app) installLegacy(profile fs.ProjectProfile, entry fs.CatalogEntry, pr
 			if pathErr != nil {
 				return pathErr
 			}
-			return a.renderFanoutDryRun(projectRoot, profile.TargetDir, entry.CatalogID, plannedFiles, jsonOut)
+			return a.renderFanoutDryRun(projectRoot, profile.TargetDir, entry.CatalogID, plannedFiles, nil, nil, jsonOut)
 		}
 		a.progress.step("Installation des fichiers…")
 		record, syncErr := fs.SyncManagedBundle(profile.TargetDir, entry, bundleContents)

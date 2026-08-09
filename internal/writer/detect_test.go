@@ -13,20 +13,22 @@ func TestDetectAvailableTargets_EmptyProject(t *testing.T) {
 	}
 }
 
-func TestDetectAvailableTargets_AllFour(t *testing.T) {
+func TestDetectAvailableTargets_AllRegisteredConsumers(t *testing.T) {
 	dir := t.TempDir()
 	mustMkdir(t, filepath.Join(dir, ".claude"))
 	mustMkdir(t, filepath.Join(dir, ".github"))
 	mustWrite(t, filepath.Join(dir, ".github", "copilot-instructions.md"), "x")
 	mustMkdir(t, filepath.Join(dir, ".codex"))
 	mustMkdir(t, filepath.Join(dir, ".cursor"))
+	mustMkdir(t, filepath.Join(dir, ".agents", "workflows"))
+	mustMkdir(t, filepath.Join(dir, ".gemini", "commands"))
 
 	got := DetectAvailableTargets(dir)
 	kinds := map[string]bool{}
 	for _, d := range got {
 		kinds[d.Kind] = true
 	}
-	for _, want := range []string{"claude", "copilot", "codex", "cursor"} {
+	for _, want := range []string{"claude", "copilot", "codex", "cursor", "antigravity", "gemini"} {
 		if !kinds[want] {
 			t.Errorf("expected %s to be detected, got %+v", want, got)
 		}
@@ -60,22 +62,36 @@ func TestDetectAvailableTargets_RecognizesLegacyMarkers(t *testing.T) {
 }
 
 func TestDetectAvailableTargets_Antigravity(t *testing.T) {
+	ambiguous := t.TempDir()
+	mustMkdir(t, filepath.Join(ambiguous, ".agents", "skills"))
+	if detectsKind(DetectAvailableTargets(ambiguous), KindAntigravity) || detectsKind(DetectAvailableTargets(ambiguous), KindGemini) {
+		t.Errorf(".agents/skills alone should remain ambiguous")
+	}
+
 	canonical := t.TempDir()
-	mustMkdir(t, filepath.Join(canonical, ".agents"))
-	if !detectsKind(DetectAvailableTargets(canonical), "antigravity") {
-		t.Errorf(".agents/ should detect antigravity")
+	mustMkdir(t, filepath.Join(canonical, ".agents", "agents"))
+	if !detectsKind(DetectAvailableTargets(canonical), KindAntigravity) {
+		t.Errorf(".agents/agents should detect antigravity")
 	}
 
 	legacy := t.TempDir()
 	mustMkdir(t, filepath.Join(legacy, ".agent"))
-	if !detectsKind(DetectAvailableTargets(legacy), "antigravity") {
+	if !detectsKind(DetectAvailableTargets(legacy), KindAntigravity) {
 		t.Errorf(".agent/ should detect antigravity")
 	}
+	if detectsKind(DetectAvailableTargets(legacy), KindGemini) {
+		t.Errorf(".agent/ should not detect gemini")
+	}
+}
 
+func TestDetectAvailableTargets_Gemini(t *testing.T) {
 	gemini := t.TempDir()
 	mustWrite(t, filepath.Join(gemini, "GEMINI.md"), "# Gemini")
-	if !detectsKind(DetectAvailableTargets(gemini), "antigravity") {
-		t.Errorf("GEMINI.md should detect antigravity")
+	if !detectsKind(DetectAvailableTargets(gemini), KindGemini) {
+		t.Errorf("GEMINI.md should detect gemini")
+	}
+	if detectsKind(DetectAvailableTargets(gemini), KindAntigravity) {
+		t.Errorf("GEMINI.md should not detect antigravity")
 	}
 }
 

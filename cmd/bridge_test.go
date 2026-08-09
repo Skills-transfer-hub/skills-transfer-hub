@@ -115,7 +115,9 @@ func TestRun_bridgeReadsProviderStateAndExposesMaterializedTargetKinds(t *testin
 		}},
 		Targets: []fs.TargetEntry{
 			{ID: "claude-local", Kind: "claude", RootDir: ".claude", Enabled: true},
-			{ID: "codex-local", Kind: "codex", RootDir: ".agents", Enabled: true},
+			{ID: "codex-local", Kind: "codex", RootDir: ".codex", Enabled: true},
+			{ID: "antigravity-local", Kind: "antigravity", RootDir: ".agents", Enabled: true},
+			{ID: "gemini-local", Kind: "gemini", RootDir: ".gemini", Enabled: true},
 		},
 		Resources: []fs.ResourceEntry{},
 	})
@@ -155,8 +157,8 @@ func TestRun_bridgeReadsProviderStateAndExposesMaterializedTargetKinds(t *testin
 		t.Fatalf("skill_name=%v, want review-pr", resource["skill_name"])
 	}
 	targets := resource["targets"].([]any)
-	if len(targets) != 2 || targets[0] != "claude" || targets[1] != "codex" {
-		t.Fatalf("targets=%v, want [claude codex]", targets)
+	if len(targets) != 4 || targets[0] != "antigravity" || targets[1] != "claude" || targets[2] != "codex" || targets[3] != "gemini" {
+		t.Fatalf("targets=%v, want [antigravity claude codex gemini]", targets)
 	}
 }
 

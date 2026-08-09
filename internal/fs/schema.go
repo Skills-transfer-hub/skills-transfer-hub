@@ -116,19 +116,26 @@ type InstalledResourceStateV2 struct {
 // today TargetID defaults to "" which is equivalent to the historical
 // single-target ("claude") behavior.
 type InstalledResourceRecordV2 struct {
-	ResourceName    string        `json:"resource_name"`
-	ProviderID      string        `json:"provider_id"`
-	ResolvedVersion string        `json:"resolved_version"`
-	PreviousVersion string        `json:"previous_version"`
-	InstalledAt     string        `json:"installed_at"`
-	ManagedFiles    []ManagedFile `json:"managed_files"`
-	SourcePath      string        `json:"source_path,omitempty"`
-	TargetID        string        `json:"target_id,omitempty"`
-	ArtifactKind    string        `json:"artifact_kind,omitempty"`
+	ResourceName    string          `json:"resource_name"`
+	ProviderID      string          `json:"provider_id"`
+	ResolvedVersion string          `json:"resolved_version"`
+	PreviousVersion string          `json:"previous_version"`
+	InstalledAt     string          `json:"installed_at"`
+	ManagedFiles    []ManagedFile   `json:"managed_files"`
+	ManagedRegions  []ManagedRegion `json:"managed_regions,omitempty"`
+	SourcePath      string          `json:"source_path,omitempty"`
+	TargetID        string          `json:"target_id,omitempty"`
+	ArtifactKind    string          `json:"artifact_kind,omitempty"`
 }
 
 // ManagedFile tracks a single file managed by an installed resource.
 type ManagedFile struct {
 	Path   string `json:"path"`
+	SHA256 string `json:"sha256"`
+}
+
+type ManagedRegion struct {
+	Path   string `json:"path"`
+	ID     string `json:"id"`
 	SHA256 string `json:"sha256"`
 }

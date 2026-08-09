@@ -184,9 +184,13 @@ func buildBridgeCloudPublication(sourcePath, folderName, version string) (bridge
 		Version:    version,
 		Entrypoint: "SKILL.md",
 		Files:      publicationFiles,
-		// Only the Claude and Codex mappings are certified in the initial
-		// team-brain vertical; export-only targets are intentionally omitted.
-		Compatibility: map[string]string{"claude": "supported", "codex": "supported"},
+		Compatibility: map[string]string{
+			"antigravity": "supported",
+			"claude":      "supported",
+			"codex":       "supported",
+			"copilot":     "supported",
+			"gemini":      "supported",
+		},
 	}
 	manifest.Origin.RepositoryURL = remoteURL
 	manifest.Origin.Ref = ref

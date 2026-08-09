@@ -61,8 +61,10 @@ func TestScaffoldPack_ManifestDeclaresLayoutAndTargets(t *testing.T) {
 	if !strings.Contains(s, `"layout": "multi-stack"`) {
 		t.Errorf("manifest missing layout, got %s", s)
 	}
-	if !strings.Contains(s, `"copilot"`) || !strings.Contains(s, `"cursor"`) {
-		t.Errorf("manifest missing supported_targets, got %s", s)
+	for _, targetKind := range []string{"claude", "copilot", "codex", "cursor", "antigravity", "gemini"} {
+		if !strings.Contains(s, `"`+targetKind+`"`) {
+			t.Errorf("manifest missing target %s, got %s", targetKind, s)
+		}
 	}
 }
 
@@ -80,15 +82,18 @@ func TestScaffoldPack_SampleSkillCarriesFrontmatter(t *testing.T) {
 	}
 }
 
-func TestScaffoldPack_SampleAgentHasToolsAndModel(t *testing.T) {
+func TestScaffoldPack_SampleAgentUsesPortableFrontmatter(t *testing.T) {
 	dir := t.TempDir()
 	if err := scaffoldPack(dir, "my-pack", packLayoutMultiStack); err != nil {
 		t.Fatal(err)
 	}
 	data, _ := os.ReadFile(filepath.Join(dir, "agents", "sample.md"))
 	s := string(data)
-	if !strings.Contains(s, "tools:") || !strings.Contains(s, "model:") {
-		t.Errorf("sample agent should declare tools/model in frontmatter, got %q", s)
+	if !strings.Contains(s, "name: sample") || !strings.Contains(s, "description:") {
+		t.Errorf("sample agent should declare name and description, got %q", s)
+	}
+	if strings.Contains(s, "tools:") || strings.Contains(s, "model:") {
+		t.Errorf("sample agent should not hard-code provider-specific tools or model, got %q", s)
 	}
 }
 

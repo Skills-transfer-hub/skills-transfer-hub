@@ -394,8 +394,11 @@ func (a *app) run(args []string) error {
 			a.writeStdout(commandHelpText("install"))
 			return nil
 		}
+		installFlags, _ := parseFlags(args[1:], "--dry-run")
 		err = a.runInstall(args[1:])
-		a.recordOperationResult("install", resourceFromArgs(args[1:]), err)
+		if !installFlags["--dry-run"] {
+			a.recordOperationResult("install", resourceFromArgs(args[1:]), err)
+		}
 	case "update":
 		if len(args) >= 2 && isHelpFlag(args[1]) {
 			a.writeStdout(commandHelpText("update"))
@@ -408,8 +411,11 @@ func (a *app) run(args []string) error {
 			}
 			err = a.runSelfUpdate()
 		} else {
+			updateFlags, _ := parseFlags(args[1:], "--dry-run")
 			err = a.runUpdate(args[1:])
-			a.recordOperationResult("update", "", err)
+			if !updateFlags["--dry-run"] {
+				a.recordOperationResult("update", "", err)
+			}
 		}
 	case "status":
 		if len(args) >= 2 && isHelpFlag(args[1]) {
