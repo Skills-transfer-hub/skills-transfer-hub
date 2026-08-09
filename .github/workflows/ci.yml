@@ -20,6 +20,10 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  STH_CODE_CONTRACT_REPOSITORY: Skills-transfer-hub/sth-code-private-archive
+  STH_CODE_CONTRACT_REF: 1435656322b212376e70e105873de364f905c9a4
+
 jobs:
   sth-code-contract:
     name: STH Code bridge contract
@@ -36,8 +40,8 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.STH_CODE_READ_TOKEN }}
         run: |
-          gh api --method GET repos/Skills-transfer-hub/sth-code/contents/scripts/verify-sth-code-engine-contract.mjs \
-            -f ref=develop \
+          gh api --method GET "repos/$STH_CODE_CONTRACT_REPOSITORY/contents/scripts/verify-sth-code-engine-contract.mjs" \
+            -f "ref=$STH_CODE_CONTRACT_REF" \
             --jq .content | base64 --decode > "$RUNNER_TEMP/verify-sth-code-engine-contract.mjs"
       - name: Build candidate and verify the consumer contract
         shell: bash

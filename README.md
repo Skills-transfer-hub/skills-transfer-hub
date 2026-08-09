@@ -175,13 +175,15 @@ Le packaging est orchestré par GoReleaser + un workflow Chocolatey dédié. À 
 | Secret | Usage | Type / Permissions |
 |---|---|---|
 | `RELEASE_PAT` | `auto-release.yml` crée la release sur `skills-transfer-hub` ET GoReleaser la publie cross-repo sur `sth-releases` | Fine-grained PAT `Contents: R/W` sur `skills-transfer-hub` + `sth-releases` |
-| `STH_CODE_READ_TOKEN` | Le CI et la release chargent le contrat consommateur officiel depuis `sth-code` | Fine-grained PAT `Contents: R` sur `sth-code` |
+| `STH_CODE_READ_TOKEN` | Le CI et la release chargent le contrat consommateur officiel | Fine-grained PAT `Contents: R` sur `sth-code-private-archive` |
 | `HOMEBREW_TAP_TOKEN` | Push Formula sur `homebrew-sth` | Fine-grained PAT `Contents: R/W` sur `homebrew-sth` |
 | `SCOOP_BUCKET_TOKEN` | Push manifest sur `scoop-sth` | Fine-grained PAT `Contents: R/W` sur `scoop-sth` |
 | `WINGET_TOKEN` | Push branche `sth-X.Y.Z` sur le fork + créer PR cross-fork vers `microsoft/winget-pkgs` | **PAT classique** avec scope `public_repo` |
 | `CHOCOLATEY_API_KEY` | `choco push` vers `push.chocolatey.org` | API key Chocolatey |
 
 Un seul PAT fine-grained avec accès à `skills-transfer-hub` + `sth-releases` + `homebrew-sth` + `scoop-sth` suffit pour `RELEASE_PAT` + `HOMEBREW_TAP_TOKEN` + `SCOOP_BUCKET_TOKEN` (tous la même valeur).
+
+Le contrat `sth-code-bridge-v1` est lu depuis `sth-code-private-archive` sur le commit immuable déclaré par `STH_CODE_CONTRACT_REF` dans les workflows. Toute évolution du contrat impose donc une mise à jour explicite de cette référence et une nouvelle validation du binaire exact.
 
 ⚠️ **`WINGET_TOKEN` doit être un PAT classique** (pas fine-grained). Les fine-grained PATs avec "Only select repositories" ne peuvent pas créer de PR cross-fork vers `microsoft/winget-pkgs` (qui n'est pas dans la liste, et ne peut pas y être ajouté puisque vous ne possédez pas ce repo). Le PAT classique avec scope `public_repo` permet à GitHub de créer une PR depuis votre fork vers n'importe quel repo public upstream. Alternative : un fine-grained PAT en mode "All public repositories" avec `Pull requests: Write` + `Contents: Write` (le `Contents: Write` est requis pour pousser la branche `sth-X.Y.Z` sur le fork avant l'ouverture de PR).
 

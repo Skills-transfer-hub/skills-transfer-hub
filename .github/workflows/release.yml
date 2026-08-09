@@ -10,6 +10,10 @@ permissions:
   packages: write
   id-token: write
 
+env:
+  STH_CODE_CONTRACT_REPOSITORY: Skills-transfer-hub/sth-code-private-archive
+  STH_CODE_CONTRACT_REF: 1435656322b212376e70e105873de364f905c9a4
+
 jobs:
   goreleaser:
     name: Build & publish via GoReleaser
@@ -31,8 +35,8 @@ jobs:
           GH_TOKEN: ${{ secrets.STH_CODE_READ_TOKEN }}
         run: |
           go test ./cmd -run 'TestBridge' -count=1
-          gh api --method GET repos/Skills-transfer-hub/sth-code/contents/scripts/verify-sth-code-engine-contract.mjs \
-            -f ref=develop \
+          gh api --method GET "repos/$STH_CODE_CONTRACT_REPOSITORY/contents/scripts/verify-sth-code-engine-contract.mjs" \
+            -f "ref=$STH_CODE_CONTRACT_REF" \
             --jq .content | base64 --decode > "$RUNNER_TEMP/verify-sth-code-engine-contract.mjs"
           go build -trimpath -o "$RUNNER_TEMP/sth-contract-candidate" .
           node "$RUNNER_TEMP/verify-sth-code-engine-contract.mjs" "$RUNNER_TEMP/sth-contract-candidate"
