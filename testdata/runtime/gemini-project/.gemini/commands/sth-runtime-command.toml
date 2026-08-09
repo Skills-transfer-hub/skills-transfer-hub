@@ -1,0 +1,3 @@
+# managed by sth
+description = "Validates that gemini discovers an STH project command."
+prompt = "Reply with exactly `GEMINI_COMMAND_OK` and nothing else."

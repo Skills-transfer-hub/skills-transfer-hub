@@ -20,7 +20,36 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  STH_CODE_CONTRACT_REPOSITORY: Skills-transfer-hub/sth-code-private-archive
+  STH_CODE_CONTRACT_REF: 1435656322b212376e70e105873de364f905c9a4
+
 jobs:
+  sth-code-contract:
+    name: STH Code bridge contract
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Download the authoritative STH Code contract
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.STH_CODE_READ_TOKEN }}
+        run: |
+          gh api --method GET "repos/$STH_CODE_CONTRACT_REPOSITORY/contents/scripts/verify-sth-code-engine-contract.mjs" \
+            -f "ref=$STH_CODE_CONTRACT_REF" \
+            --jq .content | base64 --decode > "$RUNNER_TEMP/verify-sth-code-engine-contract.mjs"
+      - name: Build candidate and verify the consumer contract
+        shell: bash
+        run: |
+          go test ./cmd -run 'TestBridge' -count=1
+          go build -trimpath -o "$RUNNER_TEMP/sth" .
+          node "$RUNNER_TEMP/verify-sth-code-engine-contract.mjs" "$RUNNER_TEMP/sth"
+
   test-and-build:
     name: Test and build (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
@@ -75,6 +104,37 @@ jobs:
         run: |
           go build -ldflags "-X sth/cmd.version=$env:VERSION -X sth/cmd.commit=$env:COMMIT -X sth/cmd.buildDate=$env:BUILD_DATE -X sth/cmd.target=$env:TARGET -X sth/cmd.releaseAPIURL=$env:RELEASE_API_URL -X sth/cmd.releaseAssetName=$env:RELEASE_ASSET_NAME -X sth/cmd.releaseChecksumName=$env:RELEASE_CHECKSUM_NAME" -o sth .
 
+  compatibility-hermetic:
+    name: Compatibility hermetic
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Download Go modules
+        run: go mod download
+
+      - name: Verify strict runner proof (hermetic, no external runtime)
+        run: |
+          for script in scripts/compat-*.sh testdata/runtime/fake-cli/*.sh; do
+            sh -n "$script"
+          done
+          sh scripts/compat-runtime-test.sh
+
+      - name: Verify writer contracts
+        run: go test ./internal/writer ./internal/fs/... -count=1
+
+      - name: Verify lifecycle contracts
+        run: go test ./cmd -run 'TestInstallFanout_ConsumerArtifactContracts|TestInstallFanout_AllConsumerContractsImplemented|TestInstallFanout_RollsBackFilesAndOwnershipWhenSecondTargetFails|TestInstallFanout_SkillRollsBackFirstHubWhenSecondHubFails|TestInstallFanout_SkillOwnershipRequiresForce|TestFanoutProjectPathRejectsParentSymlinkOutsideProject|TestFanoutRecordMigrationReplacesLegacyTarget|TestTransferAllFanoutOwnershipRemovesEveryClaimant|TestTransferAllFanoutOwnershipRemovesOrphanedManagedRegions|TestAppendFanoutManagedFileRejectsCaseCollision|TestGeminiCommandLifecycle|TestInstallUpdateStatusRemoveMatrix|TestSkillSynchronizationAcrossAllConsumers|TestArtifactSynchronizationAcrossAllConsumers|TestInstructionRegionsPreserveUserContentAndOtherContributors|TestInstructionRegionInstallRollsBackOnMalformedMarkers|TestInstructionRegionContributionsDeduplicateSharedFragment|TestInstructionForceTransferPreservesNewRegionOwner' -count=1
+
+      - name: Verify STH binary lifecycle against local provider
+        run: sh scripts/compat-sth-lifecycle-test.sh
+
   # Single stable status check to require in branch protection. Because the
   # matrix composition varies by event (macOS only on main), requiring the
   # individual "Test and build (<os>)" legs would block every PR waiting on a
@@ -83,7 +143,7 @@ jobs:
   ci-gate:
     name: CI gate
     if: always()
-    needs: [test-and-build]
+    needs: [sth-code-contract, test-and-build, compatibility-hermetic]
     runs-on: ubuntu-latest
     steps:
       - name: Verify all matrix jobs passed
@@ -93,4 +153,14 @@ jobs:
             echo "test-and-build did not succeed (result: $result)"
             exit 1
           fi
-          echo "All test-and-build matrix jobs succeeded."
+          compatibility='${{ needs.compatibility-hermetic.result }}'
+          if [ "$compatibility" != "success" ]; then
+            echo "compatibility-hermetic did not succeed (result: $compatibility)"
+            exit 1
+          fi
+          sth_code_contract='${{ needs.sth-code-contract.result }}'
+          if [ "$sth_code_contract" != "success" ]; then
+            echo "sth-code-contract did not succeed (result: $sth_code_contract)"
+            exit 1
+          fi
+          echo "All test-and-build, compatibility, and STH Code contract jobs succeeded."

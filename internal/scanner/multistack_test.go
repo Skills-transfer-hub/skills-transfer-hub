@@ -1,6 +1,9 @@
 package scanner
 
-import "testing"
+import (
+	"reflect"
+	"testing"
+)
 
 func loreTree() []TreeEntry {
 	// Reduced fixture mirroring C:\Users\hugo\project\Lore.Skills layout.
@@ -197,6 +200,31 @@ func TestExtractFrontmatter_CRLFLineEndings(t *testing.T) {
 	}
 	if fm.Description != "Windows-edited file" {
 		t.Errorf("Description = %q", fm.Description)
+	}
+}
+
+func TestExtractFrontmatter_BlockDescriptionAndSequenceGlobs(t *testing.T) {
+	content := []byte("---\nname: review\ndescription: >-\n  Review code\n  and tests.\napplyTo:\n  - '**/*.go'\n  - '**/*.md'\n---\nbody\n")
+	frontmatter, valid := ExtractFrontmatter(content)
+	if !valid {
+		t.Fatal("frontmatter rejected")
+	}
+	if frontmatter.Description != "Review code and tests." {
+		t.Fatalf("description = %q", frontmatter.Description)
+	}
+	if !reflect.DeepEqual(frontmatter.ApplyTo, []string{"**/*.go", "**/*.md"}) {
+		t.Fatalf("applyTo = %v", frontmatter.ApplyTo)
+	}
+}
+
+func TestExtractFrontmatterRejectsDuplicateOrInvalidYAML(t *testing.T) {
+	for _, content := range []string{
+		"---\ndescription: first\ndescription: second\n---\n",
+		"---\ndescription: foo: bar\n---\n",
+	} {
+		if _, valid := ExtractFrontmatter([]byte(content)); valid {
+			t.Fatalf("invalid frontmatter accepted: %q", content)
+		}
 	}
 }
 

@@ -27,6 +27,7 @@ before:
   hooks:
     - go mod download
     - go vet ./...
+    - sh scripts/write-sth-code-engine-manifest.sh "{{ .Version }}" .release/sth-code-engine.json
 
 builds:
   - id: sth
@@ -73,10 +74,18 @@ archives:
     files:
       - LICENSE
       - README.md
+  - id: sth-code-engine
+    ids:
+      - sth
+    format: binary
+    name_template: "sth-engine-{{ .Os }}-{{ .Arch }}"
 
 checksum:
   name_template: "SHA256SUMS"
   algorithm: sha256
+  extra_files:
+    - glob: ".release/sth-code-engine.json"
+      name_template: "sth-code-engine.json"
 
 # Detached ed25519 signature of SHA256SUMS, uploaded as SHA256SUMS.sig. The CLI
 # verifies it (internal/fs/signing.go) before trusting any checksum, so a
@@ -128,9 +137,14 @@ release:
   # Alpha period: prefix the release title; the tag stays plain semver.
   name_template: "Alpha {{ .Tag }}"
   prerelease: auto
+  extra_files:
+    - glob: ".release/sth-code-engine.json"
+      name_template: "sth-code-engine.json"
 
 brews:
   - name: sth
+    ids:
+      - default
     repository:
       owner: Skills-transfer-hub
       name: homebrew-sth
@@ -152,6 +166,8 @@ brews:
 
 scoops:
   - name: sth
+    ids:
+      - default
     repository:
       owner: Skills-transfer-hub
       name: scoop-sth
@@ -174,6 +190,8 @@ scoops:
 
 winget:
   - name: sth
+    ids:
+      - default
     publisher: Skills-Transfer-Hub
     package_identifier: STH.STH
     short_description: (Alpha) CLI to install and update AI skill bundles from a hosted catalog.

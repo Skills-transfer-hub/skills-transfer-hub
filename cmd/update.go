@@ -4,10 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"sth/internal/fs"
-	sthhttp "sth/internal/http"
 	"os"
 	"path/filepath"
+	"sth/internal/fs"
+	sthhttp "sth/internal/http"
 	"strings"
 	"time"
 )
@@ -43,7 +43,15 @@ func (a *app) runUpdate(args []string) error {
 	jsonOut := flags["--json"]
 	failOnChanges := flags["--fail-on-changes"]
 
-	profile, release, err := a.prepareStateAccess()
+	var profile *fs.ProjectProfile
+	var release func()
+	var err error
+	if dryRun {
+		profile, err = a.prepareStateReadAccess()
+		release = func() {}
+	} else {
+		profile, release, err = a.prepareStateAccess()
+	}
 	if err != nil {
 		if jsonOut {
 			emitJSONError(a.stdout, err, 1)
@@ -52,7 +60,12 @@ func (a *app) runUpdate(args []string) error {
 	}
 	defer release()
 
-	cfg, err := fs.ReadProjectConfigV2()
+	var cfg fs.ProjectConfigV2
+	if dryRun {
+		cfg, err = fs.ReadProjectConfigV2ReadOnly()
+	} else {
+		cfg, err = fs.ReadProjectConfigV2()
+	}
 	if err != nil {
 		if jsonOut {
 			emitJSONError(a.stdout, err, 1)

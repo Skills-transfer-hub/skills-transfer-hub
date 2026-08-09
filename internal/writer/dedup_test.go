@@ -7,20 +7,21 @@ import (
 
 func TestPlanSkillPlacement_HubRule(t *testing.T) {
 	cases := []struct {
-		name         string
-		selected     []string
-		wantFolders  []string
-		wantCodexCfg bool
-		wantCodexDir string
+		name        string
+		selected    []string
+		wantFolders []string
 	}{
-		{"claude", []string{KindClaude}, []string{claudeSkillsDir}, false, ""},
-		{"antigravity", []string{KindAntigravity}, []string{agentsSkillsDir}, false, ""},
-		{"copilot", []string{KindCopilot}, []string{claudeSkillsDir}, false, ""},
-		{"cursor+copilot", []string{KindCursor, KindCopilot}, []string{claudeSkillsDir}, false, ""},
-		{"claude+antigravity", []string{KindClaude, KindAntigravity}, []string{claudeSkillsDir, agentsSkillsDir}, false, ""},
-		{"cursor+copilot+antigravity", []string{KindCursor, KindCopilot, KindAntigravity}, []string{claudeSkillsDir, agentsSkillsDir}, false, ""},
-		{"codex", []string{KindCodex}, []string{claudeSkillsDir}, true, claudeSkillsDir},
-		{"all", []string{KindClaude, KindCursor, KindCopilot, KindCodex, KindAntigravity}, []string{claudeSkillsDir, agentsSkillsDir}, true, claudeSkillsDir},
+		{"claude", []string{KindClaude}, []string{claudeSkillsDir}},
+		{"antigravity", []string{KindAntigravity}, []string{agentsSkillsDir}},
+		{"copilot", []string{KindCopilot}, []string{claudeSkillsDir}},
+		{"cursor+copilot", []string{KindCursor, KindCopilot}, []string{claudeSkillsDir}},
+		{"claude+antigravity", []string{KindClaude, KindAntigravity}, []string{claudeSkillsDir, agentsSkillsDir}},
+		{"cursor+copilot+antigravity", []string{KindCursor, KindCopilot, KindAntigravity}, []string{claudeSkillsDir, agentsSkillsDir}},
+		{"codex", []string{KindCodex}, []string{agentsSkillsDir}},
+		{"gemini", []string{KindGemini}, []string{agentsSkillsDir}},
+		{"codex+antigravity", []string{KindCodex, KindAntigravity}, []string{agentsSkillsDir}},
+		{"codex+antigravity+gemini", []string{KindCodex, KindAntigravity, KindGemini}, []string{agentsSkillsDir}},
+		{"all", []string{KindClaude, KindCursor, KindCopilot, KindCodex, KindAntigravity, KindGemini}, []string{claudeSkillsDir, agentsSkillsDir}},
 	}
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -28,22 +29,18 @@ func TestPlanSkillPlacement_HubRule(t *testing.T) {
 			if !reflect.DeepEqual(placement.Folders, testCase.wantFolders) {
 				t.Errorf("Folders = %v, want %v", placement.Folders, testCase.wantFolders)
 			}
-			if placement.NeedsCodexCfg != testCase.wantCodexCfg {
-				t.Errorf("NeedsCodexCfg = %v, want %v", placement.NeedsCodexCfg, testCase.wantCodexCfg)
-			}
-			if placement.CodexFolder != testCase.wantCodexDir {
-				t.Errorf("CodexFolder = %q, want %q", placement.CodexFolder, testCase.wantCodexDir)
-			}
 		})
 	}
 }
 
 func TestPlanSkillPlacement_ReadsFrom(t *testing.T) {
-	placement := PlanSkillPlacement([]string{KindCursor, KindCopilot, KindAntigravity})
+	placement := PlanSkillPlacement([]string{KindCursor, KindCopilot, KindCodex, KindAntigravity, KindGemini})
 	want := map[string]string{
 		KindCursor:      claudeSkillsDir,
 		KindCopilot:     claudeSkillsDir,
+		KindCodex:       agentsSkillsDir,
 		KindAntigravity: agentsSkillsDir,
+		KindGemini:      agentsSkillsDir,
 	}
 	if !reflect.DeepEqual(placement.ReadsFrom, want) {
 		t.Errorf("ReadsFrom = %v, want %v", placement.ReadsFrom, want)

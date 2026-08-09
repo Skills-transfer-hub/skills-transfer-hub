@@ -13,7 +13,9 @@ type WriteRequest struct {
 	// rooted in the project; external callers may pass either.
 	InstalledPath string
 	// Content is the raw file content as fetched from the source repository.
-	Content []byte
+	Content      []byte
+	ArtifactKind string
+	ArtifactName string
 	// AddManagedHeader requests that the writer prepend its managed-file
 	// marker when the destination is a Markdown file. Writers are free to
 	// honor this in a tool-specific way (full banner for Claude, HTML
@@ -51,6 +53,10 @@ type PlanResult struct {
 type TargetWriter interface {
 	Kind() string
 	Write(req WriteRequest) (WriteResult, error)
+}
+
+type TargetRenderer interface {
+	Render(request WriteRequest) ([]byte, error)
 }
 
 // TargetPlanner is the extension every concrete writer implements so the

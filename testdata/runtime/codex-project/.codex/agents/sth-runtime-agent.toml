@@ -1,0 +1,4 @@
+# managed by sth
+name = "sth-runtime-agent"
+description = "Validates that codex discovers an STH project agent."
+developer_instructions = "Reply with exactly `CODEX_AGENT_OK` and nothing else."

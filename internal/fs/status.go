@@ -39,13 +39,21 @@ func ComputeAllStatuses(state InstalledResourceStateV2, config ProjectConfigV2, 
 		resolved := rec
 		if projectRoot != "" {
 			files := make([]ManagedFile, len(rec.ManagedFiles))
-			for i, mf := range rec.ManagedFiles {
-				if !filepath.IsAbs(mf.Path) {
-					mf.Path = filepath.Join(projectRoot, mf.Path)
+			for i, managedFile := range rec.ManagedFiles {
+				if !filepath.IsAbs(managedFile.Path) {
+					managedFile.Path = filepath.Join(projectRoot, managedFile.Path)
 				}
-				files[i] = mf
+				files[i] = managedFile
 			}
 			resolved.ManagedFiles = files
+			regions := make([]ManagedRegion, len(rec.ManagedRegions))
+			for i, managedRegion := range rec.ManagedRegions {
+				if !filepath.IsAbs(managedRegion.Path) {
+					managedRegion.Path = filepath.Join(projectRoot, managedRegion.Path)
+				}
+				regions[i] = managedRegion
+			}
+			resolved.ManagedRegions = regions
 		}
 		latestVersion := latestByPath[CommitQueryPath(rec.SourcePath, rec.ArtifactKind)]
 		status, modFiles := ComputeResourceStatus(resolved, latestVersion)
@@ -65,20 +73,31 @@ func ComputeAllStatuses(state InstalledResourceStateV2, config ProjectConfigV2, 
 }
 
 func ComputeResourceStatus(record InstalledResourceRecordV2, latestVersion string) (ResourceStatus, []string) {
-	if len(record.ManagedFiles) == 0 {
+	if len(record.ManagedFiles) == 0 && len(record.ManagedRegions) == 0 {
 		return ResourceStatusUnknownBaseline, nil
 	}
 
 	var modifiedPaths []string
-	for _, mf := range record.ManagedFiles {
-		data, err := os.ReadFile(mf.Path)
+	for _, managedFile := range record.ManagedFiles {
+		data, err := os.ReadFile(managedFile.Path)
 		if err != nil {
-			modifiedPaths = append(modifiedPaths, mf.Path)
+			modifiedPaths = append(modifiedPaths, managedFile.Path)
 			continue
 		}
 		actual := ComputeSHA256(data)
-		if actual != mf.SHA256 {
-			modifiedPaths = append(modifiedPaths, mf.Path)
+		if actual != managedFile.SHA256 {
+			modifiedPaths = append(modifiedPaths, managedFile.Path)
+		}
+	}
+	for _, managedRegion := range record.ManagedRegions {
+		document, err := os.ReadFile(managedRegion.Path)
+		if err != nil {
+			modifiedPaths = append(modifiedPaths, managedRegion.Path)
+			continue
+		}
+		actual, regionErr := ManagedMarkdownRegionSHA256(document, managedRegion.ID)
+		if regionErr != nil || actual != managedRegion.SHA256 {
+			modifiedPaths = append(modifiedPaths, managedRegion.Path)
 		}
 	}
 

@@ -56,6 +56,9 @@ func (a *app) runRemove(args []string) error {
 			}
 		}
 	}
+	if handled, removeErr := a.removeRecordsWithManagedRegions(profile.TargetDir, resourceName, records); handled {
+		return removeErr
+	}
 
 	var hardFailures []string
 	for _, record := range records {

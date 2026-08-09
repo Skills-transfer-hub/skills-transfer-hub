@@ -4,7 +4,7 @@
 
 # STH — Skills Transfer Hub
 
-STH est un CLI Go, distribué en binaire unique, pour connecter un projet à un dépôt hébergé de ressources IA, lire un catalogue `SKILLS.md`, installer des ressources dans le projet courant, puis les maintenir à jour.
+STH est un moteur et CLI Go MIT, distribué en binaire unique, pour connecter un projet à un dépôt Git de ressources IA, lire un catalogue `SKILLS.md`, matérialiser des bundles multi-fichiers pour plusieurs agents, puis les maintenir à jour.
 
 Le flux actuel est centré sur le projet courant, pas sur une configuration partagée entre tous les dépôts. STH écrit donc un profil local dans `.sth/project.json` et ne stocke jamais de secret privé dans ce fichier.
 
@@ -19,6 +19,10 @@ Le flux actuel est centré sur le projet courant, pas sur une configuration part
 - `sth update [--fail-on-changes]` met à jour les ressources suivies dans le projet courant ; affiche les entrées de `CHANGELOG.md` ajoutées depuis la version installée quand un bundle mis à jour en contient un ; `--fail-on-changes` exit 1 (sans rien modifier) si une ressource gérée a été éditée localement, utile comme gate CI
 - `sth new <category>/<name>` scaffolde un nouveau skill conforme (`SKILL.md` pré-rempli) — pour les mainteneurs de dépôts de skills
 - `sth catalog init [--force]` génère `SKILLS.md` à partir de la structure `category/skill/SKILL.md` du dépôt courant ; le catalogue produit est directement consommable par `sth list`
+- `sth pack init` initialise gratuitement et hors ligne un dépôt de packs Git
+- `sth pack promote <library-id> [--output skills/<slug>] [--dry-run] [--yes]` transforme volontairement un élément de `.sth/local/code/library.json` en bundle Git multi-fichiers, sans commit ni push
+- `sth mcp` expose `library_search`, `library_get`, `library_save`, `asset_search` et `asset_get`. Sans compte, les données restent sous `.sth/local/code/`; `STH_MCP_LOCAL_ONLY=1` force ce mode
+- `sth bridge --stdio` expose à STH Code le protocole JSON-RPC versionné (`status`, catalogue, preview/install/update/remove et `promote.preview`/`promote`). Toute mutation exige une confirmation explicite
 - `sth update self` vérifie et applique la dernière release GitHub stable compatible avec la plateforme courante
 - `sth status [--json]` montre l'état (à jour, obsolète, modifié-localement) de chaque ressource installée
 - `sth doctor` diagnostique la configuration STH du projet courant (project.json, sth-state, credentials, accès provider) avec une remédiation par check
@@ -37,6 +41,13 @@ Le flux actuel est centré sur le projet courant, pas sur une configuration part
 En plus des providers Git classiques (GitHub / GitLab / Azure DevOps / Bitbucket), STH peut
 maintenant pointer sur le SaaS **STH Cloud** : pas de PAT Git à gérer, l'auth passe par
 une API key hashée côté serveur.
+
+### Frontière freemium
+
+- L'accès direct à un dépôt Git public ou privé avec les credentials du développeur reste local, illimité et gratuit.
+- Les packs locaux, les cibles multiples, la bibliothèque locale et le MCP local fonctionnent sans compte ni réseau.
+- STH Cloud monétise le service : catalogues privés hébergés, synchronisation entre personnes, mémoire d'organisation, MCP distant et gouvernance.
+- Les anciennes clés `/v1` restent acceptées pendant la migration. STH Code utilise le flux device-code `/v2`, avec access token court et refresh token dans le coffre système.
 
 ### Workflow
 
@@ -62,16 +73,9 @@ une API key hashée côté serveur.
 | `STH_CLOUD_API_KEY` | Fallback de la clé si le keychain n'est pas dispo (CI headless) |
 | `STH_CLOUD_BASE_URL` | Override l'URL de base (default : prod). Ex. dev local : `http://127.0.0.1:54321/functions/v1/cli` |
 
-### Quotas (Phase 1)
+### Quotas cloud
 
-| Plan | Skills installés max |
-|---|---|
-| starter | 3 |
-| pro | 10 |
-| team | ∞ |
-
-Au-delà du quota, `sth install` renvoie 402 `quota_exceeded`. Réinstaller un skill déjà
-présent est idempotent (ne consomme pas de quota).
+Starter Cloud comprend une organisation personnelle, trois packages hébergés et 25 éléments de bibliothèque. Pro et Team lèvent ces plafonds de contenu selon le contrat canonique de `sth-back`. Ces quotas ne limitent jamais un dépôt Git lu directement ni une ressource locale ; les mutations cloud renvoient une décision structurée avant toute écriture.
 
 ## Installation
 
@@ -158,7 +162,9 @@ Le packaging est orchestré par GoReleaser + un workflow Chocolatey dédié. À 
 1. `auto-release.yml` calcule le prochain tag stable (`vX.Y.Z`) ou pré-release (`vX.Y.Z-rc.N` si la PR a le label `prerelease`) et crée la GitHub Release. Authentifié via `RELEASE_PAT` (un PAT — pas le `GITHUB_TOKEN` par défaut — sinon l'event `release.published` ne déclencherait pas les workflows en aval).
 2. `release.yml` (Linux) lance `goreleaser release --clean` qui :
    - construit les binaires (`linux-amd64`, `darwin-amd64`, `darwin-arm64`, `windows-amd64`)
-   - attache les archives + `SHA256SUMS` à la release publique sur `Skills-transfer-hub/sth-releases`
+   - exécute le contrat consommateur `sth-code-bridge-v1` sur le binaire exact
+   - attache les archives CLI, les binaires moteur bruts et `sth-code-engine.json` à la release publique sur `Skills-transfer-hub/sth-releases`
+   - inclut le manifeste moteur et tous les binaires dans `SHA256SUMS`, puis signe ce manifeste en Ed25519
    - pousse `Formula/sth.rb` sur `Skills-transfer-hub/homebrew-sth`
    - pousse `bucket/sth.json` sur `Skills-transfer-hub/scoop-sth`
    - ouvre une PR sur `microsoft/winget-pkgs` depuis `Skills-transfer-hub/winget-pkgs`
@@ -169,12 +175,15 @@ Le packaging est orchestré par GoReleaser + un workflow Chocolatey dédié. À 
 | Secret | Usage | Type / Permissions |
 |---|---|---|
 | `RELEASE_PAT` | `auto-release.yml` crée la release sur `skills-transfer-hub` ET GoReleaser la publie cross-repo sur `sth-releases` | Fine-grained PAT `Contents: R/W` sur `skills-transfer-hub` + `sth-releases` |
+| `STH_CODE_READ_TOKEN` | Le CI et la release chargent le contrat consommateur officiel | Fine-grained PAT `Contents: R` sur `sth-code-private-archive` |
 | `HOMEBREW_TAP_TOKEN` | Push Formula sur `homebrew-sth` | Fine-grained PAT `Contents: R/W` sur `homebrew-sth` |
 | `SCOOP_BUCKET_TOKEN` | Push manifest sur `scoop-sth` | Fine-grained PAT `Contents: R/W` sur `scoop-sth` |
 | `WINGET_TOKEN` | Push branche `sth-X.Y.Z` sur le fork + créer PR cross-fork vers `microsoft/winget-pkgs` | **PAT classique** avec scope `public_repo` |
 | `CHOCOLATEY_API_KEY` | `choco push` vers `push.chocolatey.org` | API key Chocolatey |
 
 Un seul PAT fine-grained avec accès à `skills-transfer-hub` + `sth-releases` + `homebrew-sth` + `scoop-sth` suffit pour `RELEASE_PAT` + `HOMEBREW_TAP_TOKEN` + `SCOOP_BUCKET_TOKEN` (tous la même valeur).
+
+Le contrat `sth-code-bridge-v1` est lu depuis `sth-code-private-archive` sur le commit immuable déclaré par `STH_CODE_CONTRACT_REF` dans les workflows. Toute évolution du contrat impose donc une mise à jour explicite de cette référence et une nouvelle validation du binaire exact.
 
 ⚠️ **`WINGET_TOKEN` doit être un PAT classique** (pas fine-grained). Les fine-grained PATs avec "Only select repositories" ne peuvent pas créer de PR cross-fork vers `microsoft/winget-pkgs` (qui n'est pas dans la liste, et ne peut pas y être ajouté puisque vous ne possédez pas ce repo). Le PAT classique avec scope `public_repo` permet à GitHub de créer une PR depuis votre fork vers n'importe quel repo public upstream. Alternative : un fine-grained PAT en mode "All public repositories" avec `Pull requests: Write` + `Contents: Write` (le `Contents: Write` est requis pour pousser la branche `sth-X.Y.Z` sur le fork avant l'ouverture de PR).
 
@@ -447,6 +456,60 @@ Tests et lint Go :
 go test ./...
 go vet ./...
 ```
+
+Certification de compatibilité Claude, Codex, Copilot, Antigravity et Gemini :
+
+```bash
+for script in scripts/compat-*.sh testdata/runtime/fake-cli/*.sh; do
+  sh -n "$script"
+done
+sh scripts/compat-runtime-test.sh
+sh scripts/compat-sth-lifecycle-test.sh
+RUN_MODEL_SMOKES=0 sh scripts/compat-runtime.sh
+sh scripts/compat-runtime.sh
+
+go build -o /abs/cert/sth .
+STH_BIN=/abs/cert/sth \
+COMPAT_FIXTURE_EXPORT_ROOT=/abs/cert/fixtures \
+sh scripts/compat-sth-lifecycle-test.sh
+
+CLAUDE_BIN=/abs/cli/claude \
+CLAUDE_COMPAT_EXPECTED_VERSION=2.1.201 \
+CLAUDE_COMPAT_EXPECTED_SHA256='<sha256-claude-resolu>' \
+CODEX_BIN=/abs/cli/codex \
+CODEX_COMPAT_EXPECTED_VERSION=0.147.0-alpha.1.2 \
+CODEX_COMPAT_EXPECTED_SHA256='<sha256-codex-resolu>' \
+COPILOT_BIN=/abs/cli/copilot \
+COPILOT_COMPAT_EXPECTED_VERSION=1.0.78 \
+COPILOT_COMPAT_EXPECTED_SHA256='<sha256-copilot-resolu>' \
+GEMINI_BIN=/abs/cli/gemini \
+GEMINI_COMPAT_EXPECTED_VERSION=0.53.1 \
+GEMINI_COMPAT_EXPECTED_SHA256='<sha256-gemini-resolu>' \
+ANTIGRAVITY_BIN=/abs/cli/agy \
+ANTIGRAVITY_COMPAT_EXPECTED_VERSION=1.1.10 \
+ANTIGRAVITY_COMPAT_EXPECTED_SHA256='<sha256-antigravity-resolu>' \
+COMPAT_STH_BIN=/abs/cert/sth \
+COMPAT_FIXTURE_ROOT=/abs/cert/fixtures \
+STH_RUNTIME_SENTINEL_SUFFIX=UPDATED \
+COMPAT_HERMETIC=0 \
+COPILOT_IDE_TRANSCRIPT=/abs/copilot-transcript.jsonl \
+COPILOT_IDE_EXTENSION_VERSION=0.59.0 \
+ANTIGRAVITY_IDE_TRANSCRIPT=/abs/transcript_full.jsonl \
+ANTIGRAVITY_IDE_VERSION=2.1.1 \
+ANTIGRAVITY_IDE_APP='/Applications/Antigravity IDE.app' \
+STRICT_RUNTIME_CERTIFICATION=1 \
+sh scripts/compat-runtime.sh \
+  >/abs/cert/runtime-results.tsv \
+  2>/abs/cert/runtime-identities.log
+```
+
+Le test hermétique construit un vrai binaire `sth`, exporte ses fixtures `UPDATED`, vérifie leur provenance puis exige une matrice stricte de 38 preuves avec les cinq faux CLI et les deux transcripts IDE. Il valide le runner, pas les services externes. Chaque ligne TSV porte un champ `mode` égal à `hermetic` ou `real`; la recette réelle force `COMPAT_HERMETIC=0`. Le test lifecycle génère les vingt contrats via `install`, puis valide `update --dry-run`, `update`, `status` et `remove` contre un fournisseur local isolé.
+
+Le mode normal signale les surfaces indisponibles par `NON_EXECUTE` sans faire échouer l'audit. Le mode strict réel exige en plus une version et un SHA-256 préalablement enregistrés pour chacun des cinq CLI. Il résout chaque chemin canonique, vérifie la sortie `--version` et le contenu exact du fichier avant le premier appel runtime, puis écrit cinq lignes `Identité runtime vérifiée: ...` sur stderr; conserver ce log avec le TSV. Les valeurs `<sha256-...>` de l'exemple sont volontairement invalides jusqu'à leur remplacement par 64 chiffres hexadécimaux issus d'un relevé indépendant. Cette empreinte atteste le fichier local résolu au moment du contrôle, pas sa provenance éditeur, sa signature ni les dépendances transitives d'un lanceur script.
+
+Le mode strict exige aussi les fixtures générées par le même `COMPAT_STH_BIN` depuis moins de six heures, les deux transcripts IDE, les versions IDE, la co-présence d'une app Antigravity signée par l'équipe Google attendue et acceptée par Gatekeeper, exactement 38 contrats et aucun statut non certifiant. L'export affiche un challenge aléatoire : il doit apparaître dans la dernière invocation IDE de chaque preuve, ce qui interdit de réutiliser un transcript provenant d'un export antérieur. Le transcript natif Antigravity n'exposant pas l'identifiant de build de l'app, cette preuve atteste une co-présence de la version annoncée et non un lien cryptographique entre ce processus et le transcript. Une préparation invalide sort `2`; une matrice exécutée mais non certifiante sort `1`; une certification complète sort `0`. Seul `copilot-cli/instruction-discovery` accepte `INFO`, car Copilot CLI 1.0.78 n'expose pas cette inspection. Le rapport détaillé et daté se trouve dans [`docs/compatibility-report-2026-08-05.md`](docs/compatibility-report-2026-08-05.md).
+
+Les captures IDE fraîches peuvent être préparées avec `scripts/compat-copilot-ide-launch.sh` et `scripts/compat-antigravity-ide-launch.sh`. Leurs frontières d'isolation, les requêtes exactes et la collecte des transcripts sont détaillées dans [`docs/copilot-ide-runtime.md`](docs/copilot-ide-runtime.md) et [`docs/antigravity-ide-runtime.md`](docs/antigravity-ide-runtime.md). Ces helpers ne terminent aucun OAuth automatiquement.
 
 Build local avec métadonnées de release :
 

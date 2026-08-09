@@ -35,13 +35,29 @@ func (a *app) installResource(dryRun, jsonOut, force bool, positional []string) 
 	}
 	resourceRef := positional[0]
 
-	profile, release, err := a.prepareStateAccess()
+	var profile *fs.ProjectProfile
+	var release func()
+	var err error
+	if dryRun {
+		profile, err = a.prepareStateReadAccess()
+		release = func() {}
+	} else {
+		profile, release, err = a.prepareStateAccess()
+	}
 	if err != nil {
 		return err
 	}
 	defer release()
 
-	cfg, _ := fs.ReadProjectConfigV2()
+	var cfg fs.ProjectConfigV2
+	if dryRun {
+		cfg, err = fs.ReadProjectConfigV2ReadOnly()
+	} else {
+		cfg, err = fs.ReadProjectConfigV2()
+	}
+	if err != nil {
+		return err
+	}
 	providerID := "default"
 	if len(cfg.Providers) > 0 {
 		providerID = cfg.Providers[0].ID
@@ -106,6 +122,17 @@ func (a *app) installLegacy(profile fs.ProjectProfile, entry fs.CatalogEntry, pr
 		bundleContents, bundleErr := a.downloadBundleContents(context.Background(), profile, entry)
 		if bundleErr != nil {
 			return bundleErr
+		}
+		if dryRun {
+			plannedFiles, planErr := fs.PlanManagedBundle(profile.TargetDir, entry, bundleContents)
+			if planErr != nil {
+				return planErr
+			}
+			projectRoot, pathErr := filepath.Abs(".")
+			if pathErr != nil {
+				return pathErr
+			}
+			return a.renderFanoutDryRun(projectRoot, profile.TargetDir, entry.CatalogID, plannedFiles, nil, nil, jsonOut)
 		}
 		a.progress.step("Installation des fichiers…")
 		record, syncErr := fs.SyncManagedBundle(profile.TargetDir, entry, bundleContents)

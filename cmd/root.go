@@ -36,7 +36,7 @@ var commandCatalog = []commandSpec{
 			"Le wizard affiche les URLs officielles pour créer le token/API token, la permission minimale attendue et les variables d'environnement reconnues.",
 			"Le repository_id accepte un identifiant canonique ou une URL hébergée supportée. Les hosts self-hosted sont rejetés.",
 			"Le wizard demande quels modèles/agents cibler (Claude Code, GitHub Copilot, OpenAI Codex, Cursor, Google Antigravity), pré-coche ceux détectés, et n'a plus besoin du dossier d'install : il est dérivé automatiquement.",
-			"Les skills sont dédupliqués (.claude/skills sert de hub partagé lu par Claude/Cursor/Copilot ; .agents/skills s'ajoute pour Antigravity). init met aussi à jour .gitignore pour les fichiers d'état STH.",
+			"Les skills sont dédupliqués (.claude/skills sert de hub partagé lu par Claude/Cursor/Copilot ; .agents/skills sert à Codex et Gemini/Antigravity). init met aussi à jour .gitignore pour les fichiers d'état STH.",
 			"La guidance provider peut être relue pendant le wizard et aucun secret n'est persisté dans .sth/project.json.",
 			"Au premier init, le wizard propose un menu télémétrie (off / anonymous / connected). Mode connected enchaîne sur un sub-prompt `sth login`.",
 			"--no-cloud-prompt : skippe le sub-prompt login même quand le mode connecté est choisi (CI, wrappers).",
@@ -192,16 +192,20 @@ var commandCatalog = []commandSpec{
 	},
 	{
 		name:    "pack",
-		usage:   "sth pack init",
-		summary: "Scaffolde un repo de skills compatible STH (Pro)",
+		usage:   "sth pack <init|promote>",
+		summary: "Crée ou enrichit localement un pack Git compatible STH",
 		details: []string{
-			"Disponible sur l'offre Pro. STH_PRO_GATE=0 active la commande en local pour le développement.",
+			"Disponible localement et hors ligne dans l’offre Starter open source.",
 			"Deux layouts proposés : flat (anthropics/skills) et multi-stack (skills + agents + commands + instructions, à la Lore.Skills).",
 			"Le manifest.json racine sert d'heuristique forte au MultiStackScanner pour les consommateurs.",
+			"promote transforme volontairement un élément de .sth/local/code/library.json en bundle skills/<slug>, après preview et sans commit ni push.",
 		},
 		examples: []string{
 			"sth pack init",
+			"sth pack promote <library-id> --dry-run",
+			"sth pack promote <library-id> --output skills/review-pr --yes",
 		},
+		flags: []string{"--output", "--dry-run", "--yes"},
 	},
 	{
 		name:    "catalog",
@@ -263,11 +267,12 @@ var commandCatalog = []commandSpec{
 	{
 		name:    "mcp",
 		usage:   "sth mcp [install]",
-		summary: "Branche vos agents IA (Claude, Codex, Gemini) sur la bibliothèque de l'équipe via MCP",
+		summary: "Branche vos agents IA sur les assets STH locaux ou partagés via MCP",
 		details: []string{
-			"sth mcp : démarre le serveur MCP stdio que les agents locaux appellent (library_search, library_get, library_save). Nécessite `sth login` au préalable.",
+			"sth mcp : démarre le serveur MCP stdio (library_search, library_get, library_save, asset_search, asset_get). Sans compte, il utilise uniquement les données locales du projet.",
+			"STH_MCP_LOCAL_ONLY=1 force le mode local même lorsqu'une connexion Cloud existe.",
 			"sth mcp install : écrit ./.mcp.json pour Claude Code et affiche la configuration à coller pour Codex (~/.codex/config.toml) et Gemini (~/.gemini/settings.json).",
-			"Les agents travaillent sur la bibliothèque de votre organisation active, avec les mêmes règles de rôle et de quota que le dashboard.",
+			"Après `sth login`, les agents utilisent aussi la bibliothèque de l'organisation active, avec les règles de rôle et de quota du control plane.",
 			"Pour Claude sur le web ou mobile, utilisez plutôt le connecteur distant : Réglages → Connecteurs → Ajouter un connecteur perso → https://<domaine>/api/mcp.",
 		},
 		examples: []string{
@@ -358,11 +363,6 @@ func Run(args []string) error {
 func (a *app) run(args []string) error {
 	args = a.applyGlobalFlags(args)
 
-	if err := a.enforceAlphaGate(context.Background(), args); err != nil {
-		a.writeStderr(fmt.Sprintf("Erreur : %v", err))
-		return err
-	}
-
 	if len(args) == 0 {
 		if a.isInteractiveSession() {
 			return a.runGuidedMenu()
@@ -394,8 +394,11 @@ func (a *app) run(args []string) error {
 			a.writeStdout(commandHelpText("install"))
 			return nil
 		}
+		installFlags, _ := parseFlags(args[1:], "--dry-run")
 		err = a.runInstall(args[1:])
-		a.recordOperationResult("install", resourceFromArgs(args[1:]), err)
+		if !installFlags["--dry-run"] {
+			a.recordOperationResult("install", resourceFromArgs(args[1:]), err)
+		}
 	case "update":
 		if len(args) >= 2 && isHelpFlag(args[1]) {
 			a.writeStdout(commandHelpText("update"))
@@ -408,8 +411,11 @@ func (a *app) run(args []string) error {
 			}
 			err = a.runSelfUpdate()
 		} else {
+			updateFlags, _ := parseFlags(args[1:], "--dry-run")
 			err = a.runUpdate(args[1:])
-			a.recordOperationResult("update", "", err)
+			if !updateFlags["--dry-run"] {
+				a.recordOperationResult("update", "", err)
+			}
 		}
 	case "status":
 		if len(args) >= 2 && isHelpFlag(args[1]) {
@@ -417,6 +423,8 @@ func (a *app) run(args []string) error {
 			return nil
 		}
 		err = a.runStatus(args[1:])
+	case "bridge":
+		err = a.runBridge(args[1:])
 	case "remove":
 		if len(args) >= 2 && isHelpFlag(args[1]) {
 			a.writeStdout(commandHelpText("remove"))
@@ -550,7 +558,7 @@ func (a *app) run(args []string) error {
 // when main returns (this is the last call before exit), so we'd lose nearly
 // every record.
 func (a *app) reportCloudUsageBestEffort(command string) {
-	if command == "login" || command == "logout" || command == "version" || command == "help" || command == "telemetry" {
+	if command == "bridge" || command == "pack" || command == "login" || command == "logout" || command == "version" || command == "help" || command == "telemetry" {
 		return
 	}
 	mode := sthfs.TelemetryModeActive()
