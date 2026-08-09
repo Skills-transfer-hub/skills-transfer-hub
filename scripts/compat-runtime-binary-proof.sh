@@ -55,7 +55,10 @@ except (OSError, subprocess.TimeoutExpired) as runtime_error:
 if version_process.returncode != 0:
     raise SystemExit("commande --version non concluante")
 version_output = f"{version_process.stdout}\n{version_process.stderr}"
-version_pattern = rf"(?<![A-Za-z0-9._+-]){re.escape(expected_version)}(?![A-Za-z0-9._+-])"
+version_pattern = (
+    rf"(?<![A-Za-z0-9._+-]){re.escape(expected_version)}"
+    r"(?![A-Za-z0-9_+-])(?!\.[A-Za-z0-9._+-])"
+)
 if re.search(version_pattern, version_output) is None:
     raise SystemExit("version runtime inattendue")
 if sha256_file(binary_path) != expected_sha256:

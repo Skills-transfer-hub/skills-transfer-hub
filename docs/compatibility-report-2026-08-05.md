@@ -9,8 +9,12 @@
 - **Préparation stricte réelle renforcée : OK dans le harness.** Les cinq CLI doivent désormais fournir une version attendue et le SHA-256 attendu de leur exécutable résolu; les valeurs absentes ou divergentes sortent `2` avant le premier appel runtime. La preuve positive et les échecs version/SHA sont testés, sans modifier le strict hermétique ni le mode normal.
 - **Runtime réel Codex : OK, 7 preuves sur 7.** Codex `0.147.0-alpha.1.2`, authentifié via ChatGPT, a validé trois découvertes et quatre sentinelles modèle réelles sur les fixtures `UPDATED`.
 - **Runtime réel Copilot CLI : OK, 6 preuves `OK` et une inspection `INFO` autorisée.** Copilot `1.0.78` a validé les découvertes de skill et de commande puis les quatre sentinelles modèle réelles. Il a utilisé le jeton déjà détenu par `gh`, injecté uniquement dans l'environnement du processus; une comparaison après exécution trouve zéro copie de ce jeton dans le profil Copilot temporaire.
-- **Certification globale des runtimes externes réels : NON ACQUISE.** Claude reste non authentifié malgré l'affichage `Login successful`, Gemini attend encore une clé ou un ADC explicite, Antigravity attend l'échange final de son OAuth, et les deux IDE exigent une validation interactive avec transcripts frais.
-- **CI distante : NON OBSERVÉE.** Le commit `0be0051` est poussé sur `codex/runtime-five-client-certification`, mais le workflow de cette branche ne se déclenche que sur `pull_request`; aucune PR n'est encore ouverte vers `develop`.
+- **Runtime réel Antigravity : OK, CLI 5/5 et IDE 4/4.** Antigravity CLI `1.1.10` authentifié a validé sa découverte d'agent et les quatre sentinelles modèle réelles; l'IDE 2.1.1 a validé indépendamment workflow, commande, règle et instruction.
+- **Runtime réel Antigravity IDE : OK, 4 preuves sur 4.** L'app 2.1.1 connectée a chargé le workflow et la règle des fixtures `UPDATED`, puis a retourné les deux sentinelles modèles exactes dans son `transcript_full.jsonl` natif. Le vérificateur accepte désormais le schéma natif 2.1.1 : requête encapsulée dans `USER_REQUEST`, événements sans `content` et préambule de tool-call non textuel. Cette preuve a été obtenue sur un challenge désormais expiré; elle devra être rejouée sur la racine de fixtures courante.
+- **Runtime réel Claude : OK, 8 preuves sur 8.** Après déverrouillage manuel de `login.keychain-db`, `auth status` retourne `loggedIn: true` via `claude.ai`. Claude Code `2.1.201` a validé ses trois découvertes `system/init`, son `InstructionsLoaded`, puis les quatre sentinelles `CLAUDE_*_UPDATED` sur les fixtures courantes.
+- **Runtime réel Copilot IDE classique : OK, 2 preuves sur 2.** VS Code `1.132.0` avec l'extension intégrée `GitHub.copilot-chat` `0.60.0` a résolu `.github/prompts/sth-runtime-command.prompt.md` en fichier de prompt racine, porté le challenge frais dans la requête et retourné `COPILOT_COMMAND_UPDATED`. Aucune preuve Copilot Agent Host n'est utilisée pour ce contrat.
+- **Certification globale des runtimes externes réels : NON ACQUISE.** Aucune clé API ni projet Google n'étant disponible, les quatre smokes Gemini restent `NON_EXECUTE`, et la matrice stricte de 38 contrats ne peut pas sortir `0`.
+- **CI distante : verte sur la tête distante précédente de la draft PR #185.** Les correctifs de vérificateurs de ce commit doivent encore être observés dans ce même CI gate.
 
 Une découverte `OK` prouve que le consommateur a chargé l'artefact. Seule une sentinelle runtime `OK` issue de la réponse du modèle prouve son exécution. Une preuve hermétique valide le mécanisme de certification, pas le service externe.
 
@@ -18,22 +22,22 @@ Une découverte `OK` prouve que le consommateur a chargé l'artefact. Seule une 
 
 | Consommateur | Artefact | Destination produite par STH | Cycle STH réel | Preuve runtime au 5 août |
 |---|---|---|---|---|
-| Claude | Skill | `.claude/skills/<name>/SKILL.md` | OK | découverte `system/init` fraîche OK; modèle `NON_EXECUTE` — auth false |
-| Claude | Agent | `.claude/agents/<name>.md` | OK | découverte `system/init` fraîche OK; modèle `NON_EXECUTE` — auth false |
-| Claude | Commande | `.claude/commands/<name>.md` | OK | découverte `system/init` fraîche OK; modèle `NON_EXECUTE` — auth false |
-| Claude | Instruction | `.claude/rules/<name>.md` | OK | `InstructionsLoaded` frais OK; modèle `NON_EXECUTE` — auth false |
+| Claude | Skill | `.claude/skills/<name>/SKILL.md` | OK | découverte `system/init` fraîche et smoke modèle réel 2.1.201 OK |
+| Claude | Agent | `.claude/agents/<name>.md` | OK | découverte `system/init` fraîche et smoke modèle réel 2.1.201 OK |
+| Claude | Commande | `.claude/commands/<name>.md` | OK | découverte `system/init` fraîche et smoke modèle réel 2.1.201 OK |
+| Claude | Instruction | `.claude/rules/<name>.md` | OK | `InstructionsLoaded` frais et smoke modèle réel 2.1.201 OK |
 | Codex | Skill | `.agents/skills/<name>/SKILL.md` | OK | découverte fraîche et smoke modèle réel 0.147 OK |
 | Codex | Agent | `.codex/agents/<name>.toml` | OK | smoke modèle réel et délégation 0.147 OK |
 | Codex | Commande | `.agents/skills/<name>/SKILL.md` | OK | découverte fraîche et smoke modèle réel 0.147 OK |
 | Codex | Instruction | `.codex/sth/instructions/<name>.md` + région `AGENTS.md` | OK | découverte fraîche et smoke modèle réel 0.147 OK |
 | Copilot | Skill | `.claude/skills/<name>/SKILL.md` | OK | découverte CLI fraîche et smoke modèle réel 1.0.78 OK |
 | Copilot | Agent | `.github/agents/<name>.agent.md` | OK | smoke modèle réel 1.0.78 OK |
-| Copilot | Commande | `.claude/commands/<name>.md` + `.github/prompts/<name>.prompt.md` | OK | découverte CLI fraîche OK; transcript IDE frais requis |
+| Copilot | Commande | `.claude/commands/<name>.md` + `.github/prompts/<name>.prompt.md` | OK | découverte CLI fraîche OK; transcript IDE réel `0.60.0` OK |
 | Copilot | Instruction | `.github/instructions/<name>.instructions.md` | OK | inspection optionnelle indisponible en CLI 1.0.78; smoke modèle réel OK |
-| Antigravity | Skill | `.agents/skills/<name>/SKILL.md` | OK | modèle à relancer après OAuth |
-| Antigravity | Agent | `.agents/agents/<name>.md` | OK | découverte CLI fraîche OK; modèle à relancer après OAuth |
-| Antigravity | Commande | `.agents/workflows/<name>.md` | OK | smoke CLI et preuve IDE prêts; OAuth et transcript frais requis |
-| Antigravity | Instruction | `.agents/rules/<name>.md` | OK | smoke CLI et preuve IDE prêts; OAuth et transcript frais requis |
+| Antigravity | Skill | `.agents/skills/<name>/SKILL.md` | OK | smoke CLI réel 1.1.10 OK |
+| Antigravity | Agent | `.agents/agents/<name>.md` | OK | découverte et smoke CLI réels 1.1.10 OK |
+| Antigravity | Commande | `.agents/workflows/<name>.md` | OK | smoke CLI réel et preuve IDE réelle 2.1.1 OK |
+| Antigravity | Instruction | `.agents/rules/<name>.md` | OK | smoke CLI réel et preuve IDE réelle 2.1.1 OK |
 | Gemini | Skill | `.agents/skills/<name>/SKILL.md` | OK | découverte CLI fraîche OK; modèle `NON_EXECUTE` — OAuth individuel refusé |
 | Gemini | Agent | `.gemini/agents/<name>.md` | OK | modèle `NON_EXECUTE` — aucune clé ni projet configuré |
 | Gemini | Commande | `.gemini/commands/<name>.toml` | OK | modèle `NON_EXECUTE` — aucune clé ni projet configuré |
@@ -79,13 +83,13 @@ Le test coupe les tokens, la télémétrie et les proxys externes. Le fichier Co
 
 | Runtime | Version | État local fraîchement vérifié |
 |---|---:|---|
-| Claude Code | `2.1.201` | trois découvertes `system/init` et `InstructionsLoaded` OK; quatre modèles `NON_EXECUTE`; `auth status` reste faux après `Login successful`; `doctor` confirme l'échec d'écriture du macOS Keychain `-25293`, et `login.keychain-db` reste inaccessible en lecture hors sandbox même pendant une session graphique déverrouillée |
+| Claude Code | `2.1.201` | `login.keychain-db` déverrouillé manuellement par l'utilisateur, ce qui lève l'erreur Keychain `-25293`; `auth status` retourne `loggedIn: true` via `claude.ai`; trois découvertes `system/init`, `InstructionsLoaded` et quatre smokes modèle réels OK, soit 8/8 |
 | Codex | `0.147.0-alpha.1.2` | authentifié via ChatGPT; trois découvertes et quatre smokes modèle réels OK, soit 7/7 |
 | GitHub Copilot CLI | `1.0.78` | installation temporaire; skill et commande découverts; quatre smokes modèle réels OK avec le jeton `gh` transmis uniquement en mémoire du processus; aucune copie du jeton détectée dans le profil temporaire après exécution |
-| VS Code / Copilot intégré | `1.131.0` / `0.59.0` | l'interface affiche `Se connecter`, `Models, sign in to use Copilot` et l'erreur de porte-clés; aucun mode `--password-store=basic` n'est actif; transcript réel frais toujours requis |
+| VS Code / Copilot intégré | `1.132.0` / `0.60.0` | trousseau déverrouillé, connexion GitHub aboutie dans le profil isolé; `GitHub.copilot-chat` est désormais une extension intégrée au bundle VS Code; transcript réel frais obtenu et validé |
 | Gemini CLI | `0.53.1` | skill découvert; OAuth individuel refusé par le service; aucune clé ni projet configuré |
-| Antigravity CLI | `1.1.10` | binaire temporaire; agent découvert avec `--add-dir`; OAuth réel encore en attente |
-| Antigravity IDE | `2.1.1` | preuve `ANTIGRAVITY_IDE_APP_OK` relancée hors sandbox macOS le 5 août; le sandbox produit un faux négatif sur codesign/Gatekeeper; aucun `transcript_full.jsonl` certifiant disponible |
+| Antigravity CLI | `1.1.10` | OAuth persistant vérifié par `antigravity models`; agent découvert avec `--add-dir` et quatre smokes modèle `UPDATED` réels OK |
+| Antigravity IDE | `2.1.1` | preuve app `ANTIGRAVITY_IDE_APP_OK` relancée hors sandbox macOS et transcript natif frais `ANTIGRAVITY_IDE_OK` : workflow, commande, règle et instruction retournent les quatre preuves strictes attendues |
 
 Les deux lanceurs guidés passent en mode `--prepare-only` contre les fixtures `UPDATED` et le binaire STH exact. Copilot prépare son profil isolé sans ouvrir VS Code. Antigravity valide en plus l'app 2.1.1 présente hors sandbox macOS avant de produire les deux requêtes; aucune fenêtre ni aucun OAuth n'est lancé dans ce mode. Cette observation `ANTIGRAVITY_IDE_APP_OK` n'est ni une preuve persistée de provenance éditeur ni un lien cryptographique avec un transcript.
 
@@ -106,13 +110,15 @@ Gemini          skill-discovery        OK
 Antigravity CLI agent-discovery        OK
 ```
 
-Le cumul indépendant actuellement acquis est donc de 20 clés sur 38 : ces douze découvertes ou inspections, dont l'`INFO` Copilot autorisé par la matrice, plus les quatre smokes modèle Codex et les quatre smokes modèle Copilot CLI. Dix-huit clés restent sans preuve réelle. Ce décompte rapproche des exécutions ciblées distinctes; il ne constitue pas une sortie stricte unique, ne fusionne pas leurs TSV et ne certifie pas la matrice réelle globale.
+Le cumul indépendant actuellement acquis est de 34 clés sur 38 : ces douze découvertes ou inspections, dont l'`INFO` Copilot autorisé par la matrice, plus les quatre smokes modèle Claude, les quatre smokes modèle Codex, les quatre smokes modèle Copilot CLI, les quatre smokes modèle Antigravity CLI, les quatre preuves Antigravity IDE et les deux preuves Copilot IDE. Les quatre clés restantes sont les smokes modèle Gemini. Ce décompte rapproche des exécutions ciblées distinctes, menées sur plusieurs racines de fixtures successives; il ne constitue pas une sortie stricte unique, ne fusionne pas leurs TSV et ne certifie pas la matrice réelle globale. Sur la racine de fixtures courante, seules les huit clés Claude et les deux clés Copilot IDE ont été rejouées.
 
 L'exécution ciblée réelle Codex est conservée dans `/private/tmp/sth-cert-final-20260805.Is2iWu/codex-real.tsv`. Ses sept lignes Codex portent toutes le mode `real` : `skill-discovery`, `command-discovery`, `instruction-discovery`, puis `skill`, `agent`, `command` et `instruction` avec les quatre sentinelles `UPDATED` exactes. Les autres consommateurs y sont volontairement absents ou `NON_EXECUTE`; ce fichier certifie Codex, pas la matrice externe globale.
 
 La passe combinée Codex et Copilot CLI est conservée dans `/private/tmp/sth-cert-real-20260805.YphY1Z/normal-codex-copilot.tsv`. Elle contient treize lignes `OK`, une ligne `INFO` Copilot autorisée et dix-sept `NON_EXECUTE` volontairement neutralisés. Les sept lignes Codex sont toutes `OK`; Copilot fournit `skill-discovery`, `command-discovery` et les quatre sentinelles `COPILOT_*_UPDATED` en `OK`, plus `instruction-discovery` en `INFO`. Le jeton retourné par `gh auth token` n'a jamais été affiché ni écrit par le harness; la comparaison exacte de sa valeur avec tous les fichiers du profil temporaire après les quatre appels renvoie `COPILOT_RUNNER_TOKEN_PERSISTED_MATCHES=0`.
 
-L'exécution ciblée Claude est conservée dans `/private/tmp/sth-cert-final-20260805.Is2iWu/claude-real.tsv`. Elle prouve trois découvertes `system/init` et le chargement d'instruction `InstructionsLoaded`, puis quatre smokes modèle `NON_EXECUTE`. Le flux OAuth a affiché `Login successful`, mais `auth status` reste faux; `doctor` rattache ce désaccord à l'impossibilité d'écrire dans le macOS Keychain, code `-25293`. Aucun succès modèle Claude n'est donc revendiqué.
+L'exécution ciblée Claude est conservée dans `/private/tmp/sth-cert-38-20260805/claude-real.tsv`. Ses huit lignes Claude portent toutes le mode `real` et le statut `OK` : `skill-discovery`, `agent-discovery`, `command-discovery` et `instruction-discovery`, puis `skill`, `agent`, `command` et `instruction` avec les quatre sentinelles `CLAUDE_*_UPDATED` exactes. Le blocage précédent tenait au verrouillage de `login.keychain-db`, que `security show-keychain-info` signalait par une erreur d'authentification; son déverrouillage manuel par l'utilisateur a rétabli la persistance d'authentification et rendu `auth status` positif. Aucun secret n'a été saisi, affiché ni écrit par le harness.
+
+La preuve Copilot IDE classique réelle est conservée dans `/private/tmp/sth-cert-38-20260805/proofs/copilot-ide-transcript.jsonl`. Le transcript relie `GitHub.copilot-chat` version `0.60.0`, le fichier `.github/prompts/sth-runtime-command.prompt.md` en variable `promptFile` racine ajoutée automatiquement, le challenge courant présent dans le message, et une réponse modèle égale à `COPILOT_COMMAND_UPDATED`, sans `errorDetails`. `scripts/compat-copilot-ide-proof.sh` y répond `DISCOVERY_OK_RUNTIME_OK`.
 
 Gemini CLI `0.53.1` refuse le flux OAuth individuel avec le message exact suivant :
 
@@ -122,7 +128,9 @@ This client is no longer supported for Gemini Code Assist for individuals. To co
 
 Aucune clé API ni aucun projet Google Cloud n'étant configuré, les quatre smokes Gemini restent `NON_EXECUTE`. Le chemin réel a néanmoins été relancé avec le binaire 0.53.1 et la politique sécurisée du runner : la découverte du skill est `OK`, le premier smoke est classé `NON_EXECUTE` pour authentification absente, puis les trois suivants sont court-circuités. La version 0.53.1 ignore `--admin-policy` lorsqu'une policy système existe; le runner détecte désormais ce cas avant tout appel modèle et produit quatre `NON_EXECUTE` explicites. Ce blocage d'authentification externe ne remet pas en cause les contrats STH ni la preuve hermétique.
 
-Antigravity CLI 1.1.10 ne charge l'agent de la fixture qu'avec `--add-dir <racine-absolue>`. Le runner exige également `status=SUCCESS`, une réponse JSON exacte et `--agent sth-runtime-agent` pour le contrat agent.
+Antigravity CLI 1.1.10 ne charge l'agent de la fixture qu'avec `--add-dir <racine-absolue>`. Après l'échange OAuth, `antigravity models` liste les modèles disponibles et la passe `/private/tmp/sth-cert-real-20260805.YphY1Z/real-antigravity.tsv` confirme l'agent ainsi que les quatre sentinelles `ANTIGRAVITY_*_UPDATED`. Le runner exige également `status=SUCCESS`, une réponse JSON exacte et `--agent sth-runtime-agent` pour le contrat agent.
+
+La passe réelle isolée Antigravity IDE est conservée dans `/private/tmp/sth-cert-real-20260805.YphY1Z/normal-antigravity-ide.tsv`. Ses quatre lignes `real` sont toutes `OK` : `command-discovery`, `command`, `instruction-discovery` et `instruction`. Le transcript natif réel comporte des événements système ou tool-call sans champ `content` et enveloppe la requête utilisateur dans `USER_REQUEST`; le vérificateur n'accepte ces variantes que lorsque le prompt exact est dans ce bloc, puis exige une unique réponse textuelle `MODEL/PLANNER_RESPONSE/DONE` égale à la sentinelle. Les tests hermétiques couvrent ce format ainsi que le refus d'un `content: null` et d'un prompt placé seulement dans les métadonnées.
 
 ### Certification stricte hermétique
 
@@ -182,7 +190,7 @@ COMPAT_FIXTURE_ROOT=/abs/cert/fixtures \
 STH_RUNTIME_SENTINEL_SUFFIX=UPDATED \
 COMPAT_HERMETIC=0 \
 COPILOT_IDE_TRANSCRIPT=/abs/copilot-transcript.jsonl \
-COPILOT_IDE_EXTENSION_VERSION=0.59.0 \
+COPILOT_IDE_EXTENSION_VERSION=0.60.0 \
 ANTIGRAVITY_IDE_TRANSCRIPT=/abs/transcript_full.jsonl \
 ANTIGRAVITY_IDE_VERSION=2.1.1 \
 ANTIGRAVITY_IDE_APP='/Applications/Antigravity IDE.app' \
@@ -198,7 +206,7 @@ L'export affiche `Challenge runtime IDE: <challenge>` et enregistre `generated_a
 
 Le mode normal accepte `NON_EXECUTE` et échoue sur `KO`. Le mode strict vérifie la matrice exacte de 38 contrats et échoue sur `KO`, `NON_EXECUTE`, ligne manquante, dupliquée ou inattendue. Seul `copilot-cli/instruction-discovery` accepte `INFO`. Une erreur de préparation sort `2`, une matrice exécutée mais non certifiante sort `1`, et la certification complète sort `0`.
 
-`scripts/compat-copilot-ide-proof.sh` vérifie que la dernière invocation VS Code associe la requête au fichier exact `.github/prompts/sth-runtime-command.prompt.md`, à la version d'extension attendue et au challenge frais, puis n'accepte la sentinelle que dans le résultat du modèle.
+`scripts/compat-copilot-ide-proof.sh` reconstruit d'abord la session à partir du journal VS Code, qui n'écrit plus un instantané complet mais un instantané `kind:0` suivi d'affectations `kind:1` et d'ajouts `kind:2`; une mise à jour sans instantané initial, un chemin introuvable ou un ajout sur une valeur non séquentielle sont refusés. Il vérifie ensuite que la dernière invocation associe la requête au fichier exact `.github/prompts/sth-runtime-command.prompt.md`, à l'extension `github.copilot-chat` dans la version attendue et au challenge frais, puis n'accepte la sentinelle que dans la réponse du modèle.
 
 `scripts/compat-antigravity-ide-proof.sh` exige le fichier natif complet `transcript_full.jsonl`, refuse les transcripts tronqués ou ambigus, valide la dernière invocation de chaque requête avec challenge, la rattache à une unique réponse `MODEL/PLANNER_RESPONSE/DONE`, puis valide séparément workflow et règle. `scripts/compat-antigravity-ide-app-proof.sh` exige séparément la co-présence du bundle `com.google.antigravity-ide` à la version annoncée, signé par le TeamIdentifier Google `EQHXZ8M8AV` et accepté par Gatekeeper. Le transcript natif n'expose pas d'identifiant de build permettant de relier cryptographiquement la réponse à cette app précise. Une sentinelle présente uniquement dans une fixture, un message système ou une ancienne réponse ne produit pas de faux positif.
 
@@ -230,19 +238,18 @@ Le mode normal accepte `NON_EXECUTE` et échoue sur `KO`. Le mode strict vérifi
 - protections anti-replay sur la dernière invocation et validation de version des deux IDE;
 - preuve stricte hermétique atteignable à 38/38, mode attesté dans le TSV et faux CLI exacts interdits en mode réel;
 - identité des cinq CLI liée en strict réel à une version explicitement attendue et au SHA-256 exact du fichier résolu, avec attestation stderr et tests positifs/négatifs;
+- correction du filtre de version d'identité runtime, qui rejetait une version suivie d'un point de ponctuation comme `GitHub Copilot CLI 1.0.78.`; la frontière de fin refuse toujours `1.2.30`, `1.2.3.4` et `1.2.3-beta`, et quatre tests hermétiques couvrent ces cas;
+- lecture du journal de session incrémental de VS Code par la preuve Copilot IDE : instantané `kind:0`, affectation `kind:1` et ajout `kind:2` sont rejoués avant analyse, la réponse modèle étant lue à la fois sous `result.response` et sous `response`; l'épinglage d'extension, la résolution du fichier de prompt racine, le challenge frais et la dernière invocation restent exigés, et quatre tests hermétiques refusent une version d'extension divergente, une mise à jour sans instantané initial, un ajout sur `null` et tout `extensionId` autre que `github.copilot-chat`;
 - job CI hermétique exact, avec téléchargement préalable des modules et gate agrégé.
 
 ## Conditions restantes pour 100 % runtime
 
-1. Déverrouiller ou réparer manuellement `login.keychain-db`, rétablir une persistance d'authentification Claude malgré l'erreur Keychain `-25293`, puis confirmer `auth status` avant de relancer ses quatre modèles.
-2. Terminer l'échange OAuth Antigravity avec le compte choisi, puis relancer ses quatre smokes CLI; les quatre smokes Copilot CLI sont déjà `OK` sans persistance supplémentaire.
-3. Fournir à Gemini une méthode d'authentification encore supportée et le projet ou la clé requis, puis relancer ses quatre smokes; le flux OAuth individuel refusé ne peut pas servir de certification.
-4. Résoudre la connexion et l'erreur de porte-clés de VS Code, exécuter `/sth-runtime-command` avec le challenge frais et valider la réponse exacte dans le transcript de la version Copilot annoncée.
-5. Ouvrir la fixture générée dans l'app Antigravity signée connectée, exécuter le workflow et la règle avec le challenge frais, puis fournir le `transcript_full.jsonl` natif.
-6. Exécuter le strict réel et obtenir la sortie `0` sur les 38 preuves exactes.
-7. Ouvrir une PR vers `develop` depuis la branche déjà poussée, puis observer le `CI gate` GitHub vert depuis le commit distant.
+1. Fournir à Gemini une méthode d'authentification encore supportée et le projet ou la clé requis, puis relancer ses quatre smokes; le flux OAuth individuel refusé ne peut pas servir de certification. Ce sont les seuls contrats encore dépourvus de toute preuve réelle.
+2. Rejouer la session Antigravity IDE sur la racine de fixtures courante, le challenge de la preuve acquise ayant expiré.
+3. Exécuter le strict réel en une passe unique, avec les cinq binaires et les deux transcripts IDE liés au même challenge, et obtenir la sortie `0` sur les 38 preuves exactes.
+4. Publier les correctifs de vérificateurs sur la draft PR #185 vers `develop`, puis observer le `CI gate` GitHub vert depuis ce commit distant.
 
-Tant que ces étapes externes ne sont pas terminées, le verdict exact reste : **STH, son lifecycle et son certificateur strict hermétique sont certifiés localement; le runtime multi-consommateur réel et la CI distante ne le sont pas encore**.
+Tant que ces étapes externes ne sont pas terminées, le verdict exact reste : **STH, son lifecycle et son certificateur strict hermétique sont certifiés localement; le runtime multi-consommateur réel n'est pas certifié en une passe stricte unique, et la CI distante ne l'est pas encore pour ce commit**.
 
 ## Références officielles
 

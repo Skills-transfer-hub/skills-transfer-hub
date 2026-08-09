@@ -100,12 +100,19 @@ with open(transcript_path, encoding="utf-8") as transcript_stream:
             raise SystemExit(f"index Antigravity invalide ligne {line_number}")
         if steps and step_index <= steps[-1]["step_index"]:
             raise SystemExit("index Antigravity non strictement croissant")
-        for required_field in ("source", "type", "status", "content"):
+        for required_field in ("source", "type", "status"):
             if not isinstance(step.get(required_field), str):
                 raise SystemExit(
                     f"champ Antigravity {required_field} invalide ligne {line_number}"
                 )
+        if "content" in step and not isinstance(step["content"], str):
+            raise SystemExit(f"champ Antigravity content invalide ligne {line_number}")
         steps.append(step)
+
+def is_exact_user_request(content, prompt):
+    if content == prompt:
+        return True
+    return content.startswith(f"<USER_REQUEST>\n{prompt}\n</USER_REQUEST>\n")
 
 def exact_pair(prompt, sentinel):
     prompt_positions = [
@@ -114,7 +121,7 @@ def exact_pair(prompt, sentinel):
         if step["source"] == "USER_EXPLICIT"
         and step["type"] == "USER_INPUT"
         and step["status"] == "DONE"
-        and step["content"] == prompt
+        and is_exact_user_request(step.get("content", ""), prompt)
     ]
     if not prompt_positions:
         return False
@@ -134,6 +141,7 @@ def exact_pair(prompt, sentinel):
         if candidate["source"] == "MODEL"
         and candidate["type"] == "PLANNER_RESPONSE"
         and candidate["status"] == "DONE"
+        and isinstance(candidate.get("content"), str)
     ]
     return len(planner_responses) == 1 and planner_responses[0]["content"] == sentinel
 

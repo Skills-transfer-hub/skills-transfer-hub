@@ -94,6 +94,53 @@ sh "$copilot_ide_proof" "$copilot_transcript_success" "$repository_root/testdata
 copilot_challenge_status=$?
 assert_status 1 "$copilot_challenge_status" "preuve Copilot IDE sans challenge frais"
 
+copilot_incremental_success="$test_directory/copilot-transcript-incremental.jsonl"
+printf '%s\n' \
+	'{"kind":0,"v":{"requests":[]}}' \
+	'{"kind":1,"k":["responderUsername"],"v":"GitHub Copilot"}' \
+	"$(printf '{"kind":2,"k":["requests"],"v":[{"agent":{"extensionId":{"value":"GitHub.copilot-chat"},"extensionVersion":"test"},"message":{"text":"/sth-runtime-command","parts":[{"kind":"prompt","name":"sth-runtime-command"}]},"variableData":{"variables":[{"kind":"promptFile","isRoot":true,"automaticallyAdded":true,"value":{"path":"%s"}}]},"response":[{"kind":"thinking","value":[]}]}]}' "$copilot_prompt_path")" \
+	'{"kind":2,"k":["requests",0,"response"],"v":[{"value":"COPILOT_COMMAND_OK"}]}' \
+	>"$copilot_incremental_success"
+copilot_incremental_result=$(sh "$copilot_ide_proof" "$copilot_incremental_success" "$repository_root/testdata/runtime/copilot-project")
+copilot_incremental_status=$?
+assert_status 0 "$copilot_incremental_status" "preuve Copilot IDE avec journal incrémental"
+if [ "$copilot_incremental_result" != "DISCOVERY_OK_RUNTIME_OK" ]; then
+	fail_test "preuve Copilot IDE incrémentale: sentinelle non reconnue"
+fi
+
+sh "$copilot_ide_proof" "$copilot_incremental_success" "$repository_root/testdata/runtime/copilot-project" COPILOT_COMMAND_OK autre >"$invalid_output" 2>"$invalid_error"
+copilot_incremental_version_status=$?
+assert_status 1 "$copilot_incremental_version_status" "preuve Copilot IDE incrémentale avec version d'extension différente"
+
+copilot_incremental_orphan="$test_directory/copilot-transcript-orphan.jsonl"
+printf '%s\n' \
+	"$(printf '{"kind":2,"k":["requests"],"v":[{"agent":{"extensionId":{"value":"GitHub.copilot-chat"},"extensionVersion":"test"},"message":{"parts":[{"kind":"prompt","name":"sth-runtime-command"}]},"variableData":{"variables":[{"kind":"promptFile","isRoot":true,"automaticallyAdded":true,"value":{"path":"%s"}}]},"response":[{"value":"COPILOT_COMMAND_OK"}]}]}' "$copilot_prompt_path")" \
+	>"$copilot_incremental_orphan"
+sh "$copilot_ide_proof" "$copilot_incremental_orphan" "$repository_root/testdata/runtime/copilot-project" >"$invalid_output" 2>"$invalid_error"
+copilot_incremental_orphan_status=$?
+assert_status 1 "$copilot_incremental_orphan_status" "preuve Copilot IDE incrémentale sans instantané initial"
+
+copilot_incremental_null_append="$test_directory/copilot-transcript-null-append.jsonl"
+printf '%s\n' \
+	'{"kind":0,"v":{"requests":null}}' \
+	'{"kind":2,"k":["requests"],"v":[]}' \
+	>"$copilot_incremental_null_append"
+sh "$copilot_ide_proof" "$copilot_incremental_null_append" "$repository_root/testdata/runtime/copilot-project" >"$invalid_output" 2>"$invalid_error"
+copilot_incremental_null_append_status=$?
+assert_status 1 "$copilot_incremental_null_append_status" "preuve Copilot IDE incrémentale avec ajout sur null"
+if ! grep -Fq 'ajout sur une valeur non séquentielle' "$invalid_error"; then
+	fail_test "preuve Copilot IDE incrémentale avec ajout sur null: diagnostic absent"
+fi
+
+copilot_incremental_agent_host="$test_directory/copilot-transcript-agent-host.jsonl"
+printf '%s\n' \
+	'{"kind":0,"v":{"requests":[]}}' \
+	"$(printf '{"kind":2,"k":["requests"],"v":[{"agent":{"extensionId":{"value":"GitHub.copilot"},"extensionVersion":"test"},"message":{"parts":[{"kind":"prompt","name":"sth-runtime-command"}]},"variableData":{"variables":[{"kind":"promptFile","isRoot":true,"automaticallyAdded":true,"value":{"path":"%s"}}]},"response":[{"value":"COPILOT_COMMAND_OK"}]}]}' "$copilot_prompt_path")" \
+	>"$copilot_incremental_agent_host"
+sh "$copilot_ide_proof" "$copilot_incremental_agent_host" "$repository_root/testdata/runtime/copilot-project" >"$invalid_output" 2>"$invalid_error"
+copilot_incremental_agent_host_status=$?
+assert_status 1 "$copilot_incremental_agent_host_status" "preuve Copilot IDE incrémentale hors GitHub.copilot-chat"
+
 antigravity_transcript_directory="$test_directory/antigravity-transcript"
 mkdir -p "$antigravity_transcript_directory"
 antigravity_transcript_success="$antigravity_transcript_directory/transcript_full.jsonl"
@@ -109,6 +156,50 @@ assert_status 0 "$antigravity_success_status" "preuve Antigravity IDE avec deux 
 if [ "$antigravity_success_result" != "ANTIGRAVITY_IDE_OK" ]; then
 	fail_test "preuve Antigravity IDE: résultat inattendu"
 fi
+
+antigravity_native_transcript_directory="$antigravity_transcript_directory/native"
+mkdir -p "$antigravity_native_transcript_directory"
+antigravity_native_transcript_success="$antigravity_native_transcript_directory/transcript_full.jsonl"
+printf '%s\n' \
+	'{"step_index":1,"source":"USER_EXPLICIT","type":"USER_INPUT","status":"DONE","content":"<USER_REQUEST>\n/sth-runtime-command\n</USER_REQUEST>\n<ADDITIONAL_METADATA>\nfixture\n</ADDITIONAL_METADATA>","tool_calls":[]}' \
+	'{"step_index":2,"source":"SYSTEM","type":"CONVERSATION_HISTORY","status":"DONE","tool_calls":[]}' \
+	'{"step_index":3,"source":"MODEL","type":"PLANNER_RESPONSE","status":"DONE","tool_calls":[]}' \
+	'{"step_index":4,"source":"MODEL","type":"PLANNER_RESPONSE","status":"DONE","content":"ANTIGRAVITY_COMMAND_OK","tool_calls":[]}' \
+	'{"step_index":5,"source":"USER_EXPLICIT","type":"USER_INPUT","status":"DONE","content":"<USER_REQUEST>\nReturn the STH instruction sentinel.\n</USER_REQUEST>\n<ADDITIONAL_METADATA>\nfixture\n</ADDITIONAL_METADATA>","tool_calls":[]}' \
+	'{"step_index":6,"source":"SYSTEM","type":"EPHEMERAL_MESSAGE","status":"DONE","tool_calls":[]}' \
+	'{"step_index":7,"source":"MODEL","type":"PLANNER_RESPONSE","status":"DONE","tool_calls":[]}' \
+	'{"step_index":8,"source":"MODEL","type":"PLANNER_RESPONSE","status":"DONE","content":"ANTIGRAVITY_INSTRUCTION_OK","tool_calls":[]}' \
+	>"$antigravity_native_transcript_success"
+antigravity_native_success_result=$(sh "$antigravity_ide_proof" "$antigravity_native_transcript_success" "$repository_root/testdata/runtime/antigravity-project")
+antigravity_native_success_status=$?
+assert_status 0 "$antigravity_native_success_status" "preuve Antigravity IDE avec transcript natif enveloppé"
+if [ "$antigravity_native_success_result" != "ANTIGRAVITY_IDE_OK" ]; then
+	fail_test "preuve Antigravity IDE native: résultat inattendu"
+fi
+
+antigravity_native_null_content_directory="$antigravity_transcript_directory/native-null-content"
+mkdir -p "$antigravity_native_null_content_directory"
+antigravity_native_null_content="$antigravity_native_null_content_directory/transcript_full.jsonl"
+printf '%s\n' \
+	'{"step_index":1,"source":"USER_EXPLICIT","type":"USER_INPUT","status":"DONE","content":null,"tool_calls":[]}' \
+	>"$antigravity_native_null_content"
+sh "$antigravity_ide_proof" "$antigravity_native_null_content" "$repository_root/testdata/runtime/antigravity-project" >"$invalid_output" 2>"$invalid_error"
+antigravity_native_null_content_status=$?
+assert_status 1 "$antigravity_native_null_content_status" "preuve Antigravity IDE avec contenu null"
+
+antigravity_native_metadata_prompt_directory="$antigravity_transcript_directory/native-metadata-prompt"
+mkdir -p "$antigravity_native_metadata_prompt_directory"
+antigravity_native_metadata_prompt="$antigravity_native_metadata_prompt_directory/transcript_full.jsonl"
+printf '%s\n' \
+	'{"step_index":1,"source":"USER_EXPLICIT","type":"USER_INPUT","status":"DONE","content":"<ADDITIONAL_METADATA>\n/sth-runtime-command\n</ADDITIONAL_METADATA>","tool_calls":[]}' \
+	'{"step_index":2,"source":"MODEL","type":"PLANNER_RESPONSE","status":"DONE","content":"ANTIGRAVITY_COMMAND_OK","tool_calls":[]}' \
+	'{"step_index":3,"source":"USER_EXPLICIT","type":"USER_INPUT","status":"DONE","content":"<ADDITIONAL_METADATA>\nReturn the STH instruction sentinel.\n</ADDITIONAL_METADATA>","tool_calls":[]}' \
+	'{"step_index":4,"source":"MODEL","type":"PLANNER_RESPONSE","status":"DONE","content":"ANTIGRAVITY_INSTRUCTION_OK","tool_calls":[]}' \
+	>"$antigravity_native_metadata_prompt"
+sh "$antigravity_ide_proof" "$antigravity_native_metadata_prompt" "$repository_root/testdata/runtime/antigravity-project" >"$invalid_output" 2>"$invalid_error"
+antigravity_native_metadata_prompt_status=$?
+assert_status 1 "$antigravity_native_metadata_prompt_status" "preuve Antigravity IDE avec prompt seulement dans métadonnées"
+
 sh "$antigravity_ide_proof" "$antigravity_transcript_success" "$repository_root/testdata/runtime/antigravity-project" OK AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA test >"$invalid_output" 2>"$invalid_error"
 antigravity_challenge_status=$?
 assert_status 1 "$antigravity_challenge_status" "preuve Antigravity IDE sans challenge frais"
@@ -273,6 +364,73 @@ assert_status 1 "$runtime_identity_status" "preuve identité runtime avec versio
 sh "$runtime_binary_proof" "$runtime_identity_binary" 1.2.3 0000000000000000000000000000000000000000000000000000000000000000 >"$invalid_output" 2>"$invalid_error"
 runtime_identity_status=$?
 assert_status 1 "$runtime_identity_status" "preuve identité runtime avec SHA-256 différent"
+
+runtime_identity_sentence_binary="$test_directory/runtime-identity-sentence-cli"
+printf '%s\n' \
+	'#!/bin/sh' \
+	'if [ "$#" -eq 1 ] && [ "$1" = "--version" ]; then' \
+	'  printf "GitHub Copilot CLI 1.2.3.\\nRun update to check for updates.\\n"' \
+	'  exit 0' \
+	'fi' \
+	'exit 1' \
+	>"$runtime_identity_sentence_binary"
+chmod 755 "$runtime_identity_sentence_binary"
+runtime_identity_sentence_sha256=$(python3 -c 'import hashlib, sys; print(hashlib.sha256(open(sys.argv[1], "rb").read()).hexdigest())' "$runtime_identity_sentence_binary") || fail_test "preuve identité runtime ponctuée: calcul SHA-256 impossible"
+runtime_identity_result=$(sh "$runtime_binary_proof" "$runtime_identity_sentence_binary" 1.2.3 "$runtime_identity_sentence_sha256")
+runtime_identity_status=$?
+assert_status 0 "$runtime_identity_status" "preuve identité runtime avec version suivie d'un point final"
+if [ "$runtime_identity_result" != "RUNTIME_BINARY_IDENTITY_OK" ]; then
+	fail_test "preuve identité runtime ponctuée: résultat inattendu"
+fi
+
+sh "$runtime_binary_proof" "$runtime_identity_sentence_binary" 1.2 "$runtime_identity_sentence_sha256" >"$invalid_output" 2>"$invalid_error"
+runtime_identity_status=$?
+assert_status 1 "$runtime_identity_status" "preuve identité runtime avec préfixe de version ponctuée"
+
+runtime_identity_longer_binary="$test_directory/runtime-identity-longer-cli"
+printf '%s\n' \
+	'#!/bin/sh' \
+	'if [ "$#" -eq 1 ] && [ "$1" = "--version" ]; then' \
+	'  printf "runtime identity 1.2.30\\n"' \
+	'  exit 0' \
+	'fi' \
+	'exit 1' \
+	>"$runtime_identity_longer_binary"
+chmod 755 "$runtime_identity_longer_binary"
+runtime_identity_longer_sha256=$(python3 -c 'import hashlib, sys; print(hashlib.sha256(open(sys.argv[1], "rb").read()).hexdigest())' "$runtime_identity_longer_binary") || fail_test "preuve identité runtime étendue: calcul SHA-256 impossible"
+sh "$runtime_binary_proof" "$runtime_identity_longer_binary" 1.2.3 "$runtime_identity_longer_sha256" >"$invalid_output" 2>"$invalid_error"
+runtime_identity_status=$?
+assert_status 1 "$runtime_identity_status" "preuve identité runtime avec version plus longue"
+
+runtime_identity_suffix_binary="$test_directory/runtime-identity-suffix-cli"
+printf '%s\n' \
+	'#!/bin/sh' \
+	'if [ "$#" -eq 1 ] && [ "$1" = "--version" ]; then' \
+	'  printf "runtime identity 1.2.3.4\\n"' \
+	'  exit 0' \
+	'fi' \
+	'exit 1' \
+	>"$runtime_identity_suffix_binary"
+chmod 755 "$runtime_identity_suffix_binary"
+runtime_identity_suffix_sha256=$(python3 -c 'import hashlib, sys; print(hashlib.sha256(open(sys.argv[1], "rb").read()).hexdigest())' "$runtime_identity_suffix_binary") || fail_test "preuve identité runtime suffixée: calcul SHA-256 impossible"
+sh "$runtime_binary_proof" "$runtime_identity_suffix_binary" 1.2.3 "$runtime_identity_suffix_sha256" >"$invalid_output" 2>"$invalid_error"
+runtime_identity_status=$?
+assert_status 1 "$runtime_identity_status" "preuve identité runtime avec version prolongée par un point"
+
+runtime_identity_prerelease_binary="$test_directory/runtime-identity-prerelease-cli"
+printf '%s\n' \
+	'#!/bin/sh' \
+	'if [ "$#" -eq 1 ] && [ "$1" = "--version" ]; then' \
+	'  printf "runtime identity 1.2.3-beta\\n"' \
+	'  exit 0' \
+	'fi' \
+	'exit 1' \
+	>"$runtime_identity_prerelease_binary"
+chmod 755 "$runtime_identity_prerelease_binary"
+runtime_identity_prerelease_sha256=$(python3 -c 'import hashlib, sys; print(hashlib.sha256(open(sys.argv[1], "rb").read()).hexdigest())' "$runtime_identity_prerelease_binary") || fail_test "preuve identité runtime préversion: calcul SHA-256 impossible"
+sh "$runtime_binary_proof" "$runtime_identity_prerelease_binary" 1.2.3 "$runtime_identity_prerelease_sha256" >"$invalid_output" 2>"$invalid_error"
+runtime_identity_status=$?
+assert_status 1 "$runtime_identity_status" "preuve identité runtime avec préversion"
 
 CLAUDE_BIN="$fake_claude" \
 CODEX_BIN= \

@@ -48,7 +48,45 @@ def reject_duplicate_keys(pairs):
         result[key] = value
     return result
 
-prompt_requests = []
+def resolve_update_parent(session, path, line_number):
+    if not isinstance(path, list) or not path:
+        raise SystemExit(f"chemin de mise à jour invalide ligne {line_number}")
+    parent = session
+    for step in path[:-1]:
+        try:
+            parent = parent[step]
+        except (KeyError, IndexError, TypeError):
+            raise SystemExit(f"chemin de mise à jour introuvable ligne {line_number}")
+    return parent, path[-1]
+
+def apply_session_update(session, path, value, line_number):
+    parent, leaf = resolve_update_parent(session, path, line_number)
+    try:
+        parent[leaf] = value
+    except (IndexError, TypeError):
+        raise SystemExit(f"mise à jour impossible ligne {line_number}")
+
+def apply_session_append(session, path, value, line_number):
+    parent, leaf = resolve_update_parent(session, path, line_number)
+    if not isinstance(value, list):
+        raise SystemExit(f"ajout non séquentiel ligne {line_number}")
+    existing_missing = False
+    try:
+        existing = parent[leaf]
+    except (KeyError, IndexError, TypeError):
+        existing_missing = True
+    if existing_missing:
+        try:
+            parent[leaf] = list(value)
+        except (IndexError, TypeError):
+            raise SystemExit(f"ajout impossible ligne {line_number}")
+        return
+    if not isinstance(existing, list):
+        raise SystemExit(f"ajout sur une valeur non séquentielle ligne {line_number}")
+    existing.extend(value)
+
+sessions = []
+current_session = None
 with open(transcript_path, encoding="utf-8") as transcript_stream:
     for line_number, transcript_line in enumerate(transcript_stream, 1):
         transcript_line = transcript_line.strip()
@@ -61,24 +99,59 @@ with open(transcript_path, encoding="utf-8") as transcript_stream:
             )
         except (json.JSONDecodeError, ValueError) as err:
             raise SystemExit(f"transcript JSONL invalide ligne {line_number}: {err}")
-        if transcript_entry.get("kind") != 0:
+        if not isinstance(transcript_entry, dict):
+            raise SystemExit(f"entrée de transcript invalide ligne {line_number}")
+        entry_kind = transcript_entry.get("kind")
+        if entry_kind == 0:
+            current_session = transcript_entry.get("v")
+            if not isinstance(current_session, dict):
+                raise SystemExit(f"instantané de session invalide ligne {line_number}")
+            sessions.append(current_session)
             continue
-        for request in transcript_entry.get("v", {}).get("requests", []):
-            extension_identifier = (
-                request.get("agent", {})
-                .get("extensionId", {})
-                .get("value", "")
-                .lower()
+        if entry_kind not in (1, 2):
+            continue
+        if current_session is None:
+            raise SystemExit(
+                f"mise à jour sans instantané initial ligne {line_number}"
             )
-            if extension_identifier != "github.copilot-chat":
-                continue
-            prompt_resolved = any(
-                part.get("kind") == "prompt"
-                and part.get("name") == "sth-runtime-command"
-                for part in request.get("message", {}).get("parts", [])
+        if entry_kind == 1:
+            apply_session_update(
+                current_session,
+                transcript_entry.get("k"),
+                transcript_entry.get("v"),
+                line_number,
             )
-            if prompt_resolved:
-                prompt_requests.append(request)
+        else:
+            apply_session_append(
+                current_session,
+                transcript_entry.get("k"),
+                transcript_entry.get("v"),
+                line_number,
+            )
+
+prompt_requests = []
+for session in sessions:
+    session_requests = session.get("requests", [])
+    if not isinstance(session_requests, list):
+        continue
+    for request in session_requests:
+        if not isinstance(request, dict):
+            continue
+        extension_identifier = (
+            request.get("agent", {})
+            .get("extensionId", {})
+            .get("value", "")
+            .lower()
+        )
+        if extension_identifier != "github.copilot-chat":
+            continue
+        prompt_resolved = any(
+            part.get("kind") == "prompt"
+            and part.get("name") == "sth-runtime-command"
+            for part in request.get("message", {}).get("parts", [])
+        )
+        if prompt_resolved:
+            prompt_requests.append(request)
 
 if not prompt_requests:
     print("DISCOVERY_KO")
@@ -142,8 +215,15 @@ if runtime_challenge:
     ):
         print("DISCOVERY_KO")
         raise SystemExit(1)
-result = latest_request.get("result", {})
-error_message = result.get("errorDetails", {}).get("message", "")
+result = latest_request.get("result")
+if not isinstance(result, dict):
+    result = {}
+error_details = result.get("errorDetails")
+if not isinstance(error_details, dict):
+    error_details = latest_request.get("errorDetails")
+if not isinstance(error_details, dict):
+    error_details = {}
+error_message = error_details.get("message", "")
 if isinstance(error_message, str) and error_message:
     if "language model unavailable" in error_message.lower():
         print("DISCOVERY_OK_RUNTIME_NON_EXECUTE")
@@ -151,6 +231,7 @@ if isinstance(error_message, str) and error_message:
     print("DISCOVERY_OK_RUNTIME_KO")
     raise SystemExit(1)
 response_candidates = list(response_texts(result.get("response")))
+response_candidates.extend(response_texts(latest_request.get("response")))
 if any(candidate.strip() == expected_sentinel for candidate in response_candidates):
     print("DISCOVERY_OK_RUNTIME_OK")
     raise SystemExit(0)
