@@ -78,7 +78,54 @@ export STH_RELEASE_SIGNING_PUBKEY=$public_key
 
 sh "$script_directory/verify-release-assets.sh" "$asset_directory" v1.2.3
 
-printf 'tampered\n' >> "$asset_directory/sth-engine-linux-amd64"
+goreleaser_directory="$asset_directory/goreleaser"
+mkdir -p "$goreleaser_directory"
+goreleaser_directory=$(CDPATH= cd -- "$goreleaser_directory" && pwd -P)
+for engine_name in \
+	sth-engine-linux-amd64 \
+	sth-engine-darwin-amd64 \
+	sth-engine-darwin-arm64 \
+	sth-engine-windows-amd64.exe
+do
+	mv "$asset_directory/$engine_name" "$goreleaser_directory/$engine_name"
+done
+
+asset_directory_name=$(basename "$asset_directory")
+{
+	printf '[\n'
+	first_artifact=1
+	for engine_name in \
+		sth-engine-linux-amd64 \
+		sth-engine-darwin-amd64 \
+		sth-engine-darwin-arm64 \
+		sth-engine-windows-amd64.exe
+	do
+		if [ "$first_artifact" -eq 0 ]; then
+			printf ',\n'
+		fi
+		printf '  {"name":"%s","path":"%s/goreleaser/%s"}' "$engine_name" "$asset_directory_name" "$engine_name"
+		first_artifact=0
+	done
+	printf '\n]\n'
+} > "$asset_directory/artifacts.json"
+
+sh "$script_directory/verify-release-assets.sh" "$asset_directory" v1.2.3
+resolved_linux_engine=$(sh "$script_directory/resolve-release-asset.sh" "$asset_directory" sth-engine-linux-amd64)
+if [ "$resolved_linux_engine" != "$goreleaser_directory/sth-engine-linux-amd64" ]; then
+	printf 'unexpected resolved release asset: %s\n' "$resolved_linux_engine" >&2
+	exit 1
+fi
+
+cp "$asset_directory/artifacts.json" "$temporary_directory/artifacts.json"
+cp "$goreleaser_directory/sth-engine-linux-amd64" "$temporary_directory/outside-engine"
+jq 'map(if .name == "sth-engine-linux-amd64" then .path = "outside-engine" else . end)' "$temporary_directory/artifacts.json" > "$asset_directory/artifacts.json"
+if sh "$script_directory/verify-release-assets.sh" "$asset_directory" v1.2.3 >/dev/null 2>&1; then
+	printf 'release asset outside the asset directory was accepted\n' >&2
+	exit 1
+fi
+cp "$temporary_directory/artifacts.json" "$asset_directory/artifacts.json"
+
+printf 'tampered\n' >> "$goreleaser_directory/sth-engine-linux-amd64"
 if sh "$script_directory/verify-release-assets.sh" "$asset_directory" v1.2.3 >/dev/null 2>&1; then
 	printf 'tampered release asset was accepted\n' >&2
 	exit 1

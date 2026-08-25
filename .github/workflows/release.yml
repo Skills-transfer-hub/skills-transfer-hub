@@ -219,9 +219,10 @@ jobs:
         if: ${{ !cancelled() && (steps.goreleaser.outcome == 'success' || steps.goreleaser.outcome == 'failure') }}
         shell: bash
         run: |
-          node "$RUNNER_TEMP/verify-sth-code-engine-contract.mjs" dist/sth-engine-linux-amd64
+          engine_path="$(sh scripts/resolve-release-asset.sh dist sth-engine-linux-amd64)"
+          node "$RUNNER_TEMP/verify-sth-code-engine-contract.mjs" "$engine_path"
           manifest_version="$(jq -er '.engine_version' .release/sth-code-engine.json)"
-          bridge_version="$(printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"handshake","params":{"protocol_version":1}}' | dist/sth-engine-linux-amd64 bridge --stdio | jq -er '.result.bridge_version')"
+          bridge_version="$(printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"handshake","params":{"protocol_version":1}}' | "$engine_path" bridge --stdio | jq -er '.result.bridge_version')"
           if [[ "$bridge_version" != "$manifest_version" ]]; then
             echo "Published bridge version $bridge_version does not match manifest version $manifest_version." >&2
             exit 1

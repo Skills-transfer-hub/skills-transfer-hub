@@ -145,7 +145,7 @@ jobs:
 
       - name: Verify release manifest writer
         run: |
-          sh -n scripts/write-sth-code-engine-manifest.sh scripts/write-sth-code-engine-manifest-test.sh scripts/verify-release-assets.sh scripts/verify-release-assets-test.sh
+          sh -n scripts/write-sth-code-engine-manifest.sh scripts/write-sth-code-engine-manifest-test.sh scripts/resolve-release-asset.sh scripts/verify-release-assets.sh scripts/verify-release-assets-test.sh
           sh scripts/write-sth-code-engine-manifest-test.sh
           sh scripts/verify-release-assets-test.sh
 
@@ -184,7 +184,8 @@ jobs:
         run: |
           snapshot_version="$(jq -r '.engine_version' .release/sth-code-engine.json)"
           sh scripts/verify-release-assets.sh dist "$snapshot_version"
-          bridge_version="$(printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"handshake","params":{"protocol_version":1}}' | dist/sth-engine-linux-amd64 bridge --stdio | jq -er '.result.bridge_version')"
+          engine_path="$(sh scripts/resolve-release-asset.sh dist sth-engine-linux-amd64)"
+          bridge_version="$(printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"handshake","params":{"protocol_version":1}}' | "$engine_path" bridge --stdio | jq -er '.result.bridge_version')"
           if [ "$bridge_version" != "$snapshot_version" ]; then
             echo "Snapshot bridge version $bridge_version does not match manifest version $snapshot_version." >&2
             exit 1

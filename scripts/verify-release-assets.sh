@@ -14,7 +14,7 @@ if [ ! -d "$asset_directory" ]; then
 	exit 1
 fi
 
-asset_directory=$(CDPATH= cd -- "$asset_directory" && pwd)
+asset_directory=$(CDPATH= cd -- "$asset_directory" && pwd -P)
 normalized_version=${release_version#v}
 script_directory=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
 repository_directory=$(dirname "$script_directory")
@@ -45,26 +45,14 @@ sth-code-engine.json'
 
 resolve_asset_path() {
 	asset_name=$1
-	if [ -f "$asset_directory/$asset_name" ]; then
-		printf '%s\n' "$asset_directory/$asset_name"
+	if resolved_asset_path=$(sh "$script_directory/resolve-release-asset.sh" "$asset_directory" "$asset_name" 2>/dev/null); then
+		printf '%s\n' "$resolved_asset_path"
 		return 0
 	fi
-	if [ "$asset_name" = sth-code-engine.json ] && [ -f "$asset_directory/artifacts.json" ] && [ -f "$repository_directory/.release/sth-code-engine.json" ]; then
+	if [ "$asset_name" = sth-code-engine.json ] && [ -f "$asset_directory/artifacts.json" ] && [ -f "$repository_directory/.release/sth-code-engine.json" ] && [ ! -L "$repository_directory/.release/sth-code-engine.json" ]; then
 		printf '%s\n' "$repository_directory/.release/sth-code-engine.json"
 		return 0
 	fi
-	if [ ! -f "$asset_directory/artifacts.json" ]; then
-		return 1
-	fi
-	artifact_path=$(jq -r --arg name "$asset_name" '[.[] | select(.name == $name) | .path] | if length == 1 then .[0] else empty end' "$asset_directory/artifacts.json")
-	case "$artifact_path" in
-		"$asset_directory"/*)
-			if [ -f "$artifact_path" ]; then
-				printf '%s\n' "$artifact_path"
-				return 0
-			fi
-			;;
-	esac
 	return 1
 }
 
