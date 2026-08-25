@@ -60,15 +60,15 @@ func (c *Client) AccessCheck(ctx context.Context, key string) (AccessCheckResult
 	c.emitHTTP(stdhttp.MethodPost, CloudBaseURL()+"/v1/access-check", resp.StatusCode)
 
 	if resp.StatusCode == stdhttp.StatusUnauthorized {
-		return AccessCheckResult{}, fmt.Errorf("clé refusée (HTTP 401)")
+		return AccessCheckResult{}, fmt.Errorf("key rejected (HTTP 401)")
 	}
 	if resp.StatusCode != stdhttp.StatusOK {
-		return AccessCheckResult{}, fmt.Errorf("réponse inattendue (HTTP %d)", resp.StatusCode)
+		return AccessCheckResult{}, fmt.Errorf("unexpected response (HTTP %d)", resp.StatusCode)
 	}
 
 	var out AccessCheckResult
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&out); err != nil {
-		return AccessCheckResult{}, fmt.Errorf("réponse JSON invalide : %w", err)
+		return AccessCheckResult{}, fmt.Errorf("invalid JSON response: %w", err)
 	}
 	return out, nil
 }
@@ -126,7 +126,7 @@ func (c *Client) listCloudCatalog(ctx context.Context, profile fs.ProjectProfile
 
 	var resp cloudCatalogResponse
 	if err := json.Unmarshal(body, &resp); err != nil {
-		return nil, fmt.Errorf("réponse catalog invalide : %w", err)
+		return nil, fmt.Errorf("invalid catalog response: %w", err)
 	}
 
 	entries := make([]fs.CatalogEntry, 0, len(resp.Entries))
@@ -168,10 +168,10 @@ func (c *Client) downloadCloudResource(ctx context.Context, profile fs.ProjectPr
 
 	var resp cloudSkillResponse
 	if err := json.Unmarshal(body, &resp); err != nil {
-		return nil, fmt.Errorf("réponse skill invalide : %w", err)
+		return nil, fmt.Errorf("invalid skill response: %w", err)
 	}
 	if strings.TrimSpace(resp.DownloadURL) == "" {
-		return nil, errors.New("download_url manquant dans la réponse")
+		return nil, errors.New("download_url is missing from the response")
 	}
 
 	// Fetch the signed-URL contents without auth headers (signed URL embeds
@@ -197,7 +197,7 @@ func (c *Client) reportCloudUsage(ctx context.Context, profile fs.ProjectProfile
 		}},
 	})
 	if err != nil {
-		return fmt.Errorf("encodage usage : %w", err)
+		return fmt.Errorf("failed to encode usage: %w", err)
 	}
 	req, err := stdhttp.NewRequestWithContext(ctx, stdhttp.MethodPost, CloudBaseURL()+"/v1/usage", strings.NewReader(string(payload)))
 	if err != nil {
@@ -250,7 +250,7 @@ func (c *Client) ReportCloudUsageAnonymous(ctx context.Context, cliVersion, comm
 		}},
 	})
 	if err != nil {
-		return fmt.Errorf("encodage usage anonyme : %w", err)
+		return fmt.Errorf("failed to encode anonymous usage: %w", err)
 	}
 
 	anonURL := CloudBaseURL() + "/v1/usage/anon"
@@ -298,7 +298,7 @@ type usageMineResponse struct {
 // the back has stored about their CLI activity.
 func (c *Client) FetchOwnUsage(ctx context.Context, profile fs.ProjectProfile, limit int) ([]UsageMineRecord, error) {
 	if !strings.EqualFold(strings.TrimSpace(profile.Provider), "sth-cloud") {
-		return nil, fmt.Errorf("`sth telemetry output` nécessite un provider sth-cloud")
+		return nil, fmt.Errorf("`sth telemetry output` requires an sth-cloud provider")
 	}
 	headers, err := resolveCredentialHeaders(ctx, profile)
 	if err != nil {
@@ -323,14 +323,14 @@ func (c *Client) FetchOwnUsage(ctx context.Context, profile fs.ProjectProfile, l
 	defer resp.Body.Close()
 	c.emitHTTP(stdhttp.MethodGet, url, resp.StatusCode)
 	if resp.StatusCode == stdhttp.StatusUnauthorized {
-		return nil, fmt.Errorf("clé refusée (HTTP 401) — vérifie `sth login`")
+		return nil, fmt.Errorf("key rejected (HTTP 401) — check `sth login`")
 	}
 	if resp.StatusCode != stdhttp.StatusOK {
-		return nil, fmt.Errorf("réponse inattendue (HTTP %d)", resp.StatusCode)
+		return nil, fmt.Errorf("unexpected response (HTTP %d)", resp.StatusCode)
 	}
 	var out usageMineResponse
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&out); err != nil {
-		return nil, fmt.Errorf("réponse usage/mine invalide : %w", err)
+		return nil, fmt.Errorf("invalid usage/mine response: %w", err)
 	}
 	return out.Records, nil
 }
@@ -362,14 +362,14 @@ func (c *Client) RequestAlphaAccess(ctx context.Context, profile fs.ProjectProfi
 	defer resp.Body.Close()
 	c.emitHTTP(stdhttp.MethodPost, url, resp.StatusCode)
 	if resp.StatusCode == stdhttp.StatusUnauthorized {
-		return AlphaAccessResult{}, fmt.Errorf("clé refusée (HTTP 401) — vérifie `sth login`")
+		return AlphaAccessResult{}, fmt.Errorf("key rejected (HTTP 401) — check `sth login`")
 	}
 	if resp.StatusCode != stdhttp.StatusOK {
-		return AlphaAccessResult{}, fmt.Errorf("réponse inattendue (HTTP %d)", resp.StatusCode)
+		return AlphaAccessResult{}, fmt.Errorf("unexpected response (HTTP %d)", resp.StatusCode)
 	}
 	var out AlphaAccessResult
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&out); err != nil {
-		return AlphaAccessResult{}, fmt.Errorf("réponse access-request invalide : %w", err)
+		return AlphaAccessResult{}, fmt.Errorf("invalid access-request response: %w", err)
 	}
 	return out, nil
 }

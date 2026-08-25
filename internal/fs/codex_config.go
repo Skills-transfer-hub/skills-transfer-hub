@@ -13,7 +13,7 @@ func EnsureCodexSkillsConfig(projectRoot, skillPath string) (bool, error) {
 
 	existing, err := os.ReadFile(configPath)
 	if err != nil && !os.IsNotExist(err) {
-		return false, fmt.Errorf("lecture de %s échouée : %w", configPath, err)
+		return false, fmt.Errorf("failed to read %s: %w", configPath, err)
 	}
 
 	entryLine := `path = "` + filepath.ToSlash(skillPath) + `"`
@@ -22,7 +22,7 @@ func EnsureCodexSkillsConfig(projectRoot, skillPath string) (bool, error) {
 	}
 
 	if err := os.MkdirAll(configDir, 0o755); err != nil {
-		return false, fmt.Errorf("création du dossier %s échouée : %w", configDir, err)
+		return false, fmt.Errorf("failed to create directory %s: %w", configDir, err)
 	}
 
 	var builder strings.Builder
@@ -37,7 +37,7 @@ func EnsureCodexSkillsConfig(projectRoot, skillPath string) (bool, error) {
 	builder.WriteString(entryLine + "\n")
 
 	if err := atomicWriteFile(configPath, []byte(builder.String()), 0o644); err != nil {
-		return false, fmt.Errorf("écriture de %s échouée : %w", configPath, err)
+		return false, fmt.Errorf("failed to write %s: %w", configPath, err)
 	}
 	return true, nil
 }

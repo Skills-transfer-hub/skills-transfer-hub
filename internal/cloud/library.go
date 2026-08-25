@@ -53,7 +53,7 @@ func authorizedRequest(
 	}
 	request, err := stdhttp.NewRequestWithContext(ctx, method, requestURL, body)
 	if err != nil {
-		return nil, fmt.Errorf("library: préparation requête : %w", err)
+		return nil, fmt.Errorf("library: failed to create request: %w", err)
 	}
 	request.Header.Set("Authorization", "Bearer "+key)
 	request.Header.Set("Accept", "application/json")
@@ -75,12 +75,12 @@ func libraryError(operation string, resp *stdhttp.Response) error {
 	}
 	_ = json.Unmarshal(body, &decoded)
 	if decoded.Detail != "" {
-		return fmt.Errorf("%s : %s", operation, decoded.Detail)
+		return fmt.Errorf("%s: %s", operation, decoded.Detail)
 	}
 	if decoded.Error != "" {
-		return fmt.Errorf("%s : %s", operation, decoded.Error)
+		return fmt.Errorf("%s: %s", operation, decoded.Error)
 	}
-	return fmt.Errorf("%s : HTTP %d", operation, resp.StatusCode)
+	return fmt.Errorf("%s: HTTP %d", operation, resp.StatusCode)
 }
 
 func SearchLibrary(
@@ -109,21 +109,21 @@ func SearchLibrary(
 	}
 	resp, err := httpClient.Do(request)
 	if err != nil {
-		return nil, fmt.Errorf("library: requête vers %s échouée : %w", requestURL, err)
+		return nil, fmt.Errorf("library: request to %s failed: %w", requestURL, err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != stdhttp.StatusOK {
-		return nil, libraryError("recherche bibliothèque", resp)
+		return nil, libraryError("library search", resp)
 	}
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes))
 	if err != nil {
-		return nil, fmt.Errorf("library: lecture du corps : %w", err)
+		return nil, fmt.Errorf("library: failed to read response body: %w", err)
 	}
 	var decoded struct {
 		Items []LibraryMatch `json:"items"`
 	}
 	if err := json.Unmarshal(body, &decoded); err != nil {
-		return nil, fmt.Errorf("library: JSON invalide : %w", err)
+		return nil, fmt.Errorf("library: invalid JSON: %w", err)
 	}
 	return decoded.Items, nil
 }
@@ -143,21 +143,21 @@ func GetLibrary(
 	}
 	resp, err := httpClient.Do(request)
 	if err != nil {
-		return LibraryItem{}, fmt.Errorf("library: requête vers %s échouée : %w", requestURL, err)
+		return LibraryItem{}, fmt.Errorf("library: request to %s failed: %w", requestURL, err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != stdhttp.StatusOK {
-		return LibraryItem{}, libraryError("ouverture d'un élément", resp)
+		return LibraryItem{}, libraryError("opening an item", resp)
 	}
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes))
 	if err != nil {
-		return LibraryItem{}, fmt.Errorf("library: lecture du corps : %w", err)
+		return LibraryItem{}, fmt.Errorf("library: failed to read response body: %w", err)
 	}
 	var decoded struct {
 		Item LibraryItem `json:"item"`
 	}
 	if err := json.Unmarshal(body, &decoded); err != nil {
-		return LibraryItem{}, fmt.Errorf("library: JSON invalide : %w", err)
+		return LibraryItem{}, fmt.Errorf("library: invalid JSON: %w", err)
 	}
 	return decoded.Item, nil
 }
@@ -177,11 +177,11 @@ func RecordReuse(ctx context.Context, httpClient *stdhttp.Client, itemID string)
 	}
 	resp, err := httpClient.Do(request)
 	if err != nil {
-		return fmt.Errorf("library: requête vers %s échouée : %w", requestURL, err)
+		return fmt.Errorf("library: request to %s failed: %w", requestURL, err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != stdhttp.StatusAccepted && resp.StatusCode != stdhttp.StatusOK {
-		return libraryError("enregistrement d'une réutilisation", resp)
+		return libraryError("recording reuse", resp)
 	}
 	return nil
 }
@@ -205,21 +205,21 @@ func SaveLibrary(
 	}
 	resp, err := httpClient.Do(request)
 	if err != nil {
-		return "", fmt.Errorf("library: requête vers %s échouée : %w", requestURL, err)
+		return "", fmt.Errorf("library: request to %s failed: %w", requestURL, err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != stdhttp.StatusCreated && resp.StatusCode != stdhttp.StatusOK {
-		return "", libraryError("enregistrement dans la bibliothèque", resp)
+		return "", libraryError("saving to the library", resp)
 	}
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes))
 	if err != nil {
-		return "", fmt.Errorf("library: lecture du corps : %w", err)
+		return "", fmt.Errorf("library: failed to read response body: %w", err)
 	}
 	var decoded struct {
 		ID string `json:"id"`
 	}
 	if err := json.Unmarshal(body, &decoded); err != nil {
-		return "", fmt.Errorf("library: JSON invalide : %w", err)
+		return "", fmt.Errorf("library: invalid JSON: %w", err)
 	}
 	return decoded.ID, nil
 }

@@ -783,6 +783,9 @@ func TestGeminiCommandLifecycle(t *testing.T) {
 	if updateResult.err != nil {
 		t.Fatalf("update error = %v\nstderr=%s", updateResult.err, updateResult.stderr)
 	}
+	assertContains(t, updateResult.stderr, "[1/3] Downloading deploy")
+	assertContains(t, updateResult.stderr, "[2/3] Installing files")
+	assertContains(t, updateResult.stderr, "[3/3] Finalizing")
 	versionTwo, err := os.ReadFile(installedPath)
 	if err != nil || !strings.Contains(string(versionTwo), "SENTINEL_V2") || strings.Contains(string(versionTwo), "SENTINEL_V1") {
 		t.Fatalf("version two = %q, error=%v", versionTwo, err)

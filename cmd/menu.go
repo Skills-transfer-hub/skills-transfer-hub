@@ -1,13 +1,17 @@
 package cmd
 
 import (
-	"bufio"
+	"errors"
 	"fmt"
-	"io"
-	"sth/internal/fs"
-	"strconv"
+	"os/exec"
 	"strings"
+
+	"sth/internal/fs"
+	"sth/internal/timing"
+	"sth/internal/tui"
 )
+
+var errMenuQuit = errors.New("menu: exit requested")
 
 type projectState string
 
@@ -20,11 +24,11 @@ const (
 func projectStateLabel(state projectState) string {
 	switch state {
 	case projectStateUnconfigured:
-		return "non configuré"
+		return "not configured"
 	case projectStateConfiguredBad:
-		return "configuration invalide"
+		return "invalid configuration"
 	case projectStateConfiguredReady:
-		return "prêt"
+		return "ready"
 	default:
 		return string(state)
 	}
@@ -48,7 +52,8 @@ func (a *app) loadGuidedStartupState() guidedStartupState {
 
 	withUpdateOffer := func(state guidedStartupState) guidedStartupState {
 		if mode == "interactive" {
-			state.UpdateOffer = a.startupStableUpdateOffer()
+			state.UpdateOffer = a.cachedStableUpdateOffer()
+			a.refreshUpdateOfferInBackground()
 			if state.ProjectState == projectStateConfiguredReady && state.UpdateOffer != nil && state.UpdateOffer.DownloadReady {
 				state.AvailableActions = []string{"list", "install", "update", "update-self", "show-config", "provider-guide", "init", "help", "quit"}
 			}
@@ -72,7 +77,7 @@ func (a *app) loadGuidedStartupState() guidedStartupState {
 			ProjectState:     projectStateUnconfigured,
 			PrimaryAction:    "init",
 			AvailableActions: []string{"init", "help", "quit"},
-			Detail:           "Configuration projet absente.",
+			Detail:           "No project configuration found.",
 		})
 	}
 
@@ -82,28 +87,19 @@ func (a *app) loadGuidedStartupState() guidedStartupState {
 		PrimaryAction:    "list",
 		AvailableActions: []string{"list", "install", "update", "show-config", "provider-guide", "init", "help", "quit"},
 		ProviderHint:     profile.Provider,
-		Detail:           fmt.Sprintf("Provider configuré : %s", profile.Provider),
+		Detail:           fmt.Sprintf("Configured provider: %s", profile.Provider),
 	})
 }
 
 func renderGuidedMenuLines(state guidedStartupState) []string {
 	lines := []string{
-		"Menu guidé STH",
-		fmt.Sprintf("État du projet : %s", projectStateLabel(state.ProjectState)),
+		tui.TitleStyle.Render("STH guided menu"),
+		projectStateBadge(state.ProjectState),
 	}
 	if state.Detail != "" {
-		lines = append(lines, "  "+state.Detail)
+		lines = append(lines, tui.DimStyle.Render("  "+state.Detail))
 	}
-	lines = append(lines, fmt.Sprintf("Action recommandée : %s", state.PrimaryAction))
 	lines = append(lines, updateOfferLines(state.UpdateOffer)...)
-	lines = append(lines, "Actions :")
-	for index, action := range state.AvailableActions {
-		label := action
-		if action == state.PrimaryAction {
-			label += " (recommandé)"
-		}
-		lines = append(lines, fmt.Sprintf("  %d. %s", index+1, label))
-	}
 
 	return lines
 }
@@ -117,133 +113,251 @@ func updateOfferLines(offer *fs.StableUpdateOffer) []string {
 		lines = append(lines, "  • "+highlight)
 	}
 	if strings.TrimSpace(offer.ReleaseNotesURL) != "" {
-		lines = append(lines, "  Détails : "+strings.TrimSpace(offer.ReleaseNotesURL))
+		lines = append(lines, "  Details: "+strings.TrimSpace(offer.ReleaseNotesURL))
 	}
 	return lines
 }
 
-func (a *app) runGuidedMenu() error {
-	a.playLaunchBanner(a.computeBuddyStateFast())
-
-	reader := bufio.NewReader(a.stdin)
-	for {
-		state := a.loadGuidedStartupState()
-		a.writeStdout(renderGuidedMenuLines(state)...)
-
-		action, err := promptGuidedMenuAction(reader, a, state)
-		if err != nil {
-			return err
-		}
-
-		continueLoop, err := a.executeGuidedMenuAction(reader, action)
-		if err != nil {
-			return err
-		}
-		if !continueLoop {
-			return nil
-		}
-	}
-}
-
-func promptGuidedMenuAction(reader *bufio.Reader, a *app, state guidedStartupState) (string, error) {
-	defaultIndex := 1
-	for index, action := range state.AvailableActions {
-		if action == state.PrimaryAction {
-			defaultIndex = index + 1
-			break
-		}
-	}
-
-	for {
-		if _, err := fmt.Fprintf(a.stdout, "Choix [%d]: ", defaultIndex); err != nil {
-			return "", err
-		}
-		line, err := reader.ReadString('\n')
-		if err != nil && err != io.EOF {
-			return "", fmt.Errorf("lecture de l'entrée utilisateur échouée : %w", err)
-		}
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "" {
-			return state.PrimaryAction, nil
-		}
-		for _, action := range state.AvailableActions {
-			if trimmed == action {
-				return action, nil
-			}
-		}
-		if i, convErr := strconv.Atoi(trimmed); convErr == nil {
-			index := i - 1
-			if index >= 0 && index < len(state.AvailableActions) {
-				return state.AvailableActions[index], nil
-			}
-		}
-		a.writeStdout("Choix invalide. Sélectionnez un numéro ou une action visible.")
-	}
-}
-
-func (a *app) executeGuidedMenuAction(reader *bufio.Reader, action string) (bool, error) {
+func guidedActionLabel(action string) string {
 	switch action {
 	case "list":
-		return false, a.runList()
+		return "List catalog resources"
 	case "install":
-		resourceRef, err := promptValue(reader, a.stdout, "Référence de ressource ou bundle", "")
-		if err != nil {
-			return false, err
-		}
-		return false, a.runInstall([]string{resourceRef})
+		return "Install a resource or bundle"
 	case "update":
-		return false, a.runUpdate([]string{})
+		return "Update tracked resources"
 	case "update-self":
-		return false, a.runSelfUpdate()
+		return "Apply the downloaded sth update"
+	case "show-config":
+		return "Show project configuration"
+	case "provider-guide":
+		return "Provider access guide"
 	case "init":
-		return false, a.runInit()
+		return "Configure this project"
+	case "help":
+		return "Help"
+	case "quit":
+		return "Quit"
+	default:
+		return action
+	}
+}
+
+func guidedActionDescription(action string) string {
+	switch action {
+	case "list":
+		return "Show resources from the remote catalog"
+	case "install":
+		return "Add a resource or bundle to your targets"
+	case "update":
+		return "Refresh tracked resources from the repository"
+	case "update-self":
+		return "Replace the binary with the ready stable version"
+	case "show-config":
+		return "Current provider, repository, ref and targets"
+	case "provider-guide":
+		return "Tokens, permissions and docs for the current provider"
+	case "init":
+		return "Connect your skills repository in a few questions"
+	case "help":
+		return "Full command list"
+	default:
+		return ""
+	}
+}
+
+func guidedMenuOptions(state guidedStartupState) []tui.Option {
+	options := make([]tui.Option, 0, len(state.AvailableActions))
+	for _, action := range state.AvailableActions {
+		options = append(options, tui.Option{
+			Label:       guidedActionLabel(action),
+			Description: guidedActionDescription(action),
+			Aliases:     []string{action},
+		})
+	}
+	return options
+}
+
+func projectStateBadge(state projectState) string {
+	label := "unknown"
+	style := tui.DimStyle
+	switch state {
+	case projectStateUnconfigured:
+		label = "not configured"
+		style = tui.WarningStyle
+	case projectStateConfiguredBad:
+		label = "invalid configuration"
+		style = tui.ErrorStyle
+	case projectStateConfiguredReady:
+		label = "ready"
+		style = tui.SuccessStyle
+	}
+	return "Project state: " + style.Render(label)
+}
+
+func indexOfAction(actions []string, target string) int {
+	for index, action := range actions {
+		if action == target {
+			return index
+		}
+	}
+	return 0
+}
+
+func (a *app) runGuidedMenu() error {
+	a.playLaunchBanner(a.computeBuddyStateFast())
+	session := tui.NewSession(a.stdin, a.stdout)
+	defer func() {
+		_ = session.Close()
+	}()
+	if session.Interactive {
+		for {
+			finalModel, err := session.RunProgram(newGuidedMenuModel(a))
+			if err != nil {
+				return err
+			}
+			result := finalModel.(guidedMenuModel)
+			if errors.Is(result.actionErr, tui.ErrAborted) || result.selectedAction == "" || result.selectedAction == "quit" {
+				return nil
+			}
+			executionErr := a.executeGuidedMenuAction(session, result.selectedAction)
+			timing.Mark("menu-action-done " + result.selectedAction)
+			if executionErr == nil {
+				continue
+			}
+			if errors.Is(executionErr, errMenuQuit) {
+				return nil
+			}
+			if errors.Is(executionErr, tui.ErrAborted) {
+				continue
+			}
+			a.writeStderr(fmt.Sprintf("Error: %v", executionErr))
+		}
+	}
+	timing.Mark("menu-session-created")
+	for {
+		state := a.loadGuidedStartupState()
+		timing.Mark("menu-state-loaded")
+		a.writeStdout(renderGuidedMenuLines(state)...)
+		timing.Mark("menu-header-printed")
+
+		action, err := a.promptGuidedMenuAction(session, state)
+		if err != nil {
+			if errors.Is(err, tui.ErrAborted) {
+				return nil
+			}
+			return err
+		}
+		execErr := a.executeGuidedMenuAction(session, action)
+		if execErr != nil {
+			if errors.Is(execErr, errMenuQuit) {
+				return nil
+			}
+			return execErr
+		}
+	}
+}
+
+func (a *app) promptGuidedMenuAction(session *tui.Session, state guidedStartupState) (string, error) {
+	index, err := tui.Select(session, tui.SelectConfig{
+		Title:       "What do you want to do?",
+		Options:     guidedMenuOptions(state),
+		Recommended: indexOfAction(state.AvailableActions, state.PrimaryAction),
+	})
+	if err != nil {
+		return "", err
+	}
+	return state.AvailableActions[index], nil
+}
+
+func (a *app) executeGuidedMenuAction(session *tui.Session, action string) error {
+	switch action {
+	case "list":
+		return a.runList()
+	case "install":
+		resourceRef, err := tui.Input(session, tui.InputConfig{
+			Label:    "Resource or bundle reference",
+			Required: true,
+		})
+		if err != nil {
+			return err
+		}
+		return a.runInstall([]string{resourceRef})
+	case "update":
+		return a.runUpdate([]string{})
+	case "update-self":
+		updated, err := a.runSelfUpdateResult()
+		if err != nil {
+			return err
+		}
+		if !updated {
+			return nil
+		}
+		return a.runUpdatedGuidedMenu()
+	case "init":
+		return a.runInit()
 	case "show-config":
 		profile, err := fs.ReadProjectProfile()
 		if err != nil {
-			return false, err
+			return err
 		}
 		a.writeStdout(renderProjectProfileLines(*profile)...)
-		return true, nil
+		return nil
 	case "provider-guide":
 		profile, err := fs.ReadProjectProfile()
 		if err != nil {
-			return false, err
+			return err
 		}
 		a.writeStdout(renderProviderGuideLines(profile.Provider)...)
-		return true, nil
+		return nil
 	case "help":
 		a.writeStdout(helpText())
-		return true, nil
+		return nil
 	case "quit":
-		return false, nil
+		return errMenuQuit
 	default:
-		return false, fmt.Errorf("action de menu inconnue : %s", action)
+		return fmt.Errorf("unknown menu action: %s", action)
 	}
+}
+
+func (a *app) runUpdatedGuidedMenu() error {
+	executablePath, err := currentExecutablePath()
+	if err != nil {
+		return err
+	}
+	command := exec.Command(executablePath)
+	command.Stdin = a.stdin
+	command.Stdout = a.stdout
+	command.Stderr = a.stderr
+	if err := command.Run(); err != nil {
+		return fmt.Errorf("updated STH could not restart the guided menu: %w", err)
+	}
+	return errMenuQuit
 }
 
 func renderProjectProfileLines(profile fs.ProjectProfile) []string {
 	return []string{
-		"Configuration projet courante",
+		"Current project configuration",
 		fmt.Sprintf("Provider: %s", profile.Provider),
-		fmt.Sprintf("Dépôt: %s", profile.RepositoryID),
-		fmt.Sprintf("Catalogue: %s @ %s", profile.CatalogPath, profile.Ref),
-		fmt.Sprintf("Dossier cible: %s", profile.TargetDir),
+		fmt.Sprintf("Repository: %s", profile.RepositoryID),
+		fmt.Sprintf("Catalog: %s @ %s", profile.CatalogPath, profile.Ref),
+		fmt.Sprintf("Target dir: %s", profile.TargetDir),
 	}
 }
 
 func renderProviderGuideLines(provider string) []string {
 	guide, ok := findProviderGuide(provider)
 	if !ok {
-		return []string{fmt.Sprintf("Provider non pris en charge : %s", provider)}
+		return []string{fmt.Sprintf("Unsupported provider: %s", provider)}
 	}
 
 	lines := []string{
-		fmt.Sprintf("Guide provider : %s", guide.DisplayName),
-		fmt.Sprintf("Host supporté : %s", guide.HostedDomain),
-		fmt.Sprintf("Documentation officielle : %s", guide.DocumentationURL),
-		fmt.Sprintf("Créer un token/API token : %s", guide.ActionURL),
-		fmt.Sprintf("Permission minimale : %s", guide.MinimumPermission),
-		fmt.Sprintf("Variables supportées : %s", strings.Join(guide.EnvVars, ", ")),
+		fmt.Sprintf("Provider guide: %s", guide.DisplayName),
+		fmt.Sprintf("Supported host: %s", guide.HostedDomain),
+		fmt.Sprintf("Official docs: %s", guide.DocumentationURL),
+		fmt.Sprintf("Create a token/API token: %s", guide.ActionURL),
+		fmt.Sprintf("Minimum permission: %s", guide.MinimumPermission),
+		fmt.Sprintf("Supported env vars: %s", strings.Join(guide.EnvVars, ", ")),
 	}
 	for _, note := range guide.Notes {
 		lines = append(lines, note)
@@ -254,11 +368,11 @@ func renderProviderGuideLines(provider string) []string {
 
 func startupGuidanceLines(state guidedStartupState) []string {
 	lines := []string{
-		fmt.Sprintf("État du projet : %s", projectStateLabel(state.ProjectState)),
-		fmt.Sprintf("Action recommandée : sth %s", state.PrimaryAction),
+		fmt.Sprintf("Project state: %s", projectStateLabel(state.ProjectState)),
+		fmt.Sprintf("Recommended action: sth %s", state.PrimaryAction),
 	}
 	if state.ProviderHint != "" {
-		lines = append(lines, fmt.Sprintf("Provider configuré : %s", state.ProviderHint))
+		lines = append(lines, fmt.Sprintf("Configured provider: %s", state.ProviderHint))
 	}
 	if state.Detail != "" {
 		lines = append(lines, state.Detail)

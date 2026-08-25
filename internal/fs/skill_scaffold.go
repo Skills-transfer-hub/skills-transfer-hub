@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-var ErrSkillAlreadyExists = errors.New("le skill existe déjà")
+var ErrSkillAlreadyExists = errors.New("skill already exists")
 
 func ValidateSkillRef(ref string) (string, string, error) {
 	trimmed := strings.TrimSpace(ref)
@@ -17,13 +17,13 @@ func ValidateSkillRef(ref string) (string, string, error) {
 	}
 	segments := strings.Split(trimmed, "/")
 	if len(segments) != 2 {
-		return "", "", errors.New("Invalid format: use <category>/<name> (un seul séparateur \"/\" attendu)")
+		return "", "", errors.New("Invalid format: use <category>/<name> (exactly one \"/\" separator expected)")
 	}
 	category, name := segments[0], segments[1]
 	for _, segment := range segments {
 		if !isValidSkillSegment(segment) {
 			return "", "", fmt.Errorf(
-				"segment invalide %q : caractères autorisés — lettres, chiffres, tirets (-) et underscores (_)",
+				"invalid segment %q: allowed characters are letters, digits, hyphens (-), and underscores (_)",
 				segment,
 			)
 		}
@@ -54,11 +54,11 @@ func ScaffoldSkill(root, category, name string) error {
 		return fmt.Errorf("%w : %s", ErrSkillAlreadyExists, filepath.ToSlash(filepath.Join(category, name)))
 	}
 	if err := os.MkdirAll(skillDir, 0o755); err != nil {
-		return fmt.Errorf("création du dossier %s échouée : %w", skillDir, err)
+		return fmt.Errorf("failed to create directory %s: %w", skillDir, err)
 	}
 	skillMDPath := filepath.Join(skillDir, "SKILL.md")
 	if err := os.WriteFile(skillMDPath, []byte(skillTemplate(name)), 0o644); err != nil {
-		return fmt.Errorf("écriture de %s échouée : %w", skillMDPath, err)
+		return fmt.Errorf("failed to write %s: %w", skillMDPath, err)
 	}
 	return nil
 }

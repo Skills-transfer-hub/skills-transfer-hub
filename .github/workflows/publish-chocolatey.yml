@@ -1,67 +1,146 @@
 name: Publish to Chocolatey
 
-# Decoupled from release.yml so a late failure in GoReleaser (e.g. winget
-# cross-fork PR creation) doesn't skip the Chocolatey push. Polls sth-releases
-# for the assets, then packs + pushes natively on a windows-latest runner.
+# Called by release.yml only after GoReleaser and the signed-asset verification
+# succeed. It remains manually dispatchable for an explicit stable-tag retry.
 
 on:
-  release:
-    types: [published]
+  workflow_call:
+    inputs:
+      expected_sha:
+        description: Immutable commit SHA verified by release.yml
+        required: false
+        type: string
+      tag:
+        description: Stable release tag to publish (vX.Y.Z)
+        required: true
+        type: string
+    secrets:
+      CHOCOLATEY_API_KEY:
+        required: true
   workflow_dispatch:
     inputs:
       tag:
-        description: Release tag to (re)publish (e.g. v0.2.2)
+        description: Stable release tag to (re)publish (vX.Y.Z)
         required: true
+        type: string
 
 permissions:
   contents: read
+
+concurrency:
+  group: sth-chocolatey-publishing
+  cancel-in-progress: false
 
 jobs:
   chocolatey:
     name: Pack and push Chocolatey package
     runs-on: windows-latest
-    if: github.event_name == 'workflow_dispatch' || github.event.release.prerelease == false
+    env:
+      EXPECTED_SHA: ${{ inputs.expected_sha }}
+      RELEASE_SIGNING_FINGERPRINT: SHA256:Y/USCQxn6KoP3GBU6Kr/3/POw4pqWgi/kukMAq1vwI0
+      RELEASE_TAG: ${{ inputs.tag }}
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
-
-      - name: Resolve tag and version
+      - name: Validate stable release tag
         id: meta
         shell: bash
         run: |
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            tag="${{ github.event.inputs.tag }}"
-          else
-            tag="${{ github.event.release.tag_name }}"
+          if [[ ! "$RELEASE_TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo "Invalid stable release tag: $RELEASE_TAG" >&2
+            exit 1
           fi
-          version="${tag#v}"
-          echo "tag=$tag" >> "$GITHUB_OUTPUT"
-          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if [[ -n "$EXPECTED_SHA" && ! "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "Invalid expected commit SHA: $EXPECTED_SHA" >&2
+            exit 1
+          fi
+          echo "tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
+          echo "version=${RELEASE_TAG#v}" >> "$GITHUB_OUTPUT"
 
-      - name: Wait for windows asset and SHA256SUMS on sth-releases (max 5 min)
+      - name: Verify signed tag provenance
+        id: tag-provenance
+        uses: actions/github-script@v8
+        env:
+          EXPECTED_SHA: ${{ env.EXPECTED_SHA }}
+          RELEASE_TAG: ${{ env.RELEASE_TAG }}
+        with:
+          script: |
+            const ref = await github.rest.git.getRef({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: `tags/${process.env.RELEASE_TAG}`,
+            });
+            if (ref.data.object.type !== 'tag') {
+              throw new Error(`Release ref ${process.env.RELEASE_TAG} is not an annotated tag.`);
+            }
+            const tag = await github.rest.git.getTag({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              tag_sha: ref.data.object.sha,
+            });
+            if (!tag.data.verification?.verified) {
+              throw new Error(`Release tag ${process.env.RELEASE_TAG} does not have a verified signature.`);
+            }
+            if (tag.data.object.type !== 'commit') {
+              throw new Error(`Release tag ${process.env.RELEASE_TAG} does not point directly to a commit.`);
+            }
+            const commitSha = tag.data.object.sha;
+            if (process.env.EXPECTED_SHA && commitSha !== process.env.EXPECTED_SHA) {
+              throw new Error(`Signed tag commit ${commitSha} does not match expected commit ${process.env.EXPECTED_SHA}.`);
+            }
+            core.setOutput('commit_sha', commitSha);
+
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+          persist-credentials: false
+          ref: ${{ steps.tag-provenance.outputs.commit_sha }}
+
+      - name: Verify checked out tag
         shell: bash
         env:
-          GH_TOKEN: ${{ github.token }}
-          TAG: ${{ steps.meta.outputs.tag }}
+          VERIFIED_SHA: ${{ steps.tag-provenance.outputs.commit_sha }}
         run: |
-          for i in $(seq 1 30); do
-            assets="$(gh release view "$TAG" --repo Skills-transfer-hub/sth-releases --json assets --jq '.assets[].name' 2>/dev/null || true)"
-            if echo "$assets" | grep -q '^SHA256SUMS$' && echo "$assets" | grep -q '^sth-windows-amd64.zip$'; then
-              echo "Required assets found on sth-releases."
-              exit 0
-            fi
-            echo "Waiting for assets ($i/30)..."
-            sleep 10
-          done
-          echo "Timed out waiting for assets on sth-releases." >&2
-          exit 1
+          actual_commit="$(git rev-parse HEAD)"
+          tag_commit="$(git rev-parse "refs/tags/$RELEASE_TAG^{}")"
+          if [[ "$actual_commit" != "$VERIFIED_SHA" || "$tag_commit" != "$VERIFIED_SHA" ]]; then
+            echo "Checked out commit $actual_commit does not match $RELEASE_TAG ($VERIFIED_SHA)." >&2
+            exit 1
+          fi
 
-      - name: Download SHA256SUMS from sth-releases
+      - name: Verify the pinned release signing key
+        shell: bash
+        run: |
+          tag_object="$RUNNER_TEMP/sth-release-tag-object"
+          tag_payload="$RUNNER_TEMP/sth-release-tag-payload"
+          tag_signature="$RUNNER_TEMP/sth-release-tag-signature"
+          git cat-file tag "refs/tags/$RELEASE_TAG" > "$tag_object"
+          sed -n '/^-----BEGIN SSH SIGNATURE-----$/,$p' "$tag_object" > "$tag_signature"
+          sed '/^-----BEGIN SSH SIGNATURE-----$/,$d' "$tag_object" > "$tag_payload"
+          if ! verification="$(ssh-keygen -Y check-novalidate -n git -s "$tag_signature" < "$tag_payload" 2>&1)"; then
+            printf '%s\n' "$verification" >&2
+            exit 1
+          fi
+          if [[ "$verification" != *"$RELEASE_SIGNING_FINGERPRINT"* ]]; then
+            echo "Release tag was not signed by the pinned release key." >&2
+            exit 1
+          fi
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - name: Download the signed checksum manifest from sth-releases
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.meta.outputs.tag }}
-        run: gh release download "$TAG" --repo Skills-transfer-hub/sth-releases --pattern 'SHA256SUMS' --dir .
+        run: gh release download "$TAG" --repo Skills-transfer-hub/sth-releases --pattern 'SHA256SUMS' --pattern 'SHA256SUMS.sig' --pattern 'sth-windows-amd64.zip' --dir .
+
+      - name: Verify the checksum manifest signature
+        shell: bash
+        run: go run ./tools/release-sign --verify --in SHA256SUMS --signature SHA256SUMS.sig
 
       - name: Extract windows checksum
         id: sums
@@ -74,6 +153,27 @@ jobs:
             exit 1
           fi
           echo "checksum=$checksum" >> "$GITHUB_OUTPUT"
+
+      - name: Verify the windows archive checksum
+        shell: pwsh
+        env:
+          EXPECTED_CHECKSUM: ${{ steps.sums.outputs.checksum }}
+          VERIFIED_SHA: ${{ steps.tag-provenance.outputs.commit_sha }}
+        run: |
+          $actualChecksum = (Get-FileHash -Algorithm SHA256 -Path 'sth-windows-amd64.zip').Hash.ToLowerInvariant()
+          if ($actualChecksum -ne $env:EXPECTED_CHECKSUM.ToLowerInvariant()) {
+            throw "sth-windows-amd64.zip checksum mismatch"
+          }
+          $extractPath = Join-Path $env:RUNNER_TEMP 'sth-windows-verified'
+          Expand-Archive -Path 'sth-windows-amd64.zip' -DestinationPath $extractPath -Force
+          $metadata = (& (Join-Path $extractPath 'sth.exe') version --json | ConvertFrom-Json)
+          $expectedVersion = $env:RELEASE_TAG.Substring(1)
+          if ($metadata.version -ne $expectedVersion) {
+            throw "Windows binary version $($metadata.version) does not match $expectedVersion"
+          }
+          if (-not $env:VERIFIED_SHA.StartsWith($metadata.commit)) {
+            throw "Windows binary commit $($metadata.commit) does not match $env:VERIFIED_SHA"
+          }
 
       - name: Render package files
         shell: pwsh

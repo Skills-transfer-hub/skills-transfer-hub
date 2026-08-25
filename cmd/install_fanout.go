@@ -59,7 +59,7 @@ func (a *app) resolveSkillSources(profile fs.ProjectProfile, entry fs.CatalogEnt
 		fetch := func(sourcePath string) ([]byte, error) {
 			content, ok := bundleContents[sourcePath]
 			if !ok {
-				return nil, fmt.Errorf("fichier bundle manquant : %s", sourcePath)
+				return nil, fmt.Errorf("missing bundle file: %s", sourcePath)
 			}
 			return content, nil
 		}
@@ -84,7 +84,7 @@ func enabledTargetKinds(cfg fs.ProjectConfigV2) []string {
 }
 
 func (a *app) installSkillFanout(profile fs.ProjectProfile, entry fs.CatalogEntry, providerID, resolvedVersion, projectRoot string, kinds []string, dryRun, jsonOut, force bool) error {
-	a.progress.step(fmt.Sprintf("Téléchargement de %s…", entry.Name))
+	a.progress.step(fmt.Sprintf("Downloading %s…", entry.Name))
 	sources, fetch, err := a.resolveSkillSources(profile, entry)
 	if err != nil {
 		return err
@@ -95,7 +95,7 @@ func (a *app) installSkillFanout(profile fs.ProjectProfile, entry fs.CatalogEntr
 
 	placement := writer.PlanSkillPlacement(kinds)
 	if len(placement.Folders) == 0 {
-		return fmt.Errorf("aucune destination de skill pour les cibles sélectionnées")
+		return fmt.Errorf("no skill destination for the selected targets")
 	}
 
 	plans := make([]fanoutSkillPlan, 0, len(placement.Folders))
@@ -120,7 +120,7 @@ func (a *app) installSkillFanout(profile fs.ProjectProfile, entry fs.CatalogEntr
 		plans = append(plans, fanoutSkillPlan{target: target})
 	}
 	if len(plans) == 0 {
-		return fmt.Errorf("aucune destination de skill pour les cibles sélectionnées")
+		return fmt.Errorf("no skill destination for the selected targets")
 	}
 
 	state, stateErr := fs.ReadInstalledStateV2(profile.TargetDir)
@@ -145,7 +145,7 @@ func (a *app) installSkillFanout(profile fs.ProjectProfile, entry fs.CatalogEntr
 		return transactionErr
 	}
 
-	a.progress.step("Installation des fichiers…")
+	a.progress.step("Installing files…")
 	managedFiles := make([]fs.ManagedFile, 0, len(plannedFiles))
 	for _, plan := range plans {
 		result, matErr := writer.MaterializeArtifact(projectRoot, plan.target, "skill", entry.Name, entry.Lang, sources, fetch, true, true)
@@ -157,7 +157,7 @@ func (a *app) installSkillFanout(profile fs.ProjectProfile, entry fs.CatalogEntr
 		}
 	}
 
-	a.progress.step("Finalisation…")
+	a.progress.step("Finalizing…")
 	effectiveVersion := resolvedVersion
 	if effectiveVersion == "" {
 		effectiveVersion = previous.ResolvedVersion
@@ -263,23 +263,23 @@ func newFanoutFileTransaction(projectRoot string, relativePaths []string) (*fano
 func fanoutProjectPath(projectRoot, relativePath string) (string, error) {
 	cleanRelativePath := filepath.Clean(filepath.FromSlash(relativePath))
 	if relativePath == "" || filepath.IsAbs(cleanRelativePath) || cleanRelativePath == ".." || strings.HasPrefix(cleanRelativePath, ".."+string(filepath.Separator)) {
-		return "", fmt.Errorf("chemin transactionnel invalide : %s", relativePath)
+		return "", fmt.Errorf("invalid transactional path: %s", relativePath)
 	}
 	absolutePath := filepath.Join(projectRoot, cleanRelativePath)
 	relativeToRoot, err := filepath.Rel(projectRoot, absolutePath)
 	if err != nil || relativeToRoot == ".." || strings.HasPrefix(relativeToRoot, ".."+string(filepath.Separator)) {
-		return "", fmt.Errorf("chemin transactionnel hors projet : %s", relativePath)
+		return "", fmt.Errorf("transactional path outside project: %s", relativePath)
 	}
 	resolvedProjectRoot, resolveErr := resolveFanoutExistingPath(projectRoot)
 	if resolveErr != nil {
-		return "", fmt.Errorf("résolution de la racine transactionnelle échouée : %w", resolveErr)
+		return "", fmt.Errorf("failed to resolve transactional root: %w", resolveErr)
 	}
 	resolvedPath, resolveErr := resolveFanoutExistingPath(absolutePath)
 	if resolveErr != nil {
-		return "", fmt.Errorf("résolution du chemin transactionnel échouée : %w", resolveErr)
+		return "", fmt.Errorf("failed to resolve transactional path: %w", resolveErr)
 	}
 	if !fanoutPathIsWithin(resolvedProjectRoot, resolvedPath) {
-		return "", fmt.Errorf("chemin transactionnel redirigé hors projet : %s", relativePath)
+		return "", fmt.Errorf("transactional path redirected outside project: %s", relativePath)
 	}
 	return absolutePath, nil
 }
@@ -322,21 +322,21 @@ func snapshotFanoutPath(absolutePath string) (fanoutPathSnapshot, error) {
 		return fanoutPathSnapshot{absolutePath: absolutePath}, nil
 	}
 	if err != nil {
-		return fanoutPathSnapshot{}, fmt.Errorf("instantané de %s échoué : %w", absolutePath, err)
+		return fanoutPathSnapshot{}, fmt.Errorf("failed to snapshot %s: %w", absolutePath, err)
 	}
 	if fileInfo.Mode()&os.ModeSymlink != 0 {
-		return fanoutPathSnapshot{}, fmt.Errorf("chemin symbolique non transactionnel : %s", absolutePath)
+		return fanoutPathSnapshot{}, fmt.Errorf("non-transactional symbolic link: %s", absolutePath)
 	}
 	snapshot := fanoutPathSnapshot{absolutePath: absolutePath, mode: fileInfo.Mode(), existed: true}
 	if fileInfo.IsDir() {
 		return snapshot, nil
 	}
 	if !fileInfo.Mode().IsRegular() {
-		return fanoutPathSnapshot{}, fmt.Errorf("type de fichier non transactionnel : %s", absolutePath)
+		return fanoutPathSnapshot{}, fmt.Errorf("non-transactional file type: %s", absolutePath)
 	}
 	content, readErr := os.ReadFile(absolutePath)
 	if readErr != nil {
-		return fanoutPathSnapshot{}, fmt.Errorf("lecture de l'instantané %s échouée : %w", absolutePath, readErr)
+		return fanoutPathSnapshot{}, fmt.Errorf("failed to read snapshot %s: %w", absolutePath, readErr)
 	}
 	snapshot.content = content
 	return snapshot, nil
@@ -363,7 +363,7 @@ func (transaction *fanoutFileTransaction) rollback(cause error) error {
 			continue
 		}
 		if removeErr := os.Remove(snapshot.absolutePath); removeErr != nil && !os.IsNotExist(removeErr) {
-			rollbackErrors = append(rollbackErrors, fmt.Sprintf("suppression de %s : %v", snapshot.absolutePath, removeErr))
+			rollbackErrors = append(rollbackErrors, fmt.Sprintf("removing %s: %v", snapshot.absolutePath, removeErr))
 		}
 	}
 	for _, snapshot := range snapshots {
@@ -385,7 +385,7 @@ func (transaction *fanoutFileTransaction) rollback(cause error) error {
 	})
 	for _, directory := range directories {
 		if removeErr := os.Remove(directory); removeErr != nil && !os.IsNotExist(removeErr) {
-			rollbackErrors = append(rollbackErrors, fmt.Sprintf("suppression du dossier %s : %v", directory, removeErr))
+			rollbackErrors = append(rollbackErrors, fmt.Sprintf("removing directory %s: %v", directory, removeErr))
 		}
 	}
 	if len(rollbackErrors) == 0 {
@@ -397,35 +397,35 @@ func (transaction *fanoutFileTransaction) rollback(cause error) error {
 func restoreFanoutSnapshot(snapshot fanoutPathSnapshot) error {
 	currentInfo, statErr := os.Lstat(snapshot.absolutePath)
 	if statErr != nil && !os.IsNotExist(statErr) {
-		return fmt.Errorf("inspection de %s pendant rollback : %w", snapshot.absolutePath, statErr)
+		return fmt.Errorf("failed to inspect %s during rollback: %w", snapshot.absolutePath, statErr)
 	}
 	if snapshot.mode.IsDir() {
 		if statErr == nil && !currentInfo.IsDir() {
 			if removeErr := os.Remove(snapshot.absolutePath); removeErr != nil {
-				return fmt.Errorf("suppression de %s pendant rollback : %w", snapshot.absolutePath, removeErr)
+				return fmt.Errorf("failed to remove %s during rollback: %w", snapshot.absolutePath, removeErr)
 			}
 		}
 		if mkdirErr := os.MkdirAll(snapshot.absolutePath, snapshot.mode.Perm()); mkdirErr != nil {
-			return fmt.Errorf("restauration du dossier %s : %w", snapshot.absolutePath, mkdirErr)
+			return fmt.Errorf("restoring directory %s: %w", snapshot.absolutePath, mkdirErr)
 		}
 		if chmodErr := os.Chmod(snapshot.absolutePath, snapshot.mode.Perm()); chmodErr != nil {
-			return fmt.Errorf("restauration des permissions de %s : %w", snapshot.absolutePath, chmodErr)
+			return fmt.Errorf("restoring permissions for %s: %w", snapshot.absolutePath, chmodErr)
 		}
 		return nil
 	}
 	if statErr == nil && currentInfo.IsDir() {
 		if removeErr := os.Remove(snapshot.absolutePath); removeErr != nil {
-			return fmt.Errorf("suppression du dossier %s pendant rollback : %w", snapshot.absolutePath, removeErr)
+			return fmt.Errorf("failed to remove directory %s during rollback: %w", snapshot.absolutePath, removeErr)
 		}
 	}
 	if mkdirErr := os.MkdirAll(filepath.Dir(snapshot.absolutePath), 0o755); mkdirErr != nil {
-		return fmt.Errorf("restauration du dossier parent de %s : %w", snapshot.absolutePath, mkdirErr)
+		return fmt.Errorf("restoring parent directory of %s: %w", snapshot.absolutePath, mkdirErr)
 	}
 	if writeErr := os.WriteFile(snapshot.absolutePath, snapshot.content, snapshot.mode.Perm()); writeErr != nil {
-		return fmt.Errorf("restauration de %s : %w", snapshot.absolutePath, writeErr)
+		return fmt.Errorf("restoring %s: %w", snapshot.absolutePath, writeErr)
 	}
 	if chmodErr := os.Chmod(snapshot.absolutePath, snapshot.mode.Perm()); chmodErr != nil {
-		return fmt.Errorf("restauration des permissions de %s : %w", snapshot.absolutePath, chmodErr)
+		return fmt.Errorf("restoring permissions for %s: %w", snapshot.absolutePath, chmodErr)
 	}
 	return nil
 }
@@ -515,7 +515,7 @@ func removeFanoutStaleFiles(projectRoot string, plans []fanoutRecordPlan) error 
 				return pathErr
 			}
 			if removeErr := os.Remove(absolutePath); removeErr != nil && !os.IsNotExist(removeErr) {
-				return fmt.Errorf("suppression de %s échouée : %w", previousFile.Path, removeErr)
+				return fmt.Errorf("failed to remove %s: %w", previousFile.Path, removeErr)
 			}
 		}
 	}
@@ -536,14 +536,14 @@ func fanoutPathsReferToSameFile(projectRoot, leftPath, rightPath string) (bool, 
 		return false, nil
 	}
 	if leftStatErr != nil {
-		return false, fmt.Errorf("inspection de %s échouée : %w", leftPath, leftStatErr)
+		return false, fmt.Errorf("failed to inspect %s: %w", leftPath, leftStatErr)
 	}
 	rightInfo, rightStatErr := os.Stat(rightAbsolutePath)
 	if os.IsNotExist(rightStatErr) {
 		return false, nil
 	}
 	if rightStatErr != nil {
-		return false, fmt.Errorf("inspection de %s échouée : %w", rightPath, rightStatErr)
+		return false, fmt.Errorf("failed to inspect %s: %w", rightPath, rightStatErr)
 	}
 	return os.SameFile(leftInfo, rightInfo), nil
 }
@@ -553,10 +553,10 @@ func appendFanoutManagedFile(files []fs.ManagedFile, indexes map[string]int, inc
 	if existingIndex, exists := indexes[pathKey]; exists {
 		existing := files[existingIndex]
 		if existing.Path != incoming.Path {
-			return nil, fmt.Errorf("chemins incompatibles sur un système insensible à la casse : %s et %s", existing.Path, incoming.Path)
+			return nil, fmt.Errorf("incompatible paths on a case-insensitive system: %s and %s", existing.Path, incoming.Path)
 		}
 		if existing.SHA256 != incoming.SHA256 {
-			return nil, fmt.Errorf("contenus divergents planifiés pour %s", incoming.Path)
+			return nil, fmt.Errorf("conflicting content planned for %s", incoming.Path)
 		}
 		return files, nil
 	}
@@ -565,7 +565,7 @@ func appendFanoutManagedFile(files []fs.ManagedFile, indexes map[string]int, inc
 }
 
 func (a *app) writeFanoutSkip(targetKind, reason string, jsonOut bool) {
-	message := fmt.Sprintf("cible ignorée %s : %s", targetKind, reason)
+	message := fmt.Sprintf("skipped target %s: %s", targetKind, reason)
 	if jsonOut || a.fanoutJSON != nil {
 		a.writeStderr(message)
 		return
@@ -619,7 +619,7 @@ func (a *app) installArtifactFanout(profile fs.ProjectProfile, cfg fs.ProjectCon
 		}
 		tool, ok := writer.WriterForKind(target.Kind)
 		if !ok {
-			a.writeStderr(fmt.Sprintf("warning: cible inconnue ignorée : %s", target.Kind))
+			a.writeStderr(fmt.Sprintf("warning: skipped unknown target: %s", target.Kind))
 			continue
 		}
 		capability, hasCapability := writer.CapabilityFor(target.Kind, kind)
@@ -635,10 +635,10 @@ func (a *app) installArtifactFanout(profile fs.ProjectProfile, cfg fs.ProjectCon
 		eligiblePlans = append(eligiblePlans, fanoutTargetPlan{target: target, tool: tool})
 	}
 	if len(eligiblePlans) == 0 {
-		return fmt.Errorf("aucune cible compatible pour l'artefact %s (%s)", entry.Name, kind)
+		return fmt.Errorf("no compatible target for artifact %s (%s)", entry.Name, kind)
 	}
 
-	a.progress.step(fmt.Sprintf("Téléchargement de %s…", entry.Name))
+	a.progress.step(fmt.Sprintf("Downloading %s…", entry.Name))
 	content, err := a.client.DownloadCatalogEntry(context.Background(), profile, entry)
 	if err != nil {
 		return err
@@ -667,7 +667,7 @@ func (a *app) installArtifactFanout(profile fs.ProjectProfile, cfg fs.ProjectCon
 		plans = append(plans, fanoutTargetPlan{target: eligiblePlan.target, tool: eligiblePlan.tool, preview: preview})
 	}
 	if len(plans) == 0 {
-		return fmt.Errorf("aucune cible compatible pour l'artefact %s (%s)", entry.Name, kind)
+		return fmt.Errorf("no compatible target for artifact %s (%s)", entry.Name, kind)
 	}
 
 	state, stateErr := fs.ReadInstalledStateV2(profile.TargetDir)
@@ -713,7 +713,7 @@ func (a *app) installArtifactFanout(profile fs.ProjectProfile, cfg fs.ProjectCon
 		return transactionErr
 	}
 
-	a.progress.step("Installation des fichiers…")
+	a.progress.step("Installing files…")
 	installedCount := 0
 	recordPlans := make([]fanoutRecordPlan, 0, len(plans))
 	for _, plan := range plans {
@@ -752,7 +752,7 @@ func (a *app) installArtifactFanout(profile fs.ProjectProfile, cfg fs.ProjectCon
 		installedCount++
 	}
 
-	a.progress.step("Finalisation…")
+	a.progress.step("Finalizing…")
 	ownershipMessages := make([]string, 0)
 	if force {
 		ownershipMessages = transferAllFanoutOwnership(&state, entry.CatalogID, plannedFiles)
@@ -785,7 +785,7 @@ func (a *app) installArtifactFanout(profile fs.ProjectProfile, cfg fs.ProjectCon
 		})
 		return nil
 	}
-	a.writeStdout(fmt.Sprintf("Ressource '%s' (%s) installée sur %d cible(s).", entry.Name, kind, installedCount))
+	a.writeStdout(fmt.Sprintf("Resource '%s' (%s) installed on %d target(s).", entry.Name, kind, installedCount))
 	return nil
 }
 
@@ -826,11 +826,11 @@ func (a *app) renderFanoutDryRun(projectRoot, targetDir, catalogID string, incom
 
 func (a *app) printSkillPlacement(entry fs.CatalogEntry, placement writer.SkillPlacement) {
 	readers := invertReadsFrom(placement.ReadsFrom)
-	lines := []string{fmt.Sprintf("Skill '%s' installé :", entry.Name)}
+	lines := []string{fmt.Sprintf("Skill '%s' installed:", entry.Name)}
 	for _, folder := range placement.Folders {
-		lines = append(lines, fmt.Sprintf("  → %s/%s (lu par %s)", folder, entry.Name, strings.Join(readers[folder], ", ")))
+		lines = append(lines, fmt.Sprintf("  → %s/%s (read by %s)", folder, entry.Name, strings.Join(readers[folder], ", ")))
 	}
-	lines = append(lines, "Prochaine étape : utilisez `sth update` pour rafraîchir les ressources suivies.")
+	lines = append(lines, "Next step: use `sth update` to refresh tracked resources.")
 	a.writeStdout(lines...)
 }
 
@@ -894,7 +894,7 @@ func (a *app) updateFanout(profile *fs.ProjectProfile, cfg fs.ProjectConfigV2, d
 		if jsonOut {
 			a.writeStdout("[]")
 		} else {
-			a.writeStdout("Aucune ressource à mettre à jour.")
+			a.writeStdout("No resources to update.")
 		}
 		return nil
 	}
@@ -913,6 +913,20 @@ func (a *app) updateFanout(profile *fs.ProjectProfile, cfg fs.ProjectConfigV2, d
 	byID := make(map[string]fs.CatalogEntry, len(entries))
 	for _, entry := range entries {
 		byID[entry.CatalogID] = entry
+	}
+	if !dryRun && !jsonOut {
+		updateCount := 0
+		for _, name := range installedNames {
+			if fs.PinnedVersion(cfg, name) != "" {
+				continue
+			}
+			if _, found := byID[name]; found {
+				updateCount++
+			}
+		}
+		if updateCount > 0 {
+			a.progress.start(updateCount * 3)
+		}
 	}
 
 	providerID := "default"
@@ -941,10 +955,10 @@ func (a *app) updateFanout(profile *fs.ProjectProfile, cfg fs.ProjectConfigV2, d
 		entry, ok := byID[name]
 		if !ok {
 			if accumulator != nil {
-				accumulator.results = append(accumulator.results, updateJSONResult{ResourceName: name, Outcome: "skipped", Error: "ressource absente du catalogue"})
+				accumulator.results = append(accumulator.results, updateJSONResult{ResourceName: name, Outcome: "skipped", Error: "resource missing from catalog"})
 				continue
 			}
-			a.writeStderr(fmt.Sprintf("Ressource '%s' absente du catalogue ; ignorée.", name))
+			a.writeStderr(fmt.Sprintf("Resource '%s' is missing from the catalog; skipped.", name))
 			continue
 		}
 		resolvedVersion := ""
@@ -957,7 +971,7 @@ func (a *app) updateFanout(profile *fs.ProjectProfile, cfg fs.ProjectConfigV2, d
 				accumulator.results = append(accumulator.results, updateJSONResult{ResourceName: name, Outcome: "failed", Error: err.Error()})
 				continue
 			}
-			a.writeStderr(fmt.Sprintf("Échec de mise à jour pour '%s' : %v", name, err))
+			a.writeStderr(fmt.Sprintf("Failed to update '%s': %v", name, err))
 			continue
 		}
 	}
@@ -979,7 +993,7 @@ func (a *app) updateFanout(profile *fs.ProjectProfile, cfg fs.ProjectConfigV2, d
 	}
 
 	if failures > 0 {
-		return fmt.Errorf("mise à jour incomplète : %d ressource(s) en échec", failures)
+		return fmt.Errorf("update incomplete: %d resource(s) failed", failures)
 	}
 	return nil
 }

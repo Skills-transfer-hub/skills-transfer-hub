@@ -48,6 +48,9 @@ func TestProGateNotEntitledError_MentionsEnvVarAndDocs(t *testing.T) {
 	if !strings.Contains(msg, "Pro") {
 		t.Errorf("error should mention Pro, got %q", msg)
 	}
+	if !strings.Contains(msg, "requires the `pack_init` capability") {
+		t.Errorf("error should explain the required capability, got %q", msg)
+	}
 }
 
 // ─── enforceCapability live-path tests (Wire 1) ────────────────────────────

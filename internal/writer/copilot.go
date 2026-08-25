@@ -21,10 +21,10 @@ func (writer CopilotWriter) Write(request WriteRequest) (WriteResult, error) {
 		return WriteResult{}, renderErr
 	}
 	if err := os.MkdirAll(filepath.Dir(request.InstalledPath), 0o755); err != nil {
-		return WriteResult{}, fmt.Errorf("création du dossier %s échouée : %w", filepath.Dir(request.InstalledPath), err)
+		return WriteResult{}, fmt.Errorf("failed to create directory %s: %w", filepath.Dir(request.InstalledPath), err)
 	}
 	if err := os.WriteFile(request.InstalledPath, content, 0o644); err != nil {
-		return WriteResult{}, fmt.Errorf("écriture de %s échouée : %w", request.InstalledPath, err)
+		return WriteResult{}, fmt.Errorf("failed to write %s: %w", request.InstalledPath, err)
 	}
 	return WriteResult{
 		Path:   filepath.ToSlash(filepath.Clean(request.InstalledPath)),
@@ -34,7 +34,7 @@ func (writer CopilotWriter) Write(request WriteRequest) (WriteResult, error) {
 
 func (CopilotWriter) Render(request WriteRequest) ([]byte, error) {
 	if strings.TrimSpace(request.InstalledPath) == "" {
-		return nil, fmt.Errorf("installed_path doit être renseigné")
+		return nil, fmt.Errorf("installed_path is required")
 	}
 	if isCopilotPromptPath(request.InstalledPath) {
 		return renderCopilotPrompt(request)
@@ -105,10 +105,10 @@ func isCopilotPromptPath(installedPath string) bool {
 
 func renderCopilotPrompt(request WriteRequest) ([]byte, error) {
 	if !utf8.Valid(request.Content) {
-		return nil, fmt.Errorf("prompt Copilot invalide : contenu non UTF-8")
+		return nil, fmt.Errorf("invalid Copilot prompt: content is not UTF-8")
 	}
 	bodyOffset := FrontmatterBodyOffset(request.Content)
-	description := "Prompt réutilisable " + copilotPromptName(request.InstalledPath)
+	description := "Reusable prompt " + copilotPromptName(request.InstalledPath)
 	body := strings.TrimSpace(string(request.Content))
 	if bodyOffset >= 0 {
 		frontmatter := string(request.Content[:bodyOffset])

@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"bufio"
 	"bytes"
 	"encoding/json"
 	stdhttp "net/http"
@@ -13,6 +12,7 @@ import (
 
 	"sth/internal/fs"
 	sthhttp "sth/internal/http"
+	"sth/internal/tui"
 
 	"github.com/zalando/go-keyring"
 )
@@ -98,7 +98,7 @@ func TestCloudLogin_OtherModeNoOp(t *testing.T) {
 	env := setupCloudLoginEnv(t, cloudLoginEnv{})
 	a, stdout, _ := newCloudLoginApp("", true, env.server)
 
-	mode := a.promptCloudLoginIfNeeded(bufio.NewReader(a.stdin), fs.TelemetryAnonymous)
+	mode := a.promptCloudLoginIfNeeded(tui.NewSession(a.stdin, stdout), fs.TelemetryAnonymous)
 	if mode != fs.TelemetryAnonymous {
 		t.Fatalf("anonymous mode should pass through unchanged, got %q", mode)
 	}
@@ -113,7 +113,7 @@ func TestCloudLogin_KeyAndProviderPresent_NoPromptNoOutput(t *testing.T) {
 	t.Setenv("STH_CLOUD_API_KEY", "lsk_live_seed")
 
 	a, stdout, _ := newCloudLoginApp("", true, env.server)
-	mode := a.promptCloudLoginIfNeeded(bufio.NewReader(a.stdin), fs.TelemetryConnected)
+	mode := a.promptCloudLoginIfNeeded(tui.NewSession(a.stdin, stdout), fs.TelemetryConnected)
 
 	if mode != fs.TelemetryConnected {
 		t.Errorf("mode = %q, want connected (no-op path)", mode)
@@ -129,12 +129,12 @@ func TestCloudLogin_KeyPresentProviderMissing_AttachesSilently(t *testing.T) {
 	// No seed of project.json: provider is missing.
 
 	a, stdout, _ := newCloudLoginApp("", true, env.server)
-	mode := a.promptCloudLoginIfNeeded(bufio.NewReader(a.stdin), fs.TelemetryConnected)
+	mode := a.promptCloudLoginIfNeeded(tui.NewSession(a.stdin, stdout), fs.TelemetryConnected)
 
 	if mode != fs.TelemetryConnected {
 		t.Errorf("mode = %q, want connected (silent attach)", mode)
 	}
-	if !strings.Contains(stdout.String(), "rattaché") {
+	if !strings.Contains(stdout.String(), "now attached") {
 		t.Errorf("expected silent attach confirmation, got:\n%s", stdout.String())
 	}
 	// Confirm project.json now carries the sth-cloud provider.
@@ -151,7 +151,7 @@ func TestCloudLogin_NonInteractive_NoKey_DowngradesToAnonymous(t *testing.T) {
 	env := setupCloudLoginEnv(t, cloudLoginEnv{})
 
 	a, _, stderr := newCloudLoginApp("", false, env.server)
-	mode := a.promptCloudLoginIfNeeded(bufio.NewReader(a.stdin), fs.TelemetryConnected)
+	mode := a.promptCloudLoginIfNeeded(tui.NewSession(a.stdin, &bytes.Buffer{}), fs.TelemetryConnected)
 
 	if mode != fs.TelemetryAnonymous {
 		t.Fatalf("mode = %q, want anonymous (non-interactive fallback)", mode)
@@ -169,12 +169,12 @@ func TestCloudLogin_RefusalDowngradesToAnonymous(t *testing.T) {
 
 	// "n\n" answers the y/N prompt with the default "no".
 	a, _, stderr := newCloudLoginApp("n\n", true, env.server)
-	mode := a.promptCloudLoginIfNeeded(bufio.NewReader(a.stdin), fs.TelemetryConnected)
+	mode := a.promptCloudLoginIfNeeded(tui.NewSession(a.stdin, &bytes.Buffer{}), fs.TelemetryConnected)
 
 	if mode != fs.TelemetryAnonymous {
 		t.Fatalf("refusal should downgrade to anonymous, got %q", mode)
 	}
-	if !strings.Contains(stderr.String(), "Mode bascule sur anonymous") {
+	if !strings.Contains(stderr.String(), "Switched to anonymous mode") {
 		t.Errorf("missing downgrade hint in stderr, got:\n%s", stderr.String())
 	}
 }
@@ -184,12 +184,12 @@ func TestCloudLogin_ValidKey_SavesAndUpgradesToConnected(t *testing.T) {
 
 	// "y\n" accepts the sub-prompt, then we feed a valid key on the next line.
 	a, stdout, _ := newCloudLoginApp("y\nlsk_live_valid\n", true, env.server)
-	mode := a.promptCloudLoginIfNeeded(bufio.NewReader(a.stdin), fs.TelemetryConnected)
+	mode := a.promptCloudLoginIfNeeded(tui.NewSession(a.stdin, stdout), fs.TelemetryConnected)
 
 	if mode != fs.TelemetryConnected {
 		t.Fatalf("valid key + AccessCheck OK should stay connected, got %q", mode)
 	}
-	if !strings.Contains(stdout.String(), "Connecté à Acme") {
+	if !strings.Contains(stdout.String(), "Connected to Acme") {
 		t.Errorf("missing success message, got:\n%s", stdout.String())
 	}
 	// Provider entry should now exist in project.json.
@@ -203,12 +203,12 @@ func TestCloudLogin_AccessCheck401_DowngradesToAnonymous(t *testing.T) {
 	env := setupCloudLoginEnv(t, cloudLoginEnv{accessCheckErr: stdhttp.StatusUnauthorized})
 
 	a, _, stderr := newCloudLoginApp("y\nlsk_live_invalid\n", true, env.server)
-	mode := a.promptCloudLoginIfNeeded(bufio.NewReader(a.stdin), fs.TelemetryConnected)
+	mode := a.promptCloudLoginIfNeeded(tui.NewSession(a.stdin, &bytes.Buffer{}), fs.TelemetryConnected)
 
 	if mode != fs.TelemetryAnonymous {
 		t.Fatalf("401 from AccessCheck should downgrade to anonymous, got %q", mode)
 	}
-	if !strings.Contains(stderr.String(), "Mode bascule sur anonymous") {
+	if !strings.Contains(stderr.String(), "Switched to anonymous mode") {
 		t.Errorf("missing downgrade hint, got:\n%s", stderr.String())
 	}
 }
@@ -217,12 +217,12 @@ func TestCloudLogin_InvalidPrefix_DowngradesToAnonymous(t *testing.T) {
 	env := setupCloudLoginEnv(t, cloudLoginEnv{})
 
 	a, _, stderr := newCloudLoginApp("y\nnotaprefix\n", true, env.server)
-	mode := a.promptCloudLoginIfNeeded(bufio.NewReader(a.stdin), fs.TelemetryConnected)
+	mode := a.promptCloudLoginIfNeeded(tui.NewSession(a.stdin, &bytes.Buffer{}), fs.TelemetryConnected)
 
 	if mode != fs.TelemetryAnonymous {
 		t.Fatalf("bad prefix should downgrade to anonymous, got %q", mode)
 	}
-	if !strings.Contains(stderr.String(), "Mode bascule") {
+	if !strings.Contains(stderr.String(), "Switched to anonymous mode") {
 		t.Errorf("missing hint on stderr, got:\n%s", stderr.String())
 	}
 }

@@ -51,12 +51,12 @@ func licenseExpiryWarning() string {
 	switch state {
 	case licenseExpiryExpired:
 		return fmt.Sprintf(
-			"⚠ Ta clé STH Cloud a expiré le %s — régénère-la sur le dashboard puis relance `sth login` avec la nouvelle clé.",
+			"⚠ Your STH Cloud key expired on %s — regenerate it in the dashboard, then run `sth login` with the new key.",
 			expiresAt.Format("2006-01-02"),
 		)
 	case licenseExpiryNear:
 		return fmt.Sprintf(
-			"⚠ Ta clé STH Cloud expire dans %d jour(s) (le %s) — régénère-la sur le dashboard puis relance `sth login`.",
+			"⚠ Your STH Cloud key expires in %d day(s) (on %s) — regenerate it in the dashboard, then run `sth login`.",
 			licenseExpiryDaysRemaining(expiresAt), expiresAt.Format("2006-01-02"),
 		)
 	default:

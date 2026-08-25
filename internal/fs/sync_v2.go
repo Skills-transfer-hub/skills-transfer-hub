@@ -16,7 +16,7 @@ func SyncManagedFilesV2(targetDir string, record InstalledResourceRecordV2, prev
 			continue
 		}
 		if err := os.Remove(filepath.Clean(filepath.FromSlash(old.Path))); err != nil && !os.IsNotExist(err) {
-			return fmt.Errorf("suppression de %s échouée : %w", old.Path, err)
+			return fmt.Errorf("failed to remove %s: %w", old.Path, err)
 		}
 	}
 	return UpsertInstalledResourceV2(targetDir, record)

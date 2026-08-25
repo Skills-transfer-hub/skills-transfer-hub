@@ -34,6 +34,17 @@ func TestAddManagedHeader_AlreadyPrefixed_NoOp(t *testing.T) {
 	}
 }
 
+func TestAddManagedHeader_LegacyHeaderMigratesWithoutDuplication(t *testing.T) {
+	legacyContent := []byte(legacySkillHeader + "# Alpha\n")
+	result := addManagedHeaderIfMarkdown("alpha.md", legacyContent)
+	if strings.Count(string(result), skillHeader) != 1 {
+		t.Fatalf("expected exactly one English managed header, got:\n%s", result)
+	}
+	if strings.Contains(string(result), legacySkillHeader) {
+		t.Fatalf("legacy managed header was not migrated, got:\n%s", result)
+	}
+}
+
 func TestAddManagedHeader_PreservesFrontmatterOnLineOne(t *testing.T) {
 	in := []byte("---\nname: form-wizard\ndescription: builds React forms\n---\n# Body\n")
 	got := addManagedHeaderIfMarkdown("SKILL.md", in)

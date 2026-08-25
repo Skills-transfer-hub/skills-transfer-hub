@@ -4,42 +4,147 @@ on:
   release:
     types: [published]
   workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to rebuild (vX.Y.Z or vX.Y.Z-rc.N)
+        required: true
+        type: string
 
 permissions:
-  contents: write
-  packages: write
-  id-token: write
+  contents: read
 
-env:
-  STH_CODE_CONTRACT_REPOSITORY: Skills-transfer-hub/sth-code-private-archive
-  STH_CODE_CONTRACT_REF: 1435656322b212376e70e105873de364f905c9a4
+concurrency:
+  group: sth-release-publishing
+  cancel-in-progress: false
 
 jobs:
   goreleaser:
     name: Build & publish via GoReleaser
     runs-on: ubuntu-latest
+    env:
+      RELEASE_EVENT_SHA: ${{ github.event_name == 'release' && github.sha || '' }}
+      RELEASE_SIGNING_FINGERPRINT: SHA256:Y/USCQxn6KoP3GBU6Kr/3/POw4pqWgi/kukMAq1vwI0
+      RELEASE_TAG: ${{ inputs.tag || github.event.release.tag_name }}
+    outputs:
+      prerelease: ${{ steps.release-meta.outputs.prerelease }}
+      sha: ${{ steps.tag-provenance.outputs.commit_sha }}
+      tag: ${{ steps.release-meta.outputs.tag }}
     steps:
+      - name: Validate release tag
+        id: release-meta
+        shell: bash
+        run: |
+          if [[ ! "$RELEASE_TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-rc\.[1-9][0-9]*)?$ ]]; then
+            echo "Invalid release tag: $RELEASE_TAG" >&2
+            exit 1
+          fi
+          prerelease=false
+          if [[ "$RELEASE_TAG" == *-rc.* ]]; then
+            prerelease=true
+          fi
+          echo "tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
+          echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
+
+      - name: Verify signed tag provenance
+        id: tag-provenance
+        uses: actions/github-script@v8
+        env:
+          RELEASE_EVENT_SHA: ${{ env.RELEASE_EVENT_SHA }}
+          RELEASE_TAG: ${{ env.RELEASE_TAG }}
+        with:
+          script: |
+            const ref = await github.rest.git.getRef({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: `tags/${process.env.RELEASE_TAG}`,
+            });
+            if (ref.data.object.type !== 'tag') {
+              throw new Error(`Release ref ${process.env.RELEASE_TAG} is not an annotated tag.`);
+            }
+            const tag = await github.rest.git.getTag({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              tag_sha: ref.data.object.sha,
+            });
+            if (!tag.data.verification?.verified) {
+              throw new Error(`Release tag ${process.env.RELEASE_TAG} does not have a verified signature.`);
+            }
+            if (tag.data.object.type !== 'commit') {
+              throw new Error(`Release tag ${process.env.RELEASE_TAG} does not point directly to a commit.`);
+            }
+            const commitSha = tag.data.object.sha;
+            if (process.env.RELEASE_EVENT_SHA && commitSha !== process.env.RELEASE_EVENT_SHA) {
+              throw new Error(`Release event SHA ${process.env.RELEASE_EVENT_SHA} does not match signed tag commit ${commitSha}.`);
+            }
+            core.setOutput('commit_sha', commitSha);
+
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
+          fetch-tags: true
+          persist-credentials: false
+          ref: ${{ steps.tag-provenance.outputs.commit_sha }}
+
+      - name: Verify checked out tag
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ steps.tag-provenance.outputs.commit_sha }}
+        run: |
+          actual_commit="$(git rev-parse HEAD)"
+          tag_commit="$(git rev-parse "refs/tags/$RELEASE_TAG^{}")"
+          if [[ "$actual_commit" != "$EXPECTED_SHA" || "$tag_commit" != "$EXPECTED_SHA" ]]; then
+            echo "Checked out commit $actual_commit does not match $RELEASE_TAG ($EXPECTED_SHA)." >&2
+            exit 1
+          fi
+
+      - name: Verify the pinned release signing key
+        shell: bash
+        run: |
+          tag_object="$RUNNER_TEMP/sth-release-tag-object"
+          tag_payload="$RUNNER_TEMP/sth-release-tag-payload"
+          tag_signature="$RUNNER_TEMP/sth-release-tag-signature"
+          git cat-file tag "refs/tags/$RELEASE_TAG" > "$tag_object"
+          sed -n '/^-----BEGIN SSH SIGNATURE-----$/,$p' "$tag_object" > "$tag_signature"
+          sed '/^-----BEGIN SSH SIGNATURE-----$/,$d' "$tag_object" > "$tag_payload"
+          if ! verification="$(ssh-keygen -Y check-novalidate -n git -s "$tag_signature" < "$tag_payload" 2>&1)"; then
+            printf '%s\n' "$verification" >&2
+            exit 1
+          fi
+          if [[ "$verification" != *"$RELEASE_SIGNING_FINGERPRINT"* ]]; then
+            echo "Release tag was not signed by the pinned release key." >&2
+            exit 1
+          fi
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
 
-      - name: Verify the exact STH Code consumer contract
+      - name: Download the pinned STH Code consumer contract
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.STH_CODE_READ_TOKEN }}
         run: |
-          go test ./cmd -run 'TestBridge' -count=1
-          gh api --method GET "repos/$STH_CODE_CONTRACT_REPOSITORY/contents/scripts/verify-sth-code-engine-contract.mjs" \
-            -f "ref=$STH_CODE_CONTRACT_REF" \
+          gh api --method GET repos/Skills-transfer-hub/sth-code-private-archive/contents/scripts/verify-sth-code-engine-contract.mjs \
+            -f ref=1435656322b212376e70e105873de364f905c9a4 \
             --jq .content | base64 --decode > "$RUNNER_TEMP/verify-sth-code-engine-contract.mjs"
+
+      - name: Verify the STH Code consumer contract
+        shell: bash
+        run: |
+          go test ./cmd -run 'TestBridge' -count=1
           go build -trimpath -o "$RUNNER_TEMP/sth-contract-candidate" .
           node "$RUNNER_TEMP/verify-sth-code-engine-contract.mjs" "$RUNNER_TEMP/sth-contract-candidate"
+
+      - name: Verify the release signing key
+        shell: bash
+        env:
+          STH_RELEASE_SIGNING_KEY: ${{ secrets.STH_RELEASE_SIGNING_KEY }}
+        run: |
+          printf 'sth release signing preflight\n' > "$RUNNER_TEMP/signing-probe"
+          go run ./tools/release-sign --in "$RUNNER_TEMP/signing-probe" --out "$RUNNER_TEMP/signing-probe.sig"
+          go run ./tools/release-sign --verify --in "$RUNNER_TEMP/signing-probe" --signature "$RUNNER_TEMP/signing-probe.sig"
 
       # The curated, user-facing notes were written by auto-release.yml as the
       # body of the (private) source-repo release. Reuse them verbatim so the
@@ -50,26 +155,56 @@ jobs:
       - name: Prepare release notes
         shell: bash
         env:
-          GH_TOKEN: ${{ secrets.RELEASE_PAT }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           notes="$RUNNER_TEMP/release-notes.md"
-          tag="${{ github.event.release.tag_name }}"
-          if [[ -z "$tag" ]]; then tag="$(git describe --tags --abbrev=0)"; fi
-          if ! gh release view "$tag" -R Skills-transfer-hub/skills-transfer-hub --json body --jq '.body' > "$notes" 2>/dev/null || [[ ! -s "$notes" ]]; then
+          if ! gh release view "$RELEASE_TAG" -R Skills-transfer-hub/skills-transfer-hub --json body --jq '.body' > "$notes" 2>/dev/null || [[ ! -s "$notes" ]]; then
             printf 'Maintenance & internal improvements.\n' > "$notes"
           fi
           printf '\n---\nSee all releases: https://github.com/Skills-transfer-hub/sth-releases/releases\n' >> "$notes"
 
+      - name: Remove an incomplete GoReleaser draft for this tag
+        uses: actions/github-script@v8
+        env:
+          RELEASE_TAG: ${{ env.RELEASE_TAG }}
+        with:
+          github-token: ${{ secrets.RELEASE_PAT }}
+          script: |
+            const releases = await github.paginate(github.rest.repos.listReleases, {
+              owner: 'Skills-transfer-hub',
+              repo: 'sth-releases',
+              per_page: 100,
+            });
+            const drafts = releases.filter((release) =>
+              release.draft && release.tag_name === process.env.RELEASE_TAG,
+            );
+            if (drafts.length === 0) {
+              return;
+            }
+            if (drafts.length !== 1 || drafts[0].name !== `Alpha ${process.env.RELEASE_TAG}`) {
+              throw new Error(`Refusing to delete an unexpected draft for ${process.env.RELEASE_TAG}.`);
+            }
+            await github.rest.repos.deleteRelease({
+              owner: 'Skills-transfer-hub',
+              repo: 'sth-releases',
+              release_id: drafts[0].id,
+            });
+            await core.summary
+              .addRaw(`Removed incomplete GoReleaser draft for ${process.env.RELEASE_TAG}; rebuilding it from the signed tag.`)
+              .write();
+
       - name: Run GoReleaser
-        uses: goreleaser/goreleaser-action@v6
+        id: goreleaser
+        uses: goreleaser/goreleaser-action@v7
         with:
           distribution: goreleaser
-          version: "~> v2"
+          version: v2.17.1
           args: release --clean --release-notes=${{ runner.temp }}/release-notes.md
         env:
           # GoReleaser creates the release on the public Skills-transfer-hub/sth-releases repo
-          # (cross-repo, the default GITHUB_TOKEN can't push there). RELEASE_PAT must
-          # have Contents: R/W on skills-transfer-hub + sth-releases + the 3 tap repos.
+          # (cross-repo, the default GITHUB_TOKEN can't push there). RELEASE_PAT needs
+          # source-repository read access and Contents: R/W on sth-releases. The tap
+          # repositories use their dedicated tokens below.
           # WINGET_TOKEN must be a CLASSIC PAT with `public_repo` scope (fine-grained
           # PATs cannot create cross-fork PRs against microsoft/winget-pkgs).
           GITHUB_TOKEN: ${{ secrets.RELEASE_PAT }}
@@ -79,3 +214,37 @@ jobs:
           # Base64 ed25519 private key used by the `signs` block to produce
           # SHA256SUMS.sig. Generate with `go run ./tools/release-sign -genkey`.
           STH_RELEASE_SIGNING_KEY: ${{ secrets.STH_RELEASE_SIGNING_KEY }}
+
+      - name: Verify the published engine contract
+        if: ${{ !cancelled() && (steps.goreleaser.outcome == 'success' || steps.goreleaser.outcome == 'failure') }}
+        shell: bash
+        run: |
+          node "$RUNNER_TEMP/verify-sth-code-engine-contract.mjs" dist/sth-engine-linux-amd64
+          manifest_version="$(jq -er '.engine_version' .release/sth-code-engine.json)"
+          bridge_version="$(printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"handshake","params":{"protocol_version":1}}' | dist/sth-engine-linux-amd64 bridge --stdio | jq -er '.result.bridge_version')"
+          if [[ "$bridge_version" != "$manifest_version" ]]; then
+            echo "Published bridge version $bridge_version does not match manifest version $manifest_version." >&2
+            exit 1
+          fi
+
+      - name: Verify published release assets
+        if: ${{ !cancelled() && (steps.goreleaser.outcome == 'success' || steps.goreleaser.outcome == 'failure') }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          asset_directory="$RUNNER_TEMP/release-assets"
+          mkdir -p "$asset_directory"
+          gh release download "$RELEASE_TAG" -R Skills-transfer-hub/sth-releases --dir "$asset_directory"
+          sh scripts/verify-release-assets.sh "$asset_directory" "$RELEASE_TAG"
+
+  chocolatey:
+    name: Publish to Chocolatey
+    needs: goreleaser
+    if: needs.goreleaser.outputs.prerelease == 'false'
+    uses: ./.github/workflows/publish-chocolatey.yml
+    with:
+      expected_sha: ${{ needs.goreleaser.outputs.sha }}
+      tag: ${{ needs.goreleaser.outputs.tag }}
+    secrets:
+      CHOCOLATEY_API_KEY: ${{ secrets.CHOCOLATEY_API_KEY }}

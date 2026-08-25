@@ -61,13 +61,13 @@ func SearchAssets(
 		Q:      queryValue,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("recherche d'assets : %w", err)
+		return nil, fmt.Errorf("asset search: %w", err)
 	}
 	assets := make([]AssetSummary, 0, len(page.Items))
 	for _, item := range page.Items {
 		asset, err := projectAssetSummary(item)
 		if err != nil {
-			return nil, fmt.Errorf("recherche d'assets : %w", err)
+			return nil, fmt.Errorf("asset search: %w", err)
 		}
 		assets = append(assets, asset)
 	}
@@ -81,18 +81,18 @@ func GetAsset(
 ) (AssetSummary, error) {
 	assetID = strings.TrimSpace(assetID)
 	if assetID == "" {
-		return AssetSummary{}, fmt.Errorf("assets: id requis")
+		return AssetSummary{}, fmt.Errorf("assets: id is required")
 	}
 	item, err := newGeneratedV2Client(httpClient).GetAsset(ctx, sthv2.GetAssetInput{AssetID: assetID})
 	if err != nil {
-		return AssetSummary{}, fmt.Errorf("ouverture d'un asset : %w", err)
+		return AssetSummary{}, fmt.Errorf("opening asset: %w", err)
 	}
 	asset, err := projectAssetSummary(item)
 	if err != nil {
-		return AssetSummary{}, fmt.Errorf("ouverture d'un asset : %w", err)
+		return AssetSummary{}, fmt.Errorf("opening asset: %w", err)
 	}
 	if asset.ID != assetID {
-		return AssetSummary{}, fmt.Errorf("ouverture d'un asset : identifiant incohérent")
+		return AssetSummary{}, fmt.Errorf("opening asset: inconsistent identifier")
 	}
 	return asset, nil
 }
@@ -106,17 +106,17 @@ func GetResourceVersionManifest(
 	assetID = strings.TrimSpace(assetID)
 	versionID = strings.TrimSpace(versionID)
 	if assetID == "" || versionID == "" {
-		return ResourceVersionManifest{}, fmt.Errorf("manifest: asset_id et version_id requis")
+		return ResourceVersionManifest{}, fmt.Errorf("manifest: asset_id and version_id are required")
 	}
 	manifest, err := newGeneratedV2Client(httpClient).GetResourceVersionManifest(
 		ctx,
 		sthv2.GetResourceVersionManifestInput{AssetID: assetID, VersionID: versionID},
 	)
 	if err != nil {
-		return ResourceVersionManifest{}, fmt.Errorf("lecture du manifest : %w", err)
+		return ResourceVersionManifest{}, fmt.Errorf("reading manifest: %w", err)
 	}
 	if err := validateResourceVersionManifest(manifest, assetID, versionID); err != nil {
-		return ResourceVersionManifest{}, fmt.Errorf("lecture du manifest : %w", err)
+		return ResourceVersionManifest{}, fmt.Errorf("reading manifest: %w", err)
 	}
 	return manifest, nil
 }
@@ -130,33 +130,33 @@ func CreateResourceVersionDownloads(
 	assetID = strings.TrimSpace(assetID)
 	versionID = strings.TrimSpace(versionID)
 	if assetID == "" || versionID == "" {
-		return PackageDownloads{}, fmt.Errorf("downloads: asset_id et version_id requis")
+		return PackageDownloads{}, fmt.Errorf("downloads: asset_id and version_id are required")
 	}
 	downloads, err := newGeneratedV2Client(httpClient).CreateResourceVersionDownloads(
 		ctx,
 		sthv2.CreateResourceVersionDownloadsInput{AssetID: assetID, VersionID: versionID},
 	)
 	if err != nil {
-		return PackageDownloads{}, fmt.Errorf("création des téléchargements : %w", err)
+		return PackageDownloads{}, fmt.Errorf("creating downloads: %w", err)
 	}
 	if downloads.AssetID != assetID || downloads.VersionID != versionID || len(downloads.Downloads) < 1 || len(downloads.Downloads) > maxCloudPackageFiles {
-		return PackageDownloads{}, fmt.Errorf("création des téléchargements : réponse incohérente")
+		return PackageDownloads{}, fmt.Errorf("creating downloads: inconsistent response")
 	}
 	seen := make(map[string]struct{}, len(downloads.Downloads))
 	for _, download := range downloads.Downloads {
 		if !validLogicalAssetPath(download.Path) || !validSHA256(download.SHA256) || download.Size < 0 || download.Size > maxCloudPackageFileBytes || !validMIME(download.MIME) {
-			return PackageDownloads{}, fmt.Errorf("création des téléchargements : entrée invalide")
+			return PackageDownloads{}, fmt.Errorf("creating downloads: invalid entry")
 		}
 		if _, duplicate := seen[download.Path]; duplicate {
-			return PackageDownloads{}, fmt.Errorf("création des téléchargements : chemin dupliqué")
+			return PackageDownloads{}, fmt.Errorf("creating downloads: duplicate path")
 		}
 		seen[download.Path] = struct{}{}
 		if !validSignedDownloadURL(download.DownloadURL) || !signedDownloadMatchesCloudOrigin(download.DownloadURL) {
-			return PackageDownloads{}, fmt.Errorf("création des téléchargements : URL signée invalide")
+			return PackageDownloads{}, fmt.Errorf("creating downloads: invalid signed URL")
 		}
 		expiresAt, err := time.Parse(time.RFC3339, download.ExpiresAt)
 		if err != nil || !expiresAt.After(time.Now()) {
-			return PackageDownloads{}, fmt.Errorf("création des téléchargements : expiration invalide")
+			return PackageDownloads{}, fmt.Errorf("creating downloads: invalid expiration")
 		}
 	}
 	return downloads, nil
@@ -173,16 +173,16 @@ func DownloadResourceVersionBundle(
 	downloads PackageDownloads,
 ) (map[string][]byte, error) {
 	if err := validateResourceVersionManifest(manifest, manifest.AssetID, manifest.VersionID); err != nil {
-		return nil, fmt.Errorf("téléchargement du bundle : manifest invalide : %w", err)
+		return nil, fmt.Errorf("downloading bundle: invalid manifest: %w", err)
 	}
 	if downloads.AssetID != manifest.AssetID || downloads.VersionID != manifest.VersionID || len(downloads.Downloads) != len(manifest.Files) {
-		return nil, fmt.Errorf("téléchargement du bundle : liste de téléchargements incohérente")
+		return nil, fmt.Errorf("downloading bundle: inconsistent download list")
 	}
 
 	downloadByPath := make(map[string]sthv2.PackageDownload, len(downloads.Downloads))
 	for _, download := range downloads.Downloads {
 		if _, duplicate := downloadByPath[download.Path]; duplicate {
-			return nil, fmt.Errorf("téléchargement du bundle : chemin dupliqué")
+			return nil, fmt.Errorf("downloading bundle: duplicate path")
 		}
 		downloadByPath[download.Path] = download
 	}
@@ -190,19 +190,19 @@ func DownloadResourceVersionBundle(
 	totalSize := int64(0)
 	for _, file := range manifest.Files {
 		if file.Size > maxCloudPackageFileBytes || totalSize > maxCloudPackageBytes-file.Size {
-			return nil, fmt.Errorf("téléchargement du bundle : limites de taille dépassées")
+			return nil, fmt.Errorf("downloading bundle: size limits exceeded")
 		}
 		totalSize += file.Size
 		download, ok := downloadByPath[file.Path]
 		if !ok || download.SHA256 != file.SHA256 || download.Size != file.Size || download.MIME != file.MIME {
-			return nil, fmt.Errorf("téléchargement du bundle : métadonnées incohérentes pour %s", file.Path)
+			return nil, fmt.Errorf("downloading bundle: inconsistent metadata for %s", file.Path)
 		}
 		if !validSignedDownloadURL(download.DownloadURL) || !signedDownloadMatchesCloudOrigin(download.DownloadURL) {
-			return nil, fmt.Errorf("téléchargement du bundle : URL signée invalide pour %s", file.Path)
+			return nil, fmt.Errorf("downloading bundle: invalid signed URL for %s", file.Path)
 		}
 		expiresAt, err := time.Parse(time.RFC3339, download.ExpiresAt)
 		if err != nil || !expiresAt.After(time.Now()) {
-			return nil, fmt.Errorf("téléchargement du bundle : URL expirée pour %s", file.Path)
+			return nil, fmt.Errorf("downloading bundle: expired URL for %s", file.Path)
 		}
 	}
 
@@ -212,12 +212,12 @@ func DownloadResourceVersionBundle(
 		download := downloadByPath[file.Path]
 		request, err := stdhttp.NewRequestWithContext(ctx, stdhttp.MethodGet, download.DownloadURL, nil)
 		if err != nil {
-			return nil, fmt.Errorf("téléchargement du bundle : requête invalide pour %s", file.Path)
+			return nil, fmt.Errorf("downloading bundle: invalid request for %s", file.Path)
 		}
 		request.Header.Set("Accept", file.MIME)
 		response, err := client.Do(request)
 		if err != nil {
-			return nil, fmt.Errorf("téléchargement du bundle : échec pour %s : %w", file.Path, err)
+			return nil, fmt.Errorf("downloading bundle failed for %s: %w", file.Path, err)
 		}
 		content, readErr := readVerifiedPackageFile(response, file)
 		response.Body.Close()
@@ -231,43 +231,43 @@ func DownloadResourceVersionBundle(
 
 func readVerifiedPackageFile(response *stdhttp.Response, file sthv2.ManifestFile) ([]byte, error) {
 	if response.StatusCode != stdhttp.StatusOK {
-		return nil, fmt.Errorf("téléchargement du bundle : HTTP %d pour %s", response.StatusCode, file.Path)
+		return nil, fmt.Errorf("downloading bundle: HTTP %d for %s", response.StatusCode, file.Path)
 	}
 	if response.ContentLength >= 0 && response.ContentLength != file.Size {
-		return nil, fmt.Errorf("téléchargement du bundle : taille HTTP invalide pour %s", file.Path)
+		return nil, fmt.Errorf("downloading bundle: invalid HTTP size for %s", file.Path)
 	}
 	contentType, _, err := mime.ParseMediaType(response.Header.Get("Content-Type"))
 	if err != nil || !strings.EqualFold(contentType, file.MIME) {
-		return nil, fmt.Errorf("téléchargement du bundle : MIME invalide pour %s", file.Path)
+		return nil, fmt.Errorf("downloading bundle: invalid MIME for %s", file.Path)
 	}
 	content, err := io.ReadAll(io.LimitReader(response.Body, file.Size+1))
 	if err != nil {
-		return nil, fmt.Errorf("téléchargement du bundle : lecture échouée pour %s : %w", file.Path, err)
+		return nil, fmt.Errorf("downloading bundle: failed to read %s: %w", file.Path, err)
 	}
 	if int64(len(content)) != file.Size {
-		return nil, fmt.Errorf("téléchargement du bundle : taille invalide pour %s", file.Path)
+		return nil, fmt.Errorf("downloading bundle: invalid size for %s", file.Path)
 	}
 	digest := sha256.Sum256(content)
 	if hex.EncodeToString(digest[:]) != file.SHA256 {
-		return nil, fmt.Errorf("téléchargement du bundle : SHA-256 invalide pour %s", file.Path)
+		return nil, fmt.Errorf("downloading bundle: invalid SHA-256 for %s", file.Path)
 	}
 	return content, nil
 }
 
 func projectAssetSummary(item sthv2.AIAssetSummary) (AssetSummary, error) {
 	if strings.TrimSpace(item.ID) == "" || strings.TrimSpace(item.Name) == "" {
-		return AssetSummary{}, fmt.Errorf("réponse incomplète")
+		return AssetSummary{}, fmt.Errorf("incomplete response")
 	}
 	if item.Family != "package" && item.Family != "library" {
-		return AssetSummary{}, fmt.Errorf("famille inconnue")
+		return AssetSummary{}, fmt.Errorf("unknown family")
 	}
 	if !validAssetKind(string(item.Kind)) || !validAssetStatus(item.Status) {
-		return AssetSummary{}, fmt.Errorf("type ou statut inconnu")
+		return AssetSummary{}, fmt.Errorf("unknown type or status")
 	}
 	latestID := dereferenceString(item.LatestVersionID)
 	latestVersion := dereferenceString(item.LatestVersion)
 	if (latestID == "") != (latestVersion == "") {
-		return AssetSummary{}, fmt.Errorf("version courante incomplète")
+		return AssetSummary{}, fmt.Errorf("incomplete current version")
 	}
 	return AssetSummary{
 		ID:              item.ID,
@@ -284,39 +284,39 @@ func projectAssetSummary(item sthv2.AIAssetSummary) (AssetSummary, error) {
 
 func validateResourceVersionManifest(manifest ResourceVersionManifest, assetID string, versionID string) error {
 	if manifest.SchemaVersion != "2" || manifest.AssetID != assetID || manifest.VersionID != versionID {
-		return fmt.Errorf("identifiants incohérents")
+		return fmt.Errorf("inconsistent identifiers")
 	}
 	if strings.TrimSpace(manifest.Version) == "" || !validAssetKind(manifest.Kind) {
-		return fmt.Errorf("métadonnées incomplètes")
+		return fmt.Errorf("incomplete metadata")
 	}
 	if !validLogicalAssetPath(manifest.Entrypoint) || len(manifest.Files) < 1 || len(manifest.Files) > maxCloudPackageFiles {
-		return fmt.Errorf("fichiers invalides")
+		return fmt.Errorf("invalid files")
 	}
 	if !validGitCommit(manifest.Origin.Commit) || strings.TrimSpace(manifest.Origin.RepositoryURL) == "" {
-		return fmt.Errorf("origine Git invalide")
+		return fmt.Errorf("invalid Git origin")
 	}
 	if !validRepositoryURL(manifest.Origin.RepositoryURL) || !validManifestRef(manifest.Origin.Ref) || !validCompatibility(manifest.Compatibility) {
-		return fmt.Errorf("origine Git ou compatibilité invalide")
+		return fmt.Errorf("invalid Git origin or compatibility")
 	}
 	seen := make(map[string]struct{}, len(manifest.Files))
 	entrypointFound := false
 	totalSize := int64(0)
 	for _, file := range manifest.Files {
 		if !validLogicalAssetPath(file.Path) || !validSHA256(file.SHA256) || file.Size < 0 || file.Size > maxCloudPackageFileBytes || !validMIME(file.MIME) {
-			return fmt.Errorf("descripteur de fichier invalide")
+			return fmt.Errorf("invalid file descriptor")
 		}
 		if totalSize > maxCloudPackageBytes-file.Size {
-			return fmt.Errorf("taille totale du manifest dépassée")
+			return fmt.Errorf("manifest total size exceeded")
 		}
 		totalSize += file.Size
 		if _, duplicate := seen[file.Path]; duplicate {
-			return fmt.Errorf("chemin de fichier dupliqué")
+			return fmt.Errorf("duplicate file path")
 		}
 		seen[file.Path] = struct{}{}
 		entrypointFound = entrypointFound || file.Path == manifest.Entrypoint
 	}
 	if !entrypointFound {
-		return fmt.Errorf("entrypoint absent des fichiers")
+		return fmt.Errorf("entrypoint is missing from files")
 	}
 	return nil
 }

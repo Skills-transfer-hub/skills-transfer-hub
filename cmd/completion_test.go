@@ -61,8 +61,8 @@ func TestCompletion_UnsupportedShellExitsNonZero(t *testing.T) {
 	if res.err == nil {
 		t.Fatal("expected error for unsupported shell")
 	}
-	if !strings.Contains(res.stderr, "Unsupported shell") {
-		t.Fatalf("missing Unsupported shell message: %q", res.stderr)
+	if !strings.Contains(res.stderr, "unsupported shell") {
+		t.Fatalf("missing unsupported-shell message: %q", res.stderr)
 	}
 }
 

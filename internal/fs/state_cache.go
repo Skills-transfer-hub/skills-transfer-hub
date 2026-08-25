@@ -13,15 +13,15 @@ import (
 )
 
 const (
-	updateCacheDirName          = "sth"
-	updateCacheFileName         = "update-check.json"
-	defaultUpdateCacheTTLHours  = 24
-	updateCheckStatusNoUpdate   = "no-update"
-	updateCheckStatusAvailable  = "update-available"
-	updateCheckStatusError      = "error"
+	updateCacheDirName         = "sth"
+	updateCacheFileName        = "update-check.json"
+	defaultUpdateCacheTTLHours = 72
+	errorUpdateCacheTTLHours   = 1
+	updateCheckStatusNoUpdate  = "no-update"
+	updateCheckStatusAvailable = "update-available"
+	updateCheckStatusError     = "error"
 )
 
-// StableUpdateOffer describes the startup update message rendered by the guided experience.
 type StableUpdateOffer struct {
 	CurrentVersion      string   `json:"current_version"`
 	LatestStableVersion string   `json:"latest_stable_version,omitempty"`
@@ -36,7 +36,6 @@ func (offer StableUpdateOffer) Actionable() bool {
 	return offer.Status == "fresh-update-available"
 }
 
-// UpdateCheckState stores the last automatic stable update check for the local machine.
 type UpdateCheckState struct {
 	LastCheckedAt       string   `json:"last_checked_at"`
 	TTLHours            int      `json:"ttl_hours"`
@@ -73,17 +72,13 @@ func NewAvailableUpdateCheckState(now time.Time, currentVersion, latestStableVer
 	}
 }
 
-// WithReleaseSummary attaches the user-facing release highlights and the
-// release notes URL to an existing update-available state. Returns the state
-// unchanged for non-available statuses so callers can chain it after any
-// constructor.
 func (state UpdateCheckState) WithReleaseSummary(highlights []string, releaseNotesURL string) UpdateCheckState {
 	if strings.TrimSpace(state.Status) != updateCheckStatusAvailable {
 		return state
 	}
 	trimmed := make([]string, 0, len(highlights))
-	for _, h := range highlights {
-		clean := strings.TrimSpace(h)
+	for _, highlight := range highlights {
+		clean := strings.TrimSpace(highlight)
 		if clean == "" {
 			continue
 		}
@@ -97,7 +92,7 @@ func (state UpdateCheckState) WithReleaseSummary(highlights []string, releaseNot
 func NewErrorUpdateCheckState(now time.Time, currentVersion, errorMessage string) UpdateCheckState {
 	return UpdateCheckState{
 		LastCheckedAt:  now.UTC().Format(time.RFC3339),
-		TTLHours:       defaultUpdateCacheTTLHours,
+		TTLHours:       errorUpdateCacheTTLHours,
 		CurrentVersion: strings.TrimSpace(currentVersion),
 		Status:         updateCheckStatusError,
 		ErrorMessage:   strings.TrimSpace(errorMessage),
@@ -136,19 +131,19 @@ func StableUpdateOfferFromState(state UpdateCheckState) StableUpdateOffer {
 		offer.Highlights = append(offer.Highlights, state.Highlights...)
 		offer.ReleaseNotesURL = strings.TrimSpace(state.ReleaseNotesURL)
 		if offer.LatestStableVersion == "" {
-			offer.Message = "Mise à jour stable disponible. Utilisez `sth update self`."
+			offer.Message = "A stable update is available. Run `sth update self`."
 		} else {
-			offer.Message = fmt.Sprintf("Mise à jour stable disponible : %s (utilisez `sth update self`).", DisplayVersion(offer.LatestStableVersion))
+			offer.Message = fmt.Sprintf("A stable update is available: %s (run `sth update self`).", DisplayVersion(offer.LatestStableVersion))
 		}
 	case updateCheckStatusError:
 		offer.Status = "error"
-		offer.Message = "Vérification de mise à jour indisponible."
+		offer.Message = "Update check unavailable."
 		if strings.TrimSpace(state.ErrorMessage) != "" {
-			offer.Message = fmt.Sprintf("Vérification de mise à jour indisponible : %s", strings.TrimSpace(state.ErrorMessage))
+			offer.Message = fmt.Sprintf("Update check unavailable: %s", strings.TrimSpace(state.ErrorMessage))
 		}
 	default:
 		offer.Status = "fresh-no-update"
-		offer.Message = "Aucune mise à jour stable disponible."
+		offer.Message = "No stable update is available."
 	}
 
 	return offer
@@ -159,7 +154,7 @@ func UpdateCheckStatePath() (string, error) {
 	if baseDir == "" {
 		userCacheDir, err := os.UserCacheDir()
 		if err != nil {
-			return "", fmt.Errorf("impossible de localiser le cache utilisateur : %w", err)
+			return "", fmt.Errorf("unable to locate the user cache: %w", err)
 		}
 		baseDir = userCacheDir
 	}
@@ -178,15 +173,15 @@ func ReadUpdateCheckState() (*UpdateCheckState, error) {
 		return nil, nil
 	}
 	if err != nil {
-		return nil, fmt.Errorf("lecture de %s échouée : %w", cachePath, err)
+		return nil, fmt.Errorf("unable to read %s: %w", cachePath, err)
 	}
 
 	var state UpdateCheckState
 	if err := json.Unmarshal(data, &state); err != nil {
-		return nil, fmt.Errorf("fichier de cache update malformé (%s) : %w", cachePath, err)
+		return nil, fmt.Errorf("malformed update cache file (%s): %w", cachePath, err)
 	}
 	if err := validateUpdateCheckState(state); err != nil {
-		return nil, fmt.Errorf("fichier de cache update invalide (%s) : %w", cachePath, err)
+		return nil, fmt.Errorf("invalid update cache file (%s): %w", cachePath, err)
 	}
 
 	return &state, nil
@@ -202,15 +197,15 @@ func WriteUpdateCheckState(state UpdateCheckState) (string, error) {
 		return "", err
 	}
 	if err := os.MkdirAll(filepath.Dir(cachePath), 0o755); err != nil {
-		return "", fmt.Errorf("création du dossier de cache update échouée : %w", err)
+		return "", fmt.Errorf("unable to create the update cache directory: %w", err)
 	}
 
 	data, err := json.MarshalIndent(state, "", "  ")
 	if err != nil {
-		return "", fmt.Errorf("sérialisation du cache update échouée : %w", err)
+		return "", fmt.Errorf("unable to serialize the update cache: %w", err)
 	}
 	if err := os.WriteFile(cachePath, append(data, '\n'), 0o644); err != nil {
-		return "", fmt.Errorf("écriture de %s échouée : %w", cachePath, err)
+		return "", fmt.Errorf("unable to write %s: %w", cachePath, err)
 	}
 
 	return cachePath, nil
@@ -218,38 +213,37 @@ func WriteUpdateCheckState(state UpdateCheckState) (string, error) {
 
 func validateUpdateCheckState(state UpdateCheckState) error {
 	if strings.TrimSpace(state.LastCheckedAt) == "" {
-		return errors.New("last_checked_at doit être renseigné")
+		return errors.New("last_checked_at is required")
 	}
 	if _, err := time.Parse(time.RFC3339, strings.TrimSpace(state.LastCheckedAt)); err != nil {
-		return fmt.Errorf("last_checked_at invalide : %w", err)
+		return fmt.Errorf("invalid last_checked_at: %w", err)
 	}
 	if state.TTLHours <= 0 {
-		return errors.New("ttl_hours doit être supérieur à zéro")
+		return errors.New("ttl_hours must be greater than zero")
 	}
 	if strings.TrimSpace(state.CurrentVersion) == "" {
-		return errors.New("current_version doit être renseigné")
+		return errors.New("current_version is required")
 	}
 	switch strings.TrimSpace(state.Status) {
 	case updateCheckStatusNoUpdate:
 	case updateCheckStatusAvailable:
 		if strings.TrimSpace(state.LatestStableVersion) == "" {
-			return errors.New("latest_stable_version doit être renseigné pour update-available")
+			return errors.New("latest_stable_version is required for update-available")
 		}
 		if strings.TrimSpace(state.DownloadURL) == "" || strings.TrimSpace(state.ChecksumURL) == "" || strings.TrimSpace(state.AssetName) == "" {
-			return errors.New("download_url, checksum_url et asset_name sont requis pour update-available")
+			return errors.New("download_url, checksum_url, and asset_name are required for update-available")
 		}
 	case updateCheckStatusError:
 		if strings.TrimSpace(state.ErrorMessage) == "" {
-			return errors.New("error_message doit être renseigné pour error")
+			return errors.New("error_message is required for error")
 		}
 	default:
-		return fmt.Errorf("status update invalide : %s", state.Status)
+		return fmt.Errorf("invalid update status: %s", state.Status)
 	}
 
 	return nil
 }
 
-// SyncManagedBundle writes all files for a managed bundle, removes obsolete tracked files, and updates sth-state.json.
 func SyncManagedBundle(targetDir string, entry CatalogEntry, files map[string][]byte) (InstalledResourceRecord, error) {
 	if err := validateTargetDir(targetDir); err != nil {
 		return InstalledResourceRecord{}, err
@@ -258,12 +252,12 @@ func SyncManagedBundle(targetDir string, entry CatalogEntry, files map[string][]
 		return InstalledResourceRecord{}, err
 	}
 	if len(files) == 0 {
-		return InstalledResourceRecord{}, fmt.Errorf("aucun fichier bundle à synchroniser pour %s", entry.CatalogID)
+		return InstalledResourceRecord{}, fmt.Errorf("no bundle files to synchronize for %s", entry.CatalogID)
 	}
 
 	sourceRoot := path.Dir(path.Clean(strings.ReplaceAll(strings.TrimSpace(entry.SourcePath), "\\", "/")))
 	if sourceRoot == "." || sourceRoot == "/" || sourceRoot == "" {
-		return InstalledResourceRecord{}, fmt.Errorf("source_path bundle invalide : %q", entry.SourcePath)
+		return InstalledResourceRecord{}, fmt.Errorf("invalid bundle source_path: %q", entry.SourcePath)
 	}
 
 	managedRoot, err := BuildManagedRoot(targetDir, entry.FolderName, entry.Name)
@@ -288,10 +282,10 @@ func SyncManagedBundle(targetDir string, entry CatalogEntry, files map[string][]
 		normalizedSourcePath := path.Clean(strings.ReplaceAll(strings.TrimSpace(sourcePath), "\\", "/"))
 		relativePath, relErr := relativeRepositoryPath(sourceRoot, normalizedSourcePath)
 		if relErr != nil {
-			return InstalledResourceRecord{}, fmt.Errorf("impossible de résoudre le fichier bundle %s : %w", sourcePath, relErr)
+			return InstalledResourceRecord{}, fmt.Errorf("unable to resolve bundle file %s: %w", sourcePath, relErr)
 		}
 		if relativePath == "." || relativePath == "" || relativePath == ".." || strings.HasPrefix(relativePath, "../") {
-			return InstalledResourceRecord{}, fmt.Errorf("fichier bundle hors racine gérée : %s", sourcePath)
+			return InstalledResourceRecord{}, fmt.Errorf("bundle file outside managed root: %s", sourcePath)
 		}
 
 		installedPath, resolveErr := ResolveManagedPath(managedRoot, relativePath)
@@ -299,10 +293,10 @@ func SyncManagedBundle(targetDir string, entry CatalogEntry, files map[string][]
 			return InstalledResourceRecord{}, resolveErr
 		}
 		if err := os.MkdirAll(filepath.Dir(installedPath), 0o755); err != nil {
-			return InstalledResourceRecord{}, fmt.Errorf("création du dossier %s échouée : %w", filepath.Dir(installedPath), err)
+			return InstalledResourceRecord{}, fmt.Errorf("failed to create directory %s: %w", filepath.Dir(installedPath), err)
 		}
 		if err := os.WriteFile(installedPath, addManagedHeaderIfMarkdown(installedPath, files[sourcePath]), 0o644); err != nil {
-			return InstalledResourceRecord{}, fmt.Errorf("écriture de %s échouée : %w", installedPath, err)
+			return InstalledResourceRecord{}, fmt.Errorf("failed to write %s: %w", installedPath, err)
 		}
 
 		installedPath = filepath.ToSlash(installedPath)
@@ -320,7 +314,7 @@ func SyncManagedBundle(targetDir string, entry CatalogEntry, files map[string][]
 				continue
 			}
 			if err := os.Remove(filepath.Clean(filepath.FromSlash(managedFile.InstalledPath))); err != nil && !os.IsNotExist(err) {
-				return InstalledResourceRecord{}, fmt.Errorf("suppression de %s échouée : %w", managedFile.InstalledPath, err)
+				return InstalledResourceRecord{}, fmt.Errorf("failed to remove %s: %w", managedFile.InstalledPath, err)
 			}
 		}
 	}

@@ -11,7 +11,7 @@ func TestRun_helpCommandShowsGeneralHelp(t *testing.T) {
 	if result.err != nil {
 		t.Fatalf("Run() error = %v", result.err)
 	}
-	assertContains(t, result.stdout, "Commandes visibles")
+	assertContains(t, result.stdout, "Available commands")
 	assertContains(t, result.stdout, "list")
 	assertContains(t, result.stdout, "help")
 	assertContains(t, result.stdout, "version")
@@ -26,14 +26,14 @@ func TestRun_helpCommandShowsCommandSpecificHelp(t *testing.T) {
 		t.Fatalf("Run() error = %v", result.err)
 	}
 	assertContains(t, result.stdout, "sth install <resource-ref>")
-	assertContains(t, result.stdout, "Installe une ressource du catalogue")
+	assertContains(t, result.stdout, "Install a remote catalog resource")
 	assertContains(t, result.stdout, "sth install skills/analyse-risque")
 	assertEmpty(t, result.stderr)
 }
 
 func TestHelpTextUsesCommandCatalogExamplesInOrder(t *testing.T) {
 	help := helpText()
-	parts := strings.Split(help, "\n\nExemples :\n")
+	parts := strings.Split(help, "\n\nExamples:\n")
 	if len(parts) != 2 {
 		t.Fatalf("help text %q does not contain exemples section", help)
 	}

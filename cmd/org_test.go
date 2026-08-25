@@ -48,7 +48,7 @@ func TestRunOrgUse_PersistsSelection(t *testing.T) {
 	if active == nil || active.OrgID != "org_b" {
 		t.Fatalf("sélection non persistée, got %+v", active)
 	}
-	if !strings.Contains(stdout.String(), "Side Project") {
+	if !strings.Contains(stdout.String(), "Active organization: Side Project") {
 		t.Fatalf("confirmation attendue, got %q", stdout.String())
 	}
 }
@@ -65,6 +65,8 @@ func TestRunOrgUse_NonMemberFailsAndLeavesSelection(t *testing.T) {
 	application := newApp(nil, &stdout, io.Discard, nil)
 	if err := application.runOrgUse([]string{"org_unknown"}); err == nil {
 		t.Fatal("une org non-membre doit échouer")
+	} else if !strings.Contains(err.Error(), "not a member of any organization") {
+		t.Fatalf("unexpected non-member error: %v", err)
 	}
 	if active, _ := fs.ReadActiveOrg(); active != nil {
 		t.Fatalf("aucune sélection ne doit être persistée, got %+v", active)
@@ -104,7 +106,7 @@ func TestRunOrgCurrent_ServesCacheOffline(t *testing.T) {
 		t.Fatalf("runOrgCurrent: %v", err)
 	}
 	output := stdout.String()
-	if !strings.Contains(output, "Side Project") || !strings.Contains(output, "sélectionnée") {
+	if !strings.Contains(output, "Side Project") || !strings.Contains(output, "selected") {
 		t.Fatalf("attendu l'org en cache marquée sélectionnée, got %q", output)
 	}
 }
@@ -115,6 +117,8 @@ func TestRunOrg_UnknownSubcommand(t *testing.T) {
 	application := newApp(nil, &stdout, io.Discard, nil)
 	if err := application.runOrg([]string{"bogus"}); err == nil {
 		t.Fatal("attendu une erreur pour un sous-commande org inconnue")
+	} else if !strings.Contains(err.Error(), "unknown org command") {
+		t.Fatalf("unexpected unknown-command error: %v", err)
 	}
 }
 
@@ -126,7 +130,7 @@ func TestRunOrg_BlockedWithoutExperimentalFlag(t *testing.T) {
 	if err == nil {
 		t.Fatal("sth org doit être bloqué sans STH_EXPERIMENTAL")
 	}
-	if !strings.Contains(err.Error(), "préversion") {
-		t.Fatalf("erreur de préversion attendue, got %v", err)
+	if !strings.Contains(err.Error(), "preview feature") {
+		t.Fatalf("expected preview-feature error, got %v", err)
 	}
 }

@@ -72,7 +72,7 @@ func TestSyncManagedBundle_rewritesManifestAndRemovesObsoleteFiles(t *testing.T)
 	}
 }
 
-func TestUpdateCheckState_roundTripsAndExpiresAfter24Hours(t *testing.T) {
+func TestUpdateCheckState_roundTripsAndExpiresAfter72Hours(t *testing.T) {
 	paths := newTestPaths(t)
 	cacheDir := filepath.Join(paths.homeDir, "machine-cache")
 	t.Setenv("STH_USER_CACHE_DIR", cacheDir)
@@ -98,11 +98,11 @@ func TestUpdateCheckState_roundTripsAndExpiresAfter24Hours(t *testing.T) {
 	if loaded.LatestStableVersion != "v1.2.0" {
 		t.Fatalf("loaded.LatestStableVersion = %q, want v1.2.0", loaded.LatestStableVersion)
 	}
-	if !loaded.IsFresh(now.Add(23*time.Hour), "v1.0.0") {
-		t.Fatal("cache should still be fresh before 24 hours")
+	if !loaded.IsFresh(now.Add(71*time.Hour), "v1.0.0") {
+		t.Fatal("cache should still be fresh before 72 hours")
 	}
-	if loaded.IsFresh(now.Add(25*time.Hour), "v1.0.0") {
-		t.Fatal("cache should be stale after 24 hours")
+	if loaded.IsFresh(now.Add(73*time.Hour), "v1.0.0") {
+		t.Fatal("cache should be stale after 72 hours")
 	}
 	if loaded.IsFresh(now.Add(2*time.Hour), "v9.9.9") {
 		t.Fatal("cache should be stale when the current binary version changes")
@@ -117,6 +117,21 @@ func TestUpdateCheckState_roundTripsAndExpiresAfter24Hours(t *testing.T) {
 	}
 	if offer.LatestStableVersion != "v1.2.0" {
 		t.Fatalf("offer.LatestStableVersion = %q, want v1.2.0", offer.LatestStableVersion)
+	}
+}
+
+func TestErrorUpdateCheckStateExpiresAfterOneHour(t *testing.T) {
+	now := time.Date(2026, time.April, 23, 10, 0, 0, 0, time.UTC)
+	state := NewErrorUpdateCheckState(now, "v1.0.0", "temporary outage")
+
+	if state.TTLHours != errorUpdateCacheTTLHours {
+		t.Fatalf("TTLHours = %d, want %d", state.TTLHours, errorUpdateCacheTTLHours)
+	}
+	if !state.IsFresh(now.Add(59*time.Minute), "v1.0.0") {
+		t.Fatal("error cache should still be fresh before one hour")
+	}
+	if state.IsFresh(now.Add(61*time.Minute), "v1.0.0") {
+		t.Fatal("error cache should be stale after one hour")
 	}
 }
 

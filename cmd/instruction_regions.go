@@ -113,7 +113,7 @@ func instructionRegionContributions(projectRoot string, state fs.InstalledResour
 			continue
 		}
 		if len(record.ManagedFiles) != 1 {
-			return nil, fmt.Errorf("instruction %s/%s : un fragment géré attendu", record.ResourceName, record.TargetID)
+			return nil, fmt.Errorf("instruction %s/%s: expected one managed fragment", record.ResourceName, record.TargetID)
 		}
 		fragmentPath := record.ManagedFiles[0].Path
 		if _, duplicate := seenFragmentPaths[fragmentPath]; duplicate {
@@ -129,7 +129,7 @@ func instructionRegionContributions(projectRoot string, state fs.InstalledResour
 			var readErr error
 			fragmentContent, readErr = os.ReadFile(absoluteFragmentPath)
 			if readErr != nil {
-				return nil, fmt.Errorf("lecture du fragment %s échouée : %w", fragmentPath, readErr)
+				return nil, fmt.Errorf("failed to read fragment %s: %w", fragmentPath, readErr)
 			}
 		}
 		fragmentName := strings.TrimSuffix(filepath.Base(fragmentPath), filepath.Ext(fragmentPath))
@@ -170,7 +170,7 @@ func buildInstructionRegionBody(projectRoot string, state fs.InstalledResourceSt
 		for _, contribution := range contributions {
 			relativeImportPath, pathErr := filepath.Rel(filepath.Dir(definition.path), filepath.FromSlash(contribution.path))
 			if pathErr != nil {
-				return nil, 0, fmt.Errorf("import Gemini pour %s invalide : %w", contribution.path, pathErr)
+				return nil, 0, fmt.Errorf("invalid Gemini import for %s: %w", contribution.path, pathErr)
 			}
 			portableImportPath := filepath.ToSlash(relativeImportPath)
 			if !strings.HasPrefix(portableImportPath, "./") && !strings.HasPrefix(portableImportPath, "../") {
@@ -181,7 +181,7 @@ func buildInstructionRegionBody(projectRoot string, state fs.InstalledResourceSt
 			body.WriteByte('\n')
 		}
 	default:
-		return nil, 0, fmt.Errorf("cible de région d'instruction inconnue : %s", definition.targetKind)
+		return nil, 0, fmt.Errorf("unknown instruction region target: %s", definition.targetKind)
 	}
 	return []byte(body.String()), len(contributions), nil
 }
@@ -205,7 +205,7 @@ func reconcileInstructionRegion(projectRoot string, state *fs.InstalledResourceS
 		}
 		if len(updated) == 0 {
 			if removeErr := os.Remove(absoluteRootPath); removeErr != nil && !os.IsNotExist(removeErr) {
-				return fmt.Errorf("suppression de %s échouée : %w", definition.path, removeErr)
+				return fmt.Errorf("failed to remove %s: %w", definition.path, removeErr)
 			}
 		}
 		return nil
@@ -263,7 +263,7 @@ func instructionRegionDryRunFiles(projectRoot string, state fs.InstalledResource
 		}
 		currentDocument, readErr := os.ReadFile(absoluteRootPath)
 		if readErr != nil && !os.IsNotExist(readErr) {
-			return nil, nil, fmt.Errorf("lecture de %s échouée : %w", definition.path, readErr)
+			return nil, nil, fmt.Errorf("failed to read %s: %w", definition.path, readErr)
 		}
 		if readErr == nil {
 			currentFiles = append(currentFiles, fs.ManagedFile{Path: definition.path, SHA256: fs.ComputeSHA256(currentDocument)})
@@ -314,7 +314,7 @@ func (a *app) removeRecordsWithManagedRegions(targetDir, resourceName string, re
 			return true, transaction.rollback(pathErr)
 		}
 		if removeErr := os.Remove(absolutePath); removeErr != nil && !os.IsNotExist(removeErr) {
-			return true, transaction.rollback(fmt.Errorf("suppression de %s échouée : %w", managedFile.Path, removeErr))
+			return true, transaction.rollback(fmt.Errorf("failed to remove %s: %w", managedFile.Path, removeErr))
 		}
 	}
 

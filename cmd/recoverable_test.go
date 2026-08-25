@@ -88,6 +88,27 @@ func TestWithAuthRecovery_RetriesOnceWithFreshToken(t *testing.T) {
 	if !strings.Contains(stderr.String(), "Authentication failed (HTTP 401)") {
 		t.Fatalf("stderr missing 401 prompt: %q", stderr.String())
 	}
+	if !strings.Contains(stderr.String(), "Enter a fresh token") {
+		t.Fatalf("stderr missing token prompt: %q", stderr.String())
+	}
+	if strings.Contains(stderr.String(), "fresh-token-xyz") {
+		t.Fatalf("stderr exposed the replacement token: %q", stderr.String())
+	}
+}
+
+func TestPromptSessionTokenHeadlessPreservesInjectedReaderWithoutEcho(t *testing.T) {
+	stderr := &bytes.Buffer{}
+	application := newApp(strings.NewReader("  injected-token  \n"), &bytes.Buffer{}, stderr, nil)
+	token, err := application.promptSessionToken()
+	if err != nil {
+		t.Fatalf("promptSessionToken: %v", err)
+	}
+	if token != "injected-token" {
+		t.Fatalf("token = %q, want injected-token", token)
+	}
+	if strings.Contains(stderr.String(), token) {
+		t.Fatalf("prompt output exposed the token: %q", stderr.String())
+	}
 }
 
 func TestWithAuthRecovery_DoesNotLoopOnSecondAuthFailure(t *testing.T) {
@@ -116,7 +137,7 @@ func TestWithAuthRecovery_EmptyInputAborts(t *testing.T) {
 		calls++
 		return &sthhttp.AuthError{StatusCode: 401, URL: "x"}
 	})
-	if err == nil || !strings.Contains(err.Error(), "aucun token") {
+	if err == nil || !strings.Contains(err.Error(), "no token provided") {
 		t.Fatalf("err = %v want abort message", err)
 	}
 	if calls != 1 {

@@ -10,10 +10,10 @@ const managedRegionMarkerPrefix = "<!-- sth:managed:"
 
 func renderInstructionFragment(request WriteRequest, targetName string) ([]byte, error) {
 	if !utf8.Valid(request.Content) {
-		return nil, fmt.Errorf("instruction %s invalide : contenu non UTF-8", targetName)
+		return nil, fmt.Errorf("invalid %s instruction: content is not UTF-8", targetName)
 	}
 	if bytes.Contains(request.Content, []byte(managedRegionMarkerPrefix)) {
-		return nil, fmt.Errorf("instruction %s invalide : marqueur de région STH réservé", targetName)
+		return nil, fmt.Errorf("invalid %s instruction: reserved STH region marker", targetName)
 	}
 
 	content := request.Content

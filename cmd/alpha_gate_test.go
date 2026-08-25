@@ -30,7 +30,7 @@ func TestReleasedLocalCommandNeverChecksNetworkOrBlocks(t *testing.T) {
 	}
 	if result.err != nil {
 		assertNotContains(t, result.stderr, "Alpha :")
-		assertNotContains(t, result.stderr, "connexion")
+		assertNotContains(t, result.stderr, "connection")
 	}
 }
 

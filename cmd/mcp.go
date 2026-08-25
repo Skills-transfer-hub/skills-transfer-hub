@@ -71,7 +71,7 @@ func (a *app) runMCP(args []string) error {
 	case "install":
 		return a.runMCPInstall(args[1:])
 	default:
-		return fmt.Errorf("sous-commande mcp inconnue : %q", args[0])
+		return fmt.Errorf("unknown mcp subcommand: %q", args[0])
 	}
 }
 
@@ -281,7 +281,7 @@ func handleLibraryGet(
 		return mcpErrorResult(err), nil, nil
 	}
 	if reuseErr := cloud.RecordReuse(ctx, nil, item.ID); reuseErr != nil {
-		fmt.Fprintln(os.Stderr, "sth mcp: réutilisation non enregistrée :", reuseErr)
+		fmt.Fprintln(os.Stderr, "sth mcp: reuse was not recorded:", reuseErr)
 	}
 	source := joinSource(item.SourceTool, item.SourceModel)
 	header := fmt.Sprintf("# %s [%s]", item.Title, item.Kind)
@@ -465,21 +465,21 @@ func (a *app) runMCPInstall(_ []string) error {
 	if err != nil {
 		return err
 	}
-	action := "créé"
+	action := "created"
 	if updated {
-		action = "mis à jour"
+		action = "updated"
 	}
 	a.writeStdout(
-		fmt.Sprintf("✔ %s — serveur MCP « sth » %s pour Claude Code.", mcpConfigPath, action),
+		fmt.Sprintf("✔ %s — MCP server \"sth\" %s for Claude Code.", mcpConfigPath, action),
 		"",
-		"Codex — ajoutez ceci à ~/.codex/config.toml :",
+		"Codex — add this to ~/.codex/config.toml:",
 		mcpCodexConfig,
 		"",
-		"Gemini CLI — ajoutez ceci à ~/.gemini/settings.json :",
+		"Gemini CLI — add this to ~/.gemini/settings.json:",
 		mcpGeminiConfig,
 		"",
-		"Claude Desktop réutilise la même entrée mcpServers que Claude Code.",
-		"Sans connexion, le serveur reste local. Lancez `sth login` uniquement pour accéder aux assets partagés de votre organisation.",
+		"Claude Desktop uses the same mcpServers entry as Claude Code.",
+		"Without a connection, the server remains local. Run `sth login` only to access your organization's shared assets.",
 	)
 	return nil
 }
@@ -490,7 +490,7 @@ func writeClaudeMCPConfig(path string) (bool, error) {
 	switch {
 	case err == nil:
 		if err := json.Unmarshal(existing, &root); err != nil {
-			return false, fmt.Errorf("%s existant illisible : %w", path, err)
+			return false, fmt.Errorf("existing %s cannot be read: %w", path, err)
 		}
 	case errors.Is(err, os.ErrNotExist):
 	default:

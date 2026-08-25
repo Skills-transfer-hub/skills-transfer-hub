@@ -61,7 +61,7 @@ func TestLocalLibraryPromotionAppliesWithoutOverwrite(t *testing.T) {
 			t.Fatalf("materialized %s mismatch: %v", file.Path, readErr)
 		}
 	}
-	if err := ApplyLocalLibraryPromotion(plan); err == nil || !strings.Contains(err.Error(), "existe déjà") {
+	if err := ApplyLocalLibraryPromotion(plan); err == nil || !strings.Contains(err.Error(), "already exists") {
 		t.Fatalf("second apply should refuse overwrite, got %v", err)
 	}
 }
@@ -81,14 +81,14 @@ func TestLocalLibraryPromotionRejectsTraversalSymlinkAndNonGitDirectory(t *testi
 	if err := os.Symlink(outside, filepath.Join(root, "skills")); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := PlanLocalLibraryPromotion(root, item.ID, "skills/safe-skill"); err == nil || !strings.Contains(err.Error(), "symlink") {
+	if _, err := PlanLocalLibraryPromotion(root, item.ID, "skills/safe-skill"); err == nil || !strings.Contains(err.Error(), "symbolic link") {
 		t.Fatalf("symlink path accepted: %v", err)
 	}
 	entries, err := os.ReadDir(outside)
 	if err != nil || len(entries) != 0 {
 		t.Fatalf("promotion escaped through symlink: entries=%v err=%v", entries, err)
 	}
-	if _, err := PlanLocalLibraryPromotion(t.TempDir(), item.ID, ""); err == nil || !strings.Contains(err.Error(), "worktree Git") {
+	if _, err := PlanLocalLibraryPromotion(t.TempDir(), item.ID, ""); err == nil || !strings.Contains(err.Error(), "Git worktree") {
 		t.Fatalf("non-Git directory accepted: %v", err)
 	}
 }

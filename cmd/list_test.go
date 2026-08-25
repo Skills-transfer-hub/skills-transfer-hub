@@ -3,9 +3,9 @@ package cmd
 import (
 	"testing"
 
-	"sth/internal/fs"
 	stdhttp "net/http"
 	"net/http/httptest"
+	"sth/internal/fs"
 )
 
 func TestRun_listShowsRemoteCatalogEntries(t *testing.T) {
@@ -36,7 +36,7 @@ func TestRun_listShowsRemoteCatalogEntries(t *testing.T) {
 	if result.err != nil {
 		t.Fatalf("Run() error = %v", result.err)
 	}
-	assertContains(t, result.stdout, "2 ressource(s) disponible(s)")
+	assertContains(t, result.stdout, "2 resource(s) available")
 	assertContains(t, result.stdout, "[skill] alpha (folder: skills)")
 	assertContains(t, result.stdout, "[agent] bravo (folder: agents)")
 	assertEmpty(t, result.stderr)
@@ -75,7 +75,7 @@ func TestRun_listFallsBackToStructureScanWhenCatalogMissing(t *testing.T) {
 	if result.err != nil {
 		t.Fatalf("Run() error = %v\nstdout=%s\nstderr=%s", result.err, result.stdout, result.stderr)
 	}
-	assertContains(t, result.stdout, "2 ressource(s) disponible(s)")
+	assertContains(t, result.stdout, "2 resource(s) available")
 	assertContains(t, result.stdout, "[bundle] react/form-wizard")
 	assertContains(t, result.stdout, "[bundle] agents/reviewer")
 	assertEmpty(t, result.stderr)

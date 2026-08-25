@@ -38,6 +38,7 @@ const (
 // fs legacy paths (SaveInstalledResource, SyncManagedBundle, RefreshManagedFileHashes)
 // can not drift from what ClaudeWriter actually writes.
 const skillHeader = writer.ClaudeManagedHeader
+const legacySkillHeader = "> ⚠️ ATTENTION : Skill géré par STH. Ne pas modifier manuellement.\n\n"
 
 // Config stores the legacy STH user configuration.
 type Config struct {
@@ -88,7 +89,7 @@ func NormalizeRepositoryID(provider, repositoryID string) (string, error) {
 	normalizedProvider := normalizeProvider(provider)
 	trimmed := strings.TrimSpace(repositoryID)
 	if trimmed == "" {
-		return "", errors.New("repository_id doit être renseigné")
+		return "", errors.New("repository_id is required")
 	}
 
 	normalized := strings.ReplaceAll(trimmed, "\\", "/")
@@ -96,17 +97,17 @@ func NormalizeRepositoryID(provider, repositoryID string) (string, error) {
 	hasScheme := strings.Contains(normalized, "://")
 	if !hasScheme {
 		if strings.HasPrefix(normalized, "/") || strings.HasSuffix(normalized, "/") || strings.Contains(normalized, "//") {
-			return "", fmt.Errorf("repository_id invalide pour %s", provider)
+			return "", fmt.Errorf("invalid repository_id for %s", provider)
 		}
 	}
 
 	if hasScheme {
 		parsed, err := url.Parse(normalized)
 		if err != nil {
-			return "", fmt.Errorf("repository_id invalide : %w", err)
+			return "", fmt.Errorf("invalid repository_id: %w", err)
 		}
 		if expectedHost != "" && !strings.EqualFold(strings.TrimSpace(parsed.Host), expectedHost) {
-			return "", fmt.Errorf("repository_id doit référencer le host hébergé %s", expectedHost)
+			return "", fmt.Errorf("repository_id must reference hosted provider %s", expectedHost)
 		}
 		normalized = strings.Trim(parsed.Path, "/")
 	}
@@ -117,7 +118,7 @@ func NormalizeRepositoryID(provider, repositoryID string) (string, error) {
 
 	parts := splitNonEmpty(normalized)
 	if len(parts) > 0 && strings.Contains(parts[0], ".") && expectedHost != "" && !strings.EqualFold(parts[0], expectedHost) {
-		return "", fmt.Errorf("repository_id doit référencer le host hébergé %s", expectedHost)
+		return "", fmt.Errorf("repository_id must reference hosted provider %s", expectedHost)
 	}
 	if len(parts) > 0 && expectedHost != "" && strings.EqualFold(parts[0], expectedHost) {
 		parts = parts[1:]
@@ -130,18 +131,18 @@ func NormalizeRepositoryID(provider, repositoryID string) (string, error) {
 	switch normalizedProvider {
 	case "github", "bitbucket":
 		if len(parts) != 2 {
-			return "", fmt.Errorf("repository_id invalide pour %s", provider)
+			return "", fmt.Errorf("invalid repository_id for %s", provider)
 		}
 	case "gitlab":
 		if len(parts) < 2 {
-			return "", fmt.Errorf("repository_id invalide pour %s", provider)
+			return "", fmt.Errorf("invalid repository_id for %s", provider)
 		}
 	case "azure-devops":
 		if len(parts) != 3 {
-			return "", fmt.Errorf("repository_id invalide pour %s", provider)
+			return "", fmt.Errorf("invalid repository_id for %s", provider)
 		}
 	default:
-		return "", fmt.Errorf("provider non pris en charge : %s", provider)
+		return "", fmt.Errorf("unsupported provider: %s", provider)
 	}
 
 	return strings.Join(parts, "/"), nil
@@ -170,7 +171,7 @@ type InstalledResourceState struct {
 func ConfigPath() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return "", fmt.Errorf("impossible de localiser le répertoire personnel : %w", err)
+		return "", fmt.Errorf("unable to locate home directory: %w", err)
 	}
 	return filepath.Join(home, configFileName), nil
 }
@@ -187,15 +188,15 @@ func ReadConfigIfPresent() (*Config, error) {
 		return nil, nil
 	}
 	if err != nil {
-		return nil, fmt.Errorf("lecture de %s échouée : %w", path, err)
+		return nil, fmt.Errorf("failed to read %s: %w", path, err)
 	}
 
 	var cfg Config
 	if err := json.Unmarshal(data, &cfg); err != nil {
-		return nil, fmt.Errorf("fichier de configuration malformé (%s) : %w", path, err)
+		return nil, fmt.Errorf("malformed configuration file (%s): %w", path, err)
 	}
 	if err := validateConfig(cfg); err != nil {
-		return nil, fmt.Errorf("configuration invalide (%s) : %w", path, err)
+		return nil, fmt.Errorf("invalid configuration (%s): %w", path, err)
 	}
 	cfg.RepoRawURL = strings.TrimRight(strings.TrimSpace(cfg.RepoRawURL), "/")
 	cfg.TargetDir = filepath.Clean(strings.TrimSpace(cfg.TargetDir))
@@ -211,23 +212,23 @@ func WriteDefaultConfig() (string, error) {
 	}
 
 	if _, err := os.Stat(path); err == nil {
-		return path, fmt.Errorf("un fichier de configuration existe déjà : %s", path)
+		return path, fmt.Errorf("a configuration file already exists: %s", path)
 	} else if err != nil && !os.IsNotExist(err) {
-		return "", fmt.Errorf("vérification de %s échouée : %w", path, err)
+		return "", fmt.Errorf("failed to check %s: %w", path, err)
 	}
 
 	defaults := Config{
-		RepoRawURL: "https://raw.githubusercontent.com/votre-organisation/votre-repo/main",
+		RepoRawURL: "https://raw.githubusercontent.com/your-organization/your-repository/main",
 		TargetDir:  defaultTargetDir,
 	}
 
 	data, err := json.MarshalIndent(defaults, "", "  ")
 	if err != nil {
-		return "", fmt.Errorf("sérialisation de la configuration échouée : %w", err)
+		return "", fmt.Errorf("failed to serialize configuration: %w", err)
 	}
 
 	if err := os.WriteFile(path, append(data, '\n'), 0o600); err != nil {
-		return "", fmt.Errorf("écriture de %s échouée : %w", path, err)
+		return "", fmt.Errorf("failed to write %s: %w", path, err)
 	}
 
 	return path, nil
@@ -244,7 +245,7 @@ func ReadConfig() (*Config, error) {
 		if pathErr != nil {
 			return nil, pathErr
 		}
-		return nil, fmt.Errorf("configuration introuvable (%s) — exécutez `sth init`", path)
+		return nil, fmt.Errorf("configuration not found (%s); run `sth init`", path)
 	}
 
 	return cfg, nil
@@ -254,7 +255,7 @@ func ReadConfig() (*Config, error) {
 func ProjectProfilePath() (string, error) {
 	wd, err := os.Getwd()
 	if err != nil {
-		return "", fmt.Errorf("impossible de localiser le projet courant : %w", err)
+		return "", fmt.Errorf("unable to locate the current project: %w", err)
 	}
 
 	return filepath.Join(wd, projectConfigDirName, projectConfigFileName), nil
@@ -274,7 +275,7 @@ func ReadProjectProfileIfPresent() (*ProjectProfile, error) {
 		return nil, nil
 	}
 	if err != nil {
-		return nil, fmt.Errorf("lecture de %s échouée : %w", path, err)
+		return nil, fmt.Errorf("failed to read %s: %w", path, err)
 	}
 
 	// Try v1 format first.
@@ -312,7 +313,7 @@ func ReadProjectProfileIfPresent() (*ProjectProfile, error) {
 		}
 	}
 
-	return nil, fmt.Errorf("profil projet malformé (%s)", path)
+	return nil, fmt.Errorf("malformed project profile (%s)", path)
 }
 
 // ReadProjectProfile loads the current project profile or returns a user-facing error when absent.
@@ -326,7 +327,7 @@ func ReadProjectProfile() (*ProjectProfile, error) {
 		if pathErr != nil {
 			return nil, pathErr
 		}
-		return nil, fmt.Errorf("configuration projet introuvable (%s) — exécutez `sth init` dans ce projet", path)
+		return nil, fmt.Errorf("project configuration not found (%s); run `sth init` in this project", path)
 	}
 
 	return profile, nil
@@ -343,7 +344,7 @@ func WriteProjectProfile(profile ProjectProfile) (string, error) {
 		return "", err
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return "", fmt.Errorf("création du dossier de configuration projet échouée : %w", err)
+		return "", fmt.Errorf("failed to create project configuration directory: %w", err)
 	}
 
 	profile.Provider = normalizeProvider(profile.Provider)
@@ -358,11 +359,11 @@ func WriteProjectProfile(profile ProjectProfile) (string, error) {
 
 	data, err := json.MarshalIndent(profile, "", "  ")
 	if err != nil {
-		return "", fmt.Errorf("sérialisation du profil projet échouée : %w", err)
+		return "", fmt.Errorf("failed to serialize project profile: %w", err)
 	}
 
 	if err := os.WriteFile(path, append(data, '\n'), 0o600); err != nil {
-		return "", fmt.Errorf("écriture de %s échouée : %w", path, err)
+		return "", fmt.Errorf("failed to write %s: %w", path, err)
 	}
 
 	return path, nil
@@ -376,15 +377,15 @@ func LegacyProfileFromConfig(cfg Config) (*ProjectProfile, error) {
 
 	parsed, err := url.Parse(cfg.RepoRawURL)
 	if err != nil {
-		return nil, fmt.Errorf("repo_raw_url invalide : %w", err)
+		return nil, fmt.Errorf("invalid repo_raw_url: %w", err)
 	}
 	if !strings.EqualFold(parsed.Host, "raw.githubusercontent.com") {
-		return nil, fmt.Errorf("import legacy non pris en charge pour %s", parsed.Host)
+		return nil, fmt.Errorf("legacy import is not supported for %s", parsed.Host)
 	}
 
 	parts := splitNonEmpty(parsed.Path)
 	if len(parts) < 3 {
-		return nil, fmt.Errorf("repo_raw_url GitHub invalide : %s", cfg.RepoRawURL)
+		return nil, fmt.Errorf("invalid GitHub repo_raw_url: %s", cfg.RepoRawURL)
 	}
 
 	catalogPath := defaultCatalogPath
@@ -447,14 +448,14 @@ func ProjectProfileFromProvider(p ProviderEntry, fallbackTargetDir string) Proje
 func ResolveCatalogEntry(entries []CatalogEntry, resourceRef string) (CatalogEntry, error) {
 	trimmed := strings.TrimSpace(resourceRef)
 	if trimmed == "" {
-		return CatalogEntry{}, errors.New("la ressource à installer doit être renseignée")
+		return CatalogEntry{}, errors.New("the resource to install is required")
 	}
 
 	if strings.Contains(trimmed, "/") || strings.Contains(trimmed, "\\") {
 		normalized := strings.ReplaceAll(trimmed, "\\", "/")
 		parts := strings.Split(normalized, "/")
 		if len(parts) != 2 || strings.TrimSpace(parts[0]) == "" || strings.TrimSpace(parts[1]) == "" {
-			return CatalogEntry{}, fmt.Errorf("référence de ressource invalide : %q", resourceRef)
+			return CatalogEntry{}, fmt.Errorf("invalid resource reference: %q", resourceRef)
 		}
 
 		for _, entry := range entries {
@@ -463,7 +464,7 @@ func ResolveCatalogEntry(entries []CatalogEntry, resourceRef string) (CatalogEnt
 			}
 		}
 
-		return CatalogEntry{}, fmt.Errorf("ressource introuvable : %q", resourceRef)
+		return CatalogEntry{}, fmt.Errorf("resource not found: %q", resourceRef)
 	}
 
 	matches := make([]CatalogEntry, 0, 2)
@@ -475,7 +476,7 @@ func ResolveCatalogEntry(entries []CatalogEntry, resourceRef string) (CatalogEnt
 
 	switch len(matches) {
 	case 0:
-		return CatalogEntry{}, fmt.Errorf("ressource introuvable : %q", resourceRef)
+		return CatalogEntry{}, fmt.Errorf("resource not found: %q", resourceRef)
 	case 1:
 		return matches[0], nil
 	default:
@@ -484,7 +485,7 @@ func ResolveCatalogEntry(entries []CatalogEntry, resourceRef string) (CatalogEnt
 			folders = append(folders, entry.FolderName)
 		}
 		sort.Strings(folders)
-		return CatalogEntry{}, fmt.Errorf("ressource ambiguë : %q (précisez folder/name parmi %s)", resourceRef, strings.Join(folders, ", "))
+		return CatalogEntry{}, fmt.Errorf("ambiguous resource: %q (specify folder/name from %s)", resourceRef, strings.Join(folders, ", "))
 	}
 }
 
@@ -494,7 +495,7 @@ func EnsureTargetDir(targetDir string) error {
 		return err
 	}
 	if err := os.MkdirAll(filepath.Clean(targetDir), 0o755); err != nil {
-		return fmt.Errorf("création du dossier %s échouée : %w", targetDir, err)
+		return fmt.Errorf("failed to create directory %s: %w", targetDir, err)
 	}
 	return nil
 }
@@ -510,7 +511,7 @@ func BuildInstalledPath(targetDir string, entry CatalogEntry) (string, error) {
 
 	fileName := path.Base(strings.TrimSpace(entry.SourcePath))
 	if fileName == "." || fileName == "/" || fileName == "" {
-		return "", fmt.Errorf("source_path invalide : %q", entry.SourcePath)
+		return "", fmt.Errorf("invalid source_path: %q", entry.SourcePath)
 	}
 
 	relativePath := filepath.Join(filepath.Clean(entry.FolderName), filepath.FromSlash(fileName))
@@ -542,7 +543,7 @@ func BuildManagedRoot(targetDir, categoryName, folderName string) (string, error
 func ResolveManagedPath(managedRoot, relativePath string) (string, error) {
 	trimmedRoot := filepath.Clean(strings.TrimSpace(managedRoot))
 	if trimmedRoot == "" || trimmedRoot == "." {
-		return "", errors.New("managed_root doit être renseigné")
+		return "", errors.New("managed_root is required")
 	}
 
 	normalized := path.Clean(strings.ReplaceAll(strings.TrimSpace(relativePath), "\\", "/"))
@@ -550,16 +551,16 @@ func ResolveManagedPath(managedRoot, relativePath string) (string, error) {
 		return trimmedRoot, nil
 	}
 	if path.IsAbs(normalized) || normalized == ".." || strings.HasPrefix(normalized, "../") {
-		return "", fmt.Errorf("chemin géré invalide : %q", relativePath)
+		return "", fmt.Errorf("invalid managed path: %q", relativePath)
 	}
 
 	candidate := filepath.Join(trimmedRoot, filepath.FromSlash(normalized))
 	relative, err := filepath.Rel(trimmedRoot, candidate)
 	if err != nil {
-		return "", fmt.Errorf("impossible de résoudre le chemin géré : %w", err)
+		return "", fmt.Errorf("unable to resolve managed path: %w", err)
 	}
 	if relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
-		return "", fmt.Errorf("chemin géré invalide : %q", relativePath)
+		return "", fmt.Errorf("invalid managed path: %q", relativePath)
 	}
 
 	return candidate, nil
@@ -625,11 +626,11 @@ func SaveInstalledResource(record InstalledResourceRecord, content []byte) error
 
 	installedPath := filepath.Clean(filepath.FromSlash(record.InstalledPath))
 	if err := os.MkdirAll(filepath.Dir(installedPath), 0o755); err != nil {
-		return fmt.Errorf("création du dossier %s échouée : %w", filepath.Dir(installedPath), err)
+		return fmt.Errorf("failed to create directory %s: %w", filepath.Dir(installedPath), err)
 	}
 
 	if err := os.WriteFile(installedPath, addManagedHeaderIfMarkdown(installedPath, content), 0o644); err != nil {
-		return fmt.Errorf("écriture de %s échouée : %w", installedPath, err)
+		return fmt.Errorf("failed to write %s: %w", installedPath, err)
 	}
 
 	return nil
@@ -683,7 +684,7 @@ func ReadInstalledState(targetDir string) (InstalledResourceState, error) {
 		return InstalledResourceState{}, nil
 	}
 	if err != nil {
-		return InstalledResourceState{}, fmt.Errorf("lecture de %s échouée : %w", statePath, err)
+		return InstalledResourceState{}, fmt.Errorf("failed to read %s: %w", statePath, err)
 	}
 	if strings.TrimSpace(string(data)) == "" {
 		return InstalledResourceState{}, nil
@@ -693,7 +694,7 @@ func ReadInstalledState(targetDir string) (InstalledResourceState, error) {
 	if err := json.Unmarshal(data, &state); err == nil && len(state.Entries) > 0 {
 		for _, entry := range state.Entries {
 			if err := validateInstalledRecord(entry); err != nil {
-				return InstalledResourceState{}, fmt.Errorf("fichier d'état invalide (%s) : %w", statePath, err)
+				return InstalledResourceState{}, fmt.Errorf("invalid state file (%s): %w", statePath, err)
 			}
 		}
 		return state, nil
@@ -701,7 +702,7 @@ func ReadInstalledState(targetDir string) (InstalledResourceState, error) {
 
 	var legacy map[string]string
 	if err := json.Unmarshal(data, &legacy); err != nil {
-		return InstalledResourceState{}, fmt.Errorf("fichier d'état malformé (%s) : %w", statePath, err)
+		return InstalledResourceState{}, fmt.Errorf("malformed state file (%s): %w", statePath, err)
 	}
 
 	entries := make([]InstalledResourceRecord, 0, len(legacy))
@@ -760,10 +761,10 @@ func ListInstalledResources(targetDir string) ([]InstalledResourceRecord, error)
 func ReplaceExecutableWithAsset(executablePath, assetName string, assetData, checksumManifest, checksumSignature []byte) error {
 	trimmedExecutablePath := strings.TrimSpace(executablePath)
 	if trimmedExecutablePath == "" {
-		return errors.New("chemin du binaire courant introuvable")
+		return errors.New("current binary path not found")
 	}
 	if strings.TrimSpace(assetName) == "" {
-		return errors.New("nom d'artefact de release introuvable")
+		return errors.New("release asset name not found")
 	}
 
 	if err := verifyChecksumSignature(checksumManifest, checksumSignature); err != nil {
@@ -776,7 +777,7 @@ func ReplaceExecutableWithAsset(executablePath, assetName string, assetData, che
 	}
 	actualChecksum := sha256.Sum256(assetData)
 	if strings.ToLower(expectedChecksum) != hex.EncodeToString(actualChecksum[:]) {
-		return fmt.Errorf("checksum invalide pour %s", assetName)
+		return fmt.Errorf("invalid checksum for %s", assetName)
 	}
 
 	binaryData, fileMode, err := extractBinaryFromArchive(assetName, assetData)
@@ -787,7 +788,7 @@ func ReplaceExecutableWithAsset(executablePath, assetName string, assetData, che
 	targetPath := filepath.Clean(trimmedExecutablePath)
 	tempPath := targetPath + ".update"
 	if err := os.WriteFile(tempPath, binaryData, fileMode); err != nil {
-		return fmt.Errorf("écriture du binaire temporaire échouée : %w", err)
+		return fmt.Errorf("failed to write temporary binary: %w", err)
 	}
 	defer func() {
 		_ = os.Remove(tempPath)
@@ -795,7 +796,7 @@ func ReplaceExecutableWithAsset(executablePath, assetName string, assetData, che
 
 	if runtime.GOOS != "windows" {
 		if err := os.Rename(tempPath, targetPath); err != nil {
-			return fmt.Errorf("remplacement du binaire échoué : %w", err)
+			return fmt.Errorf("failed to replace binary: %w", err)
 		}
 		return nil
 	}
@@ -803,11 +804,11 @@ func ReplaceExecutableWithAsset(executablePath, assetName string, assetData, che
 	backupPath := targetPath + ".bak"
 	_ = os.Remove(backupPath)
 	if err := os.Rename(targetPath, backupPath); err != nil {
-		return fmt.Errorf("remplacement du binaire échoué : %w", err)
+		return fmt.Errorf("failed to replace binary: %w", err)
 	}
 	if err := os.Rename(tempPath, targetPath); err != nil {
 		_ = os.Rename(backupPath, targetPath)
-		return fmt.Errorf("activation de la nouvelle version échouée : %w", err)
+		return fmt.Errorf("failed to activate new version: %w", err)
 	}
 	_ = os.Remove(backupPath)
 
@@ -817,12 +818,12 @@ func ReplaceExecutableWithAsset(executablePath, assetName string, assetData, che
 func writeInstalledState(targetDir string, state InstalledResourceState) error {
 	data, err := json.MarshalIndent(state, "", "  ")
 	if err != nil {
-		return fmt.Errorf("sérialisation de l'état échouée : %w", err)
+		return fmt.Errorf("failed to serialize state: %w", err)
 	}
 
 	statePath := filepath.Join(filepath.Clean(targetDir), stateFileName)
 	if err := os.WriteFile(statePath, append(data, '\n'), 0o644); err != nil {
-		return fmt.Errorf("écriture de %s échouée : %w", statePath, err)
+		return fmt.Errorf("failed to write %s: %w", statePath, err)
 	}
 
 	return nil
@@ -841,14 +842,14 @@ func checksumForAsset(checksumManifest []byte, assetName string) (string, error)
 		}
 	}
 
-	return "", fmt.Errorf("checksum introuvable pour %s", assetName)
+	return "", fmt.Errorf("checksum not found for %s", assetName)
 }
 
 func extractBinaryFromArchive(assetName string, assetData []byte) ([]byte, os.FileMode, error) {
 	if strings.HasSuffix(assetName, ".zip") {
 		reader, err := zip.NewReader(bytes.NewReader(assetData), int64(len(assetData)))
 		if err != nil {
-			return nil, 0, fmt.Errorf("archive zip invalide : %w", err)
+			return nil, 0, fmt.Errorf("invalid zip archive: %w", err)
 		}
 		for _, file := range reader.File {
 			baseName := path.Base(file.Name)
@@ -857,13 +858,13 @@ func extractBinaryFromArchive(assetName string, assetData []byte) ([]byte, os.Fi
 			}
 			opened, err := file.Open()
 			if err != nil {
-				return nil, 0, fmt.Errorf("lecture de %s échouée : %w", file.Name, err)
+				return nil, 0, fmt.Errorf("failed to read %s: %w", file.Name, err)
 			}
 			defer opened.Close()
 
 			data, err := io.ReadAll(opened)
 			if err != nil {
-				return nil, 0, fmt.Errorf("lecture de %s échouée : %w", file.Name, err)
+				return nil, 0, fmt.Errorf("failed to read %s: %w", file.Name, err)
 			}
 
 			mode := file.Mode()
@@ -873,13 +874,13 @@ func extractBinaryFromArchive(assetName string, assetData []byte) ([]byte, os.Fi
 			return data, mode, nil
 		}
 
-		return nil, 0, fmt.Errorf("binaire STH introuvable dans %s", assetName)
+		return nil, 0, fmt.Errorf("STH binary not found in %s", assetName)
 	}
 
 	if strings.HasSuffix(assetName, ".tar.gz") {
 		gzipReader, err := gzip.NewReader(bytes.NewReader(assetData))
 		if err != nil {
-			return nil, 0, fmt.Errorf("archive tar.gz invalide : %w", err)
+			return nil, 0, fmt.Errorf("invalid tar.gz archive: %w", err)
 		}
 		defer gzipReader.Close()
 
@@ -890,7 +891,7 @@ func extractBinaryFromArchive(assetName string, assetData []byte) ([]byte, os.Fi
 				break
 			}
 			if err != nil {
-				return nil, 0, fmt.Errorf("lecture de l'archive tar échouée : %w", err)
+				return nil, 0, fmt.Errorf("failed to read tar archive: %w", err)
 			}
 
 			baseName := path.Base(header.Name)
@@ -900,7 +901,7 @@ func extractBinaryFromArchive(assetName string, assetData []byte) ([]byte, os.Fi
 
 			data, err := io.ReadAll(tarReader)
 			if err != nil {
-				return nil, 0, fmt.Errorf("lecture de %s échouée : %w", header.Name, err)
+				return nil, 0, fmt.Errorf("failed to read %s: %w", header.Name, err)
 			}
 
 			mode := os.FileMode(header.Mode)
@@ -910,10 +911,10 @@ func extractBinaryFromArchive(assetName string, assetData []byte) ([]byte, os.Fi
 			return data, mode, nil
 		}
 
-		return nil, 0, fmt.Errorf("binaire STH introuvable dans %s", assetName)
+		return nil, 0, fmt.Errorf("STH binary not found in %s", assetName)
 	}
 
-	return nil, 0, fmt.Errorf("format d'archive non pris en charge : %s", assetName)
+	return nil, 0, fmt.Errorf("unsupported archive format: %s", assetName)
 }
 
 func addManagedHeaderIfMarkdown(installedPath string, content []byte) []byte {
@@ -922,6 +923,7 @@ func addManagedHeaderIfMarkdown(installedPath string, content []byte) []byte {
 	}
 
 	headerBytes := []byte(skillHeader)
+	legacyHeaderBytes := []byte(legacySkillHeader)
 
 	if bodyStart := writer.FrontmatterBodyOffset(content); bodyStart >= 0 {
 		// File has YAML frontmatter (e.g. SKILL.md). Claude requires the
@@ -929,6 +931,13 @@ func addManagedHeaderIfMarkdown(installedPath string, content []byte) []byte {
 		// closing `---` instead of prepending it.
 		if bytes.HasPrefix(content[bodyStart:], headerBytes) {
 			return content
+		}
+		if bytes.HasPrefix(content[bodyStart:], legacyHeaderBytes) {
+			updatedContent := make([]byte, 0, len(content)-len(legacyHeaderBytes)+len(headerBytes))
+			updatedContent = append(updatedContent, content[:bodyStart]...)
+			updatedContent = append(updatedContent, headerBytes...)
+			updatedContent = append(updatedContent, content[bodyStart+len(legacyHeaderBytes):]...)
+			return updatedContent
 		}
 		out := make([]byte, 0, len(content)+len(headerBytes))
 		out = append(out, content[:bodyStart]...)
@@ -940,6 +949,12 @@ func addManagedHeaderIfMarkdown(installedPath string, content []byte) []byte {
 	if bytes.HasPrefix(content, headerBytes) {
 		return content
 	}
+	if bytes.HasPrefix(content, legacyHeaderBytes) {
+		updatedContent := make([]byte, 0, len(content)-len(legacyHeaderBytes)+len(headerBytes))
+		updatedContent = append(updatedContent, headerBytes...)
+		updatedContent = append(updatedContent, content[len(legacyHeaderBytes):]...)
+		return updatedContent
+	}
 	return append(headerBytes, content...)
 }
 
@@ -948,13 +963,13 @@ func addManagedHeaderIfMarkdown(installedPath string, content []byte) []byte {
 
 func validateConfig(cfg Config) error {
 	if strings.TrimSpace(cfg.RepoRawURL) == "" {
-		return errors.New("repo_raw_url doit être renseigné")
+		return errors.New("repo_raw_url is required")
 	}
 	if _, err := url.ParseRequestURI(strings.TrimSpace(cfg.RepoRawURL)); err != nil {
-		return fmt.Errorf("repo_raw_url invalide : %w", err)
+		return fmt.Errorf("invalid repo_raw_url: %w", err)
 	}
 	if strings.TrimSpace(cfg.TargetDir) == "" {
-		return errors.New("target_dir doit être renseigné")
+		return errors.New("target_dir is required")
 	}
 
 	return validateTargetDir(cfg.TargetDir)
@@ -963,21 +978,21 @@ func validateConfig(cfg Config) error {
 func validateProjectProfile(profile ProjectProfile) error {
 	provider := normalizeProvider(profile.Provider)
 	if provider == "" {
-		return errors.New("provider doit être renseigné")
+		return errors.New("provider is required")
 	}
 	switch provider {
 	case "github", "gitlab", "azure-devops", "bitbucket":
 	default:
-		return fmt.Errorf("provider non pris en charge : %s", profile.Provider)
+		return fmt.Errorf("unsupported provider: %s", profile.Provider)
 	}
 	if strings.TrimSpace(profile.RepositoryID) == "" {
-		return errors.New("repository_id doit être renseigné")
+		return errors.New("repository_id is required")
 	}
 	if _, err := NormalizeRepositoryID(provider, profile.RepositoryID); err != nil {
 		return err
 	}
 	if normalizeRef(profile.Ref) == "" {
-		return errors.New("ref doit être renseigné")
+		return errors.New("ref is required")
 	}
 	if err := validateCatalogPath(profile.CatalogPath); err != nil {
 		return err
@@ -991,10 +1006,10 @@ func validateProjectProfile(profile ProjectProfile) error {
 
 func validateCatalogEntry(entry CatalogEntry) error {
 	if strings.TrimSpace(entry.ResourceType) == "" {
-		return errors.New("resource_type doit être renseigné")
+		return errors.New("resource_type is required")
 	}
 	if strings.TrimSpace(entry.Name) == "" {
-		return errors.New("name doit être renseigné")
+		return errors.New("name is required")
 	}
 	if err := validateFolderName(entry.FolderName); err != nil {
 		return err
@@ -1003,7 +1018,7 @@ func validateCatalogEntry(entry CatalogEntry) error {
 		return err
 	}
 	if strings.TrimSpace(entry.CatalogID) == "" {
-		return errors.New("catalog_id doit être renseigné")
+		return errors.New("catalog_id is required")
 	}
 
 	return nil
@@ -1011,22 +1026,22 @@ func validateCatalogEntry(entry CatalogEntry) error {
 
 func validateInstalledRecord(record InstalledResourceRecord) error {
 	if strings.TrimSpace(record.CatalogID) == "" {
-		return errors.New("catalog_id doit être renseigné")
+		return errors.New("catalog_id is required")
 	}
 	if strings.TrimSpace(record.ResourceType) == "" {
-		return errors.New("resource_type doit être renseigné")
+		return errors.New("resource_type is required")
 	}
 	if strings.TrimSpace(record.Name) == "" {
-		return errors.New("name doit être renseigné")
+		return errors.New("name is required")
 	}
 	if err := validateFolderName(record.FolderName); err != nil {
 		return err
 	}
 	if strings.TrimSpace(record.InstalledPath) == "" {
-		return errors.New("installed_path doit être renseigné")
+		return errors.New("installed_path is required")
 	}
 	if filepath.IsAbs(filepath.FromSlash(record.InstalledPath)) {
-		return errors.New("installed_path doit rester relatif au projet courant")
+		return errors.New("installed_path must remain relative to the current project")
 	}
 	if err := validateSourcePath(record.SourcePath); err != nil {
 		return err
@@ -1034,16 +1049,16 @@ func validateInstalledRecord(record InstalledResourceRecord) error {
 	managedRoot := strings.TrimSpace(record.ManagedRoot)
 	if managedRoot != "" {
 		if filepath.IsAbs(filepath.FromSlash(managedRoot)) {
-			return errors.New("managed_root doit rester relatif au projet courant")
+			return errors.New("managed_root must remain relative to the current project")
 		}
 		if filepath.Clean(filepath.FromSlash(managedRoot)) != filepath.Clean(filepath.FromSlash(record.InstalledPath)) {
-			return errors.New("managed_root doit correspondre à installed_path pour un bundle géré")
+			return errors.New("managed_root must match installed_path for a managed bundle")
 		}
 		if strings.TrimSpace(record.SourceRoot) == "" {
-			return errors.New("source_root doit être renseigné pour un bundle géré")
+			return errors.New("source_root is required for a managed bundle")
 		}
 		if len(record.ManagedFiles) == 0 {
-			return errors.New("managed_files doit contenir au moins un fichier pour un bundle géré")
+			return errors.New("managed_files must contain at least one file for a managed bundle")
 		}
 		for _, managedFile := range record.ManagedFiles {
 			if err := validateManagedFileRecord(managedFile, record.ManagedRoot, record.SourceRoot); err != nil {
@@ -1052,7 +1067,7 @@ func validateInstalledRecord(record InstalledResourceRecord) error {
 		}
 	}
 	if strings.TrimSpace(record.Status) == "" {
-		return errors.New("status doit être renseigné")
+		return errors.New("status is required")
 	}
 
 	return nil
@@ -1061,14 +1076,14 @@ func validateInstalledRecord(record InstalledResourceRecord) error {
 func validateTargetDir(targetDir string) error {
 	trimmed := strings.TrimSpace(targetDir)
 	if trimmed == "" {
-		return errors.New("target_dir doit être renseigné")
+		return errors.New("target_dir is required")
 	}
 	if filepath.IsAbs(trimmed) {
-		return errors.New("target_dir doit être un chemin relatif au projet courant")
+		return errors.New("target_dir must be a path relative to the current project")
 	}
 	normalized := filepath.Clean(trimmed)
 	if normalized == ".." || strings.HasPrefix(normalized, ".."+string(filepath.Separator)) {
-		return errors.New("target_dir doit rester sous le projet courant")
+		return errors.New("target_dir must remain within the current project")
 	}
 
 	return nil
@@ -1077,13 +1092,13 @@ func validateTargetDir(targetDir string) error {
 func validateManagedPathSegment(segment string) error {
 	trimmed := strings.TrimSpace(segment)
 	if trimmed == "" {
-		return errors.New("segment géré doit être renseigné")
+		return errors.New("managed segment is required")
 	}
 	if strings.Contains(trimmed, "/") || strings.Contains(trimmed, "\\") {
-		return fmt.Errorf("segment géré invalide : %q", segment)
+		return fmt.Errorf("invalid managed segment: %q", segment)
 	}
 	if trimmed == "." || trimmed == ".." {
-		return fmt.Errorf("segment géré invalide : %q", segment)
+		return fmt.Errorf("invalid managed segment: %q", segment)
 	}
 
 	return nil
@@ -1092,17 +1107,17 @@ func validateManagedPathSegment(segment string) error {
 func validateManagedFileRecord(record ManagedFileRecord, managedRoot, sourceRoot string) error {
 	trimmedRelativePath := strings.TrimSpace(record.RelativePath)
 	if trimmedRelativePath == "" {
-		return errors.New("relative_path doit être renseigné")
+		return errors.New("relative_path is required")
 	}
 	normalizedRelativePath := path.Clean(strings.ReplaceAll(trimmedRelativePath, "\\", "/"))
 	if normalizedRelativePath == "." || path.IsAbs(normalizedRelativePath) || normalizedRelativePath == ".." || strings.HasPrefix(normalizedRelativePath, "../") {
-		return fmt.Errorf("relative_path invalide : %q", record.RelativePath)
+		return fmt.Errorf("invalid relative_path: %q", record.RelativePath)
 	}
 	if strings.TrimSpace(record.InstalledPath) == "" {
-		return errors.New("installed_path doit être renseigné pour un fichier géré")
+		return errors.New("installed_path is required for a managed file")
 	}
 	if filepath.IsAbs(filepath.FromSlash(record.InstalledPath)) {
-		return errors.New("installed_path doit rester relatif au projet courant")
+		return errors.New("installed_path must remain relative to the current project")
 	}
 	if err := validateSourcePath(record.SourcePath); err != nil {
 		return err
@@ -1113,15 +1128,15 @@ func validateManagedFileRecord(record ManagedFileRecord, managedRoot, sourceRoot
 		return err
 	}
 	if filepath.Clean(filepath.FromSlash(record.InstalledPath)) != filepath.Clean(resolvedInstalledPath) {
-		return errors.New("installed_path incohérent pour un fichier géré")
+		return errors.New("inconsistent installed_path for a managed file")
 	}
 
 	relativeSourcePath, err := relativeRepositoryPath(sourceRoot, record.SourcePath)
 	if err != nil {
-		return fmt.Errorf("source_path incohérent pour un fichier géré : %w", err)
+		return fmt.Errorf("inconsistent source_path for a managed file: %w", err)
 	}
 	if relativeSourcePath != normalizedRelativePath {
-		return errors.New("source_path incohérent pour un fichier géré")
+		return errors.New("inconsistent source_path for a managed file")
 	}
 
 	return nil
@@ -1130,13 +1145,13 @@ func validateManagedFileRecord(record ManagedFileRecord, managedRoot, sourceRoot
 func validateCatalogPath(catalogPath string) error {
 	normalized := normalizeCatalogPath(catalogPath)
 	if normalized == "" {
-		return errors.New("catalog_path doit être renseigné")
+		return errors.New("catalog_path is required")
 	}
 	if path.IsAbs(normalized) {
-		return errors.New("catalog_path doit rester relatif au dépôt distant")
+		return errors.New("catalog_path must remain relative to the remote repository")
 	}
 	if normalized != defaultCatalogPath && path.Base(normalized) != defaultCatalogPath {
-		return errors.New("catalog_path doit pointer vers SKILLS.md")
+		return errors.New("catalog_path must point to SKILLS.md")
 	}
 
 	return nil
@@ -1146,10 +1161,10 @@ func relativeRepositoryPath(root, fullPath string) (string, error) {
 	normalizedRoot := path.Clean(strings.ReplaceAll(strings.TrimSpace(root), "\\", "/"))
 	normalizedFullPath := path.Clean(strings.ReplaceAll(strings.TrimSpace(fullPath), "\\", "/"))
 	if normalizedRoot == "" || normalizedRoot == "." {
-		return "", errors.New("root distant doit être renseigné")
+		return "", errors.New("remote root is required")
 	}
 	if normalizedFullPath == "" || normalizedFullPath == "." {
-		return "", errors.New("chemin distant doit être renseigné")
+		return "", errors.New("remote path is required")
 	}
 	if normalizedFullPath == normalizedRoot {
 		return ".", nil
@@ -1157,12 +1172,12 @@ func relativeRepositoryPath(root, fullPath string) (string, error) {
 
 	prefix := normalizedRoot + "/"
 	if !strings.HasPrefix(normalizedFullPath, prefix) {
-		return "", fmt.Errorf("%q n'est pas contenu dans %q", normalizedFullPath, normalizedRoot)
+		return "", fmt.Errorf("%q is not contained in %q", normalizedFullPath, normalizedRoot)
 	}
 
 	relativePath := path.Clean(strings.TrimPrefix(normalizedFullPath, prefix))
 	if relativePath == "" || relativePath == "." || relativePath == ".." || strings.HasPrefix(relativePath, "../") || path.IsAbs(relativePath) {
-		return "", fmt.Errorf("chemin relatif de dépôt invalide : %q", relativePath)
+		return "", fmt.Errorf("invalid relative repository path: %q", relativePath)
 	}
 
 	return relativePath, nil
@@ -1171,11 +1186,11 @@ func relativeRepositoryPath(root, fullPath string) (string, error) {
 func validateFolderName(folderName string) error {
 	trimmed := strings.TrimSpace(folderName)
 	if trimmed == "" {
-		return errors.New("folder_name doit être renseigné")
+		return errors.New("folder_name is required")
 	}
 	normalized := path.Clean(strings.ReplaceAll(trimmed, "\\", "/"))
 	if path.IsAbs(normalized) || normalized == ".." || strings.HasPrefix(normalized, "../") {
-		return fmt.Errorf("folder_name invalide : %q", folderName)
+		return fmt.Errorf("invalid folder_name: %q", folderName)
 	}
 
 	return nil
@@ -1184,11 +1199,11 @@ func validateFolderName(folderName string) error {
 func validateSourcePath(sourcePath string) error {
 	trimmed := strings.TrimSpace(sourcePath)
 	if trimmed == "" {
-		return errors.New("source_path doit être renseigné")
+		return errors.New("source_path is required")
 	}
 	normalized := path.Clean(strings.ReplaceAll(trimmed, "\\", "/"))
 	if path.IsAbs(normalized) || normalized == ".." || strings.HasPrefix(normalized, "../") {
-		return fmt.Errorf("source_path invalide : %q", sourcePath)
+		return fmt.Errorf("invalid source_path: %q", sourcePath)
 	}
 
 	return nil
@@ -1276,11 +1291,11 @@ func ReadInstalledStateV2(targetDir string) (InstalledResourceStateV2, error) {
 	if _, err := os.Stat(statePath); err == nil {
 		data, err := os.ReadFile(statePath)
 		if err != nil {
-			return InstalledResourceStateV2{}, fmt.Errorf("lecture de %s échouée : %w", statePath, err)
+			return InstalledResourceStateV2{}, fmt.Errorf("failed to read %s: %w", statePath, err)
 		}
 		var state InstalledResourceStateV2
 		if err := json.Unmarshal(data, &state); err != nil {
-			return InstalledResourceStateV2{}, fmt.Errorf("désérialisation v2 échouée : %w", err)
+			return InstalledResourceStateV2{}, fmt.Errorf("failed to deserialize v2 state: %w", err)
 		}
 		return state, nil
 	}
@@ -1291,7 +1306,7 @@ func ReadInstalledStateV2(targetDir string) (InstalledResourceStateV2, error) {
 		return InstalledResourceStateV2{SchemaVersion: 2, Entries: []InstalledResourceRecordV2{}}, nil
 	}
 	if err != nil {
-		return InstalledResourceStateV2{}, fmt.Errorf("lecture de %s échouée : %w", legacyPath, err)
+		return InstalledResourceStateV2{}, fmt.Errorf("failed to read %s: %w", legacyPath, err)
 	}
 	if strings.TrimSpace(string(data)) == "" {
 		return InstalledResourceStateV2{SchemaVersion: 2, Entries: []InstalledResourceRecordV2{}}, nil
@@ -1304,12 +1319,12 @@ func ReadInstalledStateV2(targetDir string) (InstalledResourceStateV2, error) {
 func parseInstalledStateV2FromBytes(data []byte, path string) (InstalledResourceStateV2, error) {
 	var raw map[string]any
 	if err := json.Unmarshal(data, &raw); err != nil {
-		return InstalledResourceStateV2{}, fmt.Errorf("fichier d'état malformé (%s) : %w", path, err)
+		return InstalledResourceStateV2{}, fmt.Errorf("malformed state file (%s): %w", path, err)
 	}
 	if schemaVersion, _ := raw["schema_version"].(float64); int(schemaVersion) == 2 {
 		var state InstalledResourceStateV2
 		if err := json.Unmarshal(data, &state); err != nil {
-			return InstalledResourceStateV2{}, fmt.Errorf("fichier d'état v2 malformé (%s) : %w", path, err)
+			return InstalledResourceStateV2{}, fmt.Errorf("malformed v2 state file (%s): %w", path, err)
 		}
 		return state, nil
 	}
@@ -1319,7 +1334,7 @@ func parseInstalledStateV2FromBytes(data []byte, path string) (InstalledResource
 		} `json:"entries"`
 	}
 	if err := json.Unmarshal(data, &v1State); err != nil {
-		return InstalledResourceStateV2{}, fmt.Errorf("fichier d'état v1 malformé (%s) : %w", path, err)
+		return InstalledResourceStateV2{}, fmt.Errorf("malformed v1 state file (%s): %w", path, err)
 	}
 	entries := make([]InstalledResourceRecordV2, 0, len(v1State.Entries))
 	for _, e := range v1State.Entries {
@@ -1349,11 +1364,11 @@ func PromoteInstalledState(targetDir string, w io.Writer) error {
 		return nil
 	}
 	if err != nil {
-		return fmt.Errorf("lecture de %s échouée : %w", legacyPath, err)
+		return fmt.Errorf("failed to read %s: %w", legacyPath, err)
 	}
 	var raw map[string]any
 	if jsonErr := json.Unmarshal(data, &raw); jsonErr != nil {
-		return fmt.Errorf("fichier d'état malformé (%s) : %w", legacyPath, jsonErr)
+		return fmt.Errorf("malformed state file (%s): %w", legacyPath, jsonErr)
 	}
 	schemaVersion, _ := raw["schema_version"].(float64)
 	needsMigration := int(schemaVersion) != 2
@@ -1384,17 +1399,17 @@ func WriteProjectConfigV2(cfg ProjectConfigV2) (string, error) {
 	}
 	data, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
-		return "", fmt.Errorf("sérialisation v2 échouée : %w", err)
+		return "", fmt.Errorf("failed to serialize v2 configuration: %w", err)
 	}
 	path, err := ProjectProfilePath()
 	if err != nil {
 		return "", err
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return "", fmt.Errorf("création du dossier de configuration projet échouée : %w", err)
+		return "", fmt.Errorf("failed to create project configuration directory: %w", err)
 	}
 	if err := atomicWriteFile(path, append(data, '\n'), 0o644); err != nil {
-		return "", fmt.Errorf("écriture de %s échouée : %w", path, err)
+		return "", fmt.Errorf("failed to write %s: %w", path, err)
 	}
 	return path, nil
 }
@@ -1410,7 +1425,7 @@ func WriteInstalledStateV2(targetDir string, state InstalledResourceStateV2) err
 	}
 	data, err := json.MarshalIndent(state, "", "  ")
 	if err != nil {
-		return fmt.Errorf("sérialisation v2 échouée : %w", err)
+		return fmt.Errorf("failed to serialize v2 state: %w", err)
 	}
 	statePath := filepath.Join(filepath.Clean(targetDir), stateFileNameV2)
 	return atomicWriteFile(statePath, append(data, '\n'), 0o644)
@@ -1480,12 +1495,12 @@ func SaveInstalledResourceV2(record InstalledResourceRecordV2, content []byte) (
 	mf := record.ManagedFiles[0]
 	installedPath := filepath.Clean(filepath.FromSlash(mf.Path))
 	if err := os.MkdirAll(filepath.Dir(installedPath), 0o755); err != nil {
-		return record, fmt.Errorf("création du dossier %s échouée : %w", filepath.Dir(installedPath), err)
+		return record, fmt.Errorf("failed to create directory %s: %w", filepath.Dir(installedPath), err)
 	}
 
 	fileContent := addManagedHeaderIfMarkdown(installedPath, content)
 	if err := os.WriteFile(installedPath, fileContent, 0o644); err != nil {
-		return record, fmt.Errorf("écriture de %s échouée : %w", installedPath, err)
+		return record, fmt.Errorf("failed to write %s: %w", installedPath, err)
 	}
 
 	record.ManagedFiles[0].SHA256 = ComputeSHA256(fileContent)
@@ -1520,7 +1535,7 @@ func ResolveManagedFilePath(targetDir string, entry CatalogEntry) string {
 // reference an existing provider in cfg.Providers.
 func UpsertResourceEntry(cfg *ProjectConfigV2, entry ResourceEntry) error {
 	if strings.TrimSpace(entry.ResourceName) == "" {
-		return errors.New("resource_name doit être renseigné")
+		return errors.New("resource_name is required")
 	}
 	found := false
 	for _, p := range cfg.Providers {
@@ -1530,7 +1545,7 @@ func UpsertResourceEntry(cfg *ProjectConfigV2, entry ResourceEntry) error {
 		}
 	}
 	if !found {
-		return fmt.Errorf("provider_id %q introuvable dans la configuration", entry.ProviderID)
+		return fmt.Errorf("provider_id %q not found in configuration", entry.ProviderID)
 	}
 	for i, existing := range cfg.Resources {
 		if existing.ResourceName == entry.ResourceName {

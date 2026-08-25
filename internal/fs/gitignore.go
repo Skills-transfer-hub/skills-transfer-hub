@@ -8,8 +8,9 @@ import (
 )
 
 const (
-	gitignoreManagedHeader = "# >>> sth (généré, ne pas éditer)"
-	gitignoreManagedFooter = "# <<< sth"
+	gitignoreManagedHeader       = "# >>> sth (generated, do not edit)"
+	gitignoreLegacyManagedHeader = "# >>> sth (généré, ne pas éditer)"
+	gitignoreManagedFooter       = "# <<< sth"
 )
 
 func managedGitignoreBlock() string {
@@ -33,7 +34,7 @@ func EnsureManagedGitignore(projectRoot string) (bool, error) {
 	gitignorePath := filepath.Join(projectRoot, ".gitignore")
 	existing, err := os.ReadFile(gitignorePath)
 	if err != nil && !os.IsNotExist(err) {
-		return false, fmt.Errorf("lecture de %s échouée : %w", gitignorePath, err)
+		return false, fmt.Errorf("failed to read %s: %w", gitignorePath, err)
 	}
 
 	updated, changed := upsertManagedBlock(string(existing), managedGitignoreBlock())
@@ -41,13 +42,16 @@ func EnsureManagedGitignore(projectRoot string) (bool, error) {
 		return false, nil
 	}
 	if err := atomicWriteFile(gitignorePath, []byte(updated), 0o644); err != nil {
-		return false, fmt.Errorf("écriture de %s échouée : %w", gitignorePath, err)
+		return false, fmt.Errorf("failed to write %s: %w", gitignorePath, err)
 	}
 	return true, nil
 }
 
 func upsertManagedBlock(existing, block string) (string, bool) {
 	start := strings.Index(existing, gitignoreManagedHeader)
+	if start == -1 {
+		start = strings.Index(existing, gitignoreLegacyManagedHeader)
+	}
 	if start == -1 {
 		prefix := existing
 		if prefix != "" && !strings.HasSuffix(prefix, "\n") {

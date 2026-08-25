@@ -21,10 +21,10 @@ func (CodexWriter) Kind() string { return "codex" }
 
 func (writer CodexWriter) Write(request WriteRequest) (WriteResult, error) {
 	if strings.TrimSpace(request.InstalledPath) == "" {
-		return WriteResult{}, fmt.Errorf("installed_path doit être renseigné")
+		return WriteResult{}, fmt.Errorf("installed_path is required")
 	}
 	if err := os.MkdirAll(filepath.Dir(request.InstalledPath), 0o755); err != nil {
-		return WriteResult{}, fmt.Errorf("création du dossier %s échouée : %w", filepath.Dir(request.InstalledPath), err)
+		return WriteResult{}, fmt.Errorf("failed to create directory %s: %w", filepath.Dir(request.InstalledPath), err)
 	}
 
 	content, renderErr := writer.Render(request)
@@ -33,7 +33,7 @@ func (writer CodexWriter) Write(request WriteRequest) (WriteResult, error) {
 	}
 
 	if err := os.WriteFile(request.InstalledPath, content, 0o644); err != nil {
-		return WriteResult{}, fmt.Errorf("écriture de %s échouée : %w", request.InstalledPath, err)
+		return WriteResult{}, fmt.Errorf("failed to write %s: %w", request.InstalledPath, err)
 	}
 	return WriteResult{
 		Path:   filepath.ToSlash(filepath.Clean(request.InstalledPath)),
@@ -43,7 +43,7 @@ func (writer CodexWriter) Write(request WriteRequest) (WriteResult, error) {
 
 func (CodexWriter) Render(request WriteRequest) ([]byte, error) {
 	if strings.TrimSpace(request.InstalledPath) == "" {
-		return nil, fmt.Errorf("installed_path doit être renseigné")
+		return nil, fmt.Errorf("installed_path is required")
 	}
 	if request.ArtifactKind == "instruction" {
 		return renderInstructionFragment(request, "Codex")
@@ -80,7 +80,7 @@ func (CodexWriter) Plan(artifactKind, artifactName, _ string, sources []string) 
 
 func renderCodexAgent(request WriteRequest) ([]byte, error) {
 	if !utf8.Valid(request.Content) {
-		return nil, fmt.Errorf("agent Codex invalide : contenu non UTF-8")
+		return nil, fmt.Errorf("invalid Codex agent: content is not UTF-8")
 	}
 	if strings.HasPrefix(string(request.Content), codexManagedTOMLMarker) {
 		return request.Content, nil
@@ -115,11 +115,11 @@ func renderCodexAgent(request WriteRequest) ([]byte, error) {
 
 func renderCodexSkill(request WriteRequest) ([]byte, error) {
 	if !utf8.Valid(request.Content) {
-		return nil, fmt.Errorf("skill Codex invalide : contenu non UTF-8")
+		return nil, fmt.Errorf("invalid Codex skill: content is not UTF-8")
 	}
 	artifactName := codexRequestArtifactName(request)
 	if !codexSkillNamePattern.MatchString(artifactName) || strings.Contains(artifactName, "--") {
-		return nil, fmt.Errorf("nom de skill Codex invalide : %s", artifactName)
+		return nil, fmt.Errorf("invalid Codex skill name: %s", artifactName)
 	}
 	bodyOffset := FrontmatterBodyOffset(request.Content)
 	if request.ArtifactKind != "command" && bodyOffset >= 0 {
@@ -128,7 +128,7 @@ func renderCodexSkill(request WriteRequest) ([]byte, error) {
 		sourceDescription := geminiFrontmatterValue(frontmatter, "description")
 		if sourceName != "" && sourceDescription != "" {
 			if sourceName != artifactName {
-				return nil, fmt.Errorf("nom de skill Codex %q différent du dossier %q", sourceName, artifactName)
+				return nil, fmt.Errorf("Codex skill name %q differs from directory %q", sourceName, artifactName)
 			}
 			if descriptionErr := validateCodexSkillDescription(sourceDescription); descriptionErr != nil {
 				return nil, descriptionErr
@@ -141,10 +141,10 @@ func renderCodexSkill(request WriteRequest) ([]byte, error) {
 		}
 	}
 	if request.ArtifactKind == "skill" {
-		return nil, fmt.Errorf("skill Codex invalide : frontmatter name et description requis")
+		return nil, fmt.Errorf("invalid Codex skill: frontmatter name and description are required")
 	}
 
-	description := "Commande réutilisable " + artifactName
+	description := "Reusable command " + artifactName
 	body := strings.TrimSpace(string(request.Content))
 	if bodyOffset >= 0 {
 		frontmatter := string(request.Content[:bodyOffset])
@@ -195,7 +195,7 @@ func codexRequestArtifactName(request WriteRequest) string {
 func validateCodexSkillDescription(description string) error {
 	descriptionLength := utf8.RuneCountInString(description)
 	if descriptionLength < 1 || descriptionLength > 1024 {
-		return fmt.Errorf("description de skill Codex invalide : longueur %d, attendue entre 1 et 1024", descriptionLength)
+		return fmt.Errorf("invalid Codex skill description: length %d, expected between 1 and 1024", descriptionLength)
 	}
 	return nil
 }

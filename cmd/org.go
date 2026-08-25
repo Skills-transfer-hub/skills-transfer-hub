@@ -19,7 +19,7 @@ func (a *app) runOrg(args []string) error {
 		return errExperimentalDisabled("sth org")
 	}
 	if len(args) == 0 {
-		return errors.New("usage : sth org <current|list|use>")
+		return errors.New("usage: sth org <current|list|use>")
 	}
 	if isHelpFlag(args[0]) {
 		a.writeStdout(commandHelpText("org"))
@@ -36,7 +36,7 @@ func (a *app) runOrg(args []string) error {
 		_, positional := parseFlags(args[1:], "--json")
 		return a.runOrgUse(positional)
 	default:
-		return fmt.Errorf("commande org inconnue : %q", args[0])
+		return fmt.Errorf("unknown org command: %q", args[0])
 	}
 }
 
@@ -74,14 +74,14 @@ func (a *app) runOrgCurrent(asJSON bool) error {
 			return a.translateOrgError(err)
 		}
 		a.writeStdout(
-			"Organisation active : organisation par défaut de la clé.",
-			"Détails indisponibles hors-ligne — réessaie en ligne ou lance `sth org list`.",
+			"Active organization: the key's default organization.",
+			"Details are unavailable offline — try again online or run `sth org list`.",
 		)
 		return nil
 	}
 	home, found := homeOrg(orgs)
 	if !found {
-		a.writeStdout("Aucune organisation résolue pour cette clé.")
+		a.writeStdout("No organization could be resolved for this key.")
 		return nil
 	}
 	a.writeOrgCurrent(orgCurrentRecord{
@@ -99,19 +99,19 @@ func (a *app) writeOrgCurrent(record orgCurrentRecord, asJSON bool) {
 	if asJSON {
 		encoded, err := json.MarshalIndent(record, "", "  ")
 		if err != nil {
-			a.writeStderr(fmt.Sprintf("Erreur : %v", err))
+			a.writeStderr(fmt.Sprintf("Error: %v", err))
 			return
 		}
 		a.writeStdout(string(encoded))
 		return
 	}
-	label := "par défaut — home"
+	label := "default — home"
 	if record.Source == "selected" {
-		label = "sélectionnée"
+		label = "selected"
 	}
 	a.writeStdout(
-		fmt.Sprintf("Organisation active : %s (%s)   [%s]", record.Name, record.ID, label),
-		fmt.Sprintf("Rôle : %s   Plan : %s", record.Role, record.Plan),
+		fmt.Sprintf("Active organization: %s (%s)   [%s]", record.Name, record.ID, label),
+		fmt.Sprintf("Role: %s   Plan: %s", record.Role, record.Plan),
 	)
 }
 
@@ -147,7 +147,7 @@ func (a *app) runOrgList(asJSON bool) error {
 	}
 
 	if len(orgs) == 0 {
-		a.writeStdout("Aucune organisation.")
+		a.writeStdout("No organizations.")
 		return nil
 	}
 	lines := make([]string, 0, len(orgs))
@@ -164,7 +164,7 @@ func (a *app) runOrgList(asJSON bool) error {
 
 func (a *app) runOrgUse(positional []string) error {
 	if len(positional) == 0 {
-		return errors.New("usage : sth org use <id|nom>")
+		return errors.New("usage: sth org use <id|name>")
 	}
 	target := strings.TrimSpace(strings.Join(positional, " "))
 	ctx, cancel := context.WithTimeout(context.Background(), orgCommandTimeout)
@@ -189,7 +189,7 @@ func (a *app) runOrgUse(positional []string) error {
 	}); err != nil {
 		return err
 	}
-	a.writeStdout(fmt.Sprintf("Organisation active : %s (%s).", match.Name, match.ID))
+	a.writeStdout(fmt.Sprintf("Active organization: %s (%s).", match.Name, match.ID))
 	return nil
 }
 
@@ -209,13 +209,13 @@ func selectOrg(orgs []cloud.Org, target string) (cloud.Org, error) {
 	case 1:
 		return matches[0], nil
 	case 0:
-		return cloud.Org{}, fmt.Errorf("tu n'es membre d'aucune organisation nommée %q", target)
+		return cloud.Org{}, fmt.Errorf("you are not a member of any organization named %q", target)
 	default:
 		ids := make([]string, 0, len(matches))
 		for _, org := range matches {
 			ids = append(ids, org.ID)
 		}
-		return cloud.Org{}, fmt.Errorf("nom ambigu %q — précise un id parmi : %s", target, strings.Join(ids, ", "))
+		return cloud.Org{}, fmt.Errorf("ambiguous name %q — specify one of these IDs: %s", target, strings.Join(ids, ", "))
 	}
 }
 
@@ -260,18 +260,18 @@ func (a *app) reconcileStaleActiveOrg(active *fs.ActiveOrgSelection, orgs []clou
 		}
 	}
 	if err := fs.ClearActiveOrg(); err != nil {
-		a.writeStderr(fmt.Sprintf("Avertissement : sélection d'organisation périmée non effacée : %v", err))
+		a.writeStderr(fmt.Sprintf("Warning: could not clear the stale organization selection: %v", err))
 		return
 	}
-	a.writeStderr(fmt.Sprintf("Avertissement : l'organisation active (%s) n'est plus accessible — retour à l'organisation par défaut.", active.OrgName))
+	a.writeStderr(fmt.Sprintf("Warning: the active organization (%s) is no longer accessible — using the default organization.", active.OrgName))
 }
 
 func (a *app) translateOrgError(err error) error {
 	switch {
 	case errors.Is(err, cloud.ErrUnauthorized):
-		return errors.New("clé STH Cloud refusée — relance `sth login`.")
+		return errors.New("the STH Cloud key was rejected — run `sth login` again")
 	case errors.Is(err, cloud.ErrNoKey):
-		return errors.New("aucune clé STH Cloud configurée — exécute `sth login`.")
+		return errors.New("no STH Cloud key is configured — run `sth login`")
 	default:
 		return err
 	}

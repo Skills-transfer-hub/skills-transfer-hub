@@ -453,7 +453,7 @@ func TestResolveCatalogEntry_reportsAmbiguousNames(t *testing.T) {
 	if err == nil {
 		t.Fatal("ResolveCatalogEntry() error = nil, want ambiguity error")
 	}
-	if !strings.Contains(err.Error(), "ambiguë") {
+	if !strings.Contains(err.Error(), "ambiguous") {
 		t.Fatalf("error %q does not contain ambiguity detail", err)
 	}
 }

@@ -1,0 +1,87 @@
+#!/bin/sh
+set -eu
+
+script_directory=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
+repository_directory=$(dirname "$script_directory")
+temporary_directory=$(mktemp -d "${TMPDIR:-/tmp}/sth-release-assets-test.XXXXXX")
+cleanup() {
+	rm -rf "$temporary_directory"
+}
+trap cleanup EXIT HUP INT TERM
+
+asset_directory="$temporary_directory/assets"
+mkdir -p "$asset_directory"
+(cd "$repository_directory" && go build -trimpath -o "$temporary_directory/sth" .)
+
+for engine_name in \
+	sth-engine-linux-amd64 \
+	sth-engine-darwin-amd64 \
+	sth-engine-darwin-arm64 \
+	sth-engine-windows-amd64.exe
+do
+	cp "$temporary_directory/sth" "$asset_directory/$engine_name"
+done
+
+create_tar_archive() {
+	archive_name=$1
+	staging_name=$2
+	staging_directory="$temporary_directory/$staging_name"
+	mkdir -p "$staging_directory"
+	cp "$temporary_directory/sth" "$staging_directory/sth"
+	cp "$repository_directory/LICENSE" "$staging_directory/LICENSE"
+	cp "$repository_directory/README.md" "$staging_directory/README.md"
+	(cd "$staging_directory" && tar -czf "$asset_directory/$archive_name" sth LICENSE README.md)
+}
+
+create_tar_archive sth-linux-amd64.tar.gz linux-amd64
+create_tar_archive sth-darwin-amd64.tar.gz darwin-amd64
+create_tar_archive sth-darwin-arm64.tar.gz darwin-arm64
+
+windows_directory="$temporary_directory/windows-amd64"
+mkdir -p "$windows_directory"
+cp "$temporary_directory/sth" "$windows_directory/sth.exe"
+cp "$repository_directory/LICENSE" "$windows_directory/LICENSE"
+cp "$repository_directory/README.md" "$windows_directory/README.md"
+(cd "$windows_directory" && zip -q "$asset_directory/sth-windows-amd64.zip" sth.exe LICENSE README.md)
+
+sh "$script_directory/write-sth-code-engine-manifest.sh" v1.2.3 "$asset_directory/sth-code-engine.json"
+
+expected_assets='sth-linux-amd64.tar.gz
+sth-darwin-amd64.tar.gz
+sth-darwin-arm64.tar.gz
+sth-windows-amd64.zip
+sth-engine-linux-amd64
+sth-engine-darwin-amd64
+sth-engine-darwin-arm64
+sth-engine-windows-amd64.exe
+sth-code-engine.json'
+
+: > "$asset_directory/SHA256SUMS"
+for asset_name in $expected_assets; do
+	if command -v sha256sum >/dev/null 2>&1; then
+		(cd "$asset_directory" && sha256sum "$asset_name") >> "$asset_directory/SHA256SUMS"
+	else
+		(cd "$asset_directory" && shasum -a 256 "$asset_name") >> "$asset_directory/SHA256SUMS"
+	fi
+done
+
+key_output=$(cd "$repository_directory" && go run ./tools/release-sign -genkey)
+private_key=$(printf '%s\n' "$key_output" | sed -n 's/^STH_RELEASE_SIGNING_KEY=//p')
+public_key=$(printf '%s\n' "$key_output" | sed -n 's/^releaseSigningPublicKeyBase64=//p')
+if [ -z "$private_key" ] || [ -z "$public_key" ]; then
+	printf 'unable to generate release signing fixture\n' >&2
+	exit 1
+fi
+export STH_RELEASE_SIGNING_KEY=$private_key
+export STH_RELEASE_SIGNING_PUBKEY=$public_key
+(cd "$repository_directory" && go run ./tools/release-sign --in "$asset_directory/SHA256SUMS" --out "$asset_directory/SHA256SUMS.sig")
+
+sh "$script_directory/verify-release-assets.sh" "$asset_directory" v1.2.3
+
+printf 'tampered\n' >> "$asset_directory/sth-engine-linux-amd64"
+if sh "$script_directory/verify-release-assets.sh" "$asset_directory" v1.2.3 >/dev/null 2>&1; then
+	printf 'tampered release asset was accepted\n' >&2
+	exit 1
+fi
+
+printf 'release asset verifier tests passed\n'

@@ -16,17 +16,17 @@ func ReadProjectConfigV2ReadOnly() (ProjectConfigV2, error) {
 		return ProjectConfigV2{SchemaVersion: 2, Providers: []ProviderEntry{}, Resources: []ResourceEntry{}}, nil
 	}
 	if err != nil {
-		return ProjectConfigV2{}, fmt.Errorf("lecture de %s échouée : %w", configPath, err)
+		return ProjectConfigV2{}, fmt.Errorf("failed to read %s: %w", configPath, err)
 	}
 
 	var raw map[string]any
 	if err := json.Unmarshal(data, &raw); err != nil {
-		return ProjectConfigV2{}, fmt.Errorf("fichier de configuration malformé (%s) : %w", configPath, err)
+		return ProjectConfigV2{}, fmt.Errorf("malformed configuration file (%s): %w", configPath, err)
 	}
 	if schemaVersion, _ := raw["schema_version"].(float64); int(schemaVersion) == 2 {
 		var config ProjectConfigV2
 		if err := json.Unmarshal(data, &config); err != nil {
-			return ProjectConfigV2{}, fmt.Errorf("fichier de configuration v2 malformé (%s) : %w", configPath, err)
+			return ProjectConfigV2{}, fmt.Errorf("malformed v2 configuration file (%s): %w", configPath, err)
 		}
 		if config.Providers == nil {
 			config.Providers = []ProviderEntry{}

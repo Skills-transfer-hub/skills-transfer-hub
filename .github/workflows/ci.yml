@@ -15,14 +15,10 @@ on:
 # rapid series of pushes doesn't pile up billed runner minutes.
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 permissions:
   contents: read
-
-env:
-  STH_CODE_CONTRACT_REPOSITORY: Skills-transfer-hub/sth-code-private-archive
-  STH_CODE_CONTRACT_REF: 1435656322b212376e70e105873de364f905c9a4
 
 jobs:
   sth-code-contract:
@@ -30,23 +26,41 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
       - name: Download the authoritative STH Code contract
+        id: contract-source
+        if: github.event_name == 'push'
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.STH_CODE_READ_TOKEN }}
+          REQUIRE_PRIVATE_CONTRACT: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
         run: |
-          gh api --method GET "repos/$STH_CODE_CONTRACT_REPOSITORY/contents/scripts/verify-sth-code-engine-contract.mjs" \
-            -f "ref=$STH_CODE_CONTRACT_REF" \
+          if [[ -z "$GH_TOKEN" ]]; then
+            if [[ "$REQUIRE_PRIVATE_CONTRACT" == 'true' ]]; then
+              echo 'STH_CODE_READ_TOKEN is required for main CI.' >&2
+              exit 1
+            fi
+            echo 'available=false' >> "$GITHUB_OUTPUT"
+            echo 'Private consumer contract unavailable; local bridge tests remain required.' >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          gh api --method GET repos/Skills-transfer-hub/sth-code-private-archive/contents/scripts/verify-sth-code-engine-contract.mjs \
+            -f ref=1435656322b212376e70e105873de364f905c9a4 \
             --jq .content | base64 --decode > "$RUNNER_TEMP/verify-sth-code-engine-contract.mjs"
-      - name: Build candidate and verify the consumer contract
+          echo 'available=true' >> "$GITHUB_OUTPUT"
+      - name: Verify local bridge tests
+        shell: bash
+        run: go test ./cmd -run 'TestBridge' -count=1
+      - name: Build candidate and verify the private consumer contract
+        if: steps.contract-source.outputs.available == 'true'
         shell: bash
         run: |
-          go test ./cmd -run 'TestBridge' -count=1
           go build -trimpath -o "$RUNNER_TEMP/sth" .
           node "$RUNNER_TEMP/verify-sth-code-engine-contract.mjs" "$RUNNER_TEMP/sth"
 
@@ -64,10 +78,10 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
 
@@ -109,10 +123,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
 
@@ -126,6 +143,12 @@ jobs:
           done
           sh scripts/compat-runtime-test.sh
 
+      - name: Verify release manifest writer
+        run: |
+          sh -n scripts/write-sth-code-engine-manifest.sh scripts/write-sth-code-engine-manifest-test.sh scripts/verify-release-assets.sh scripts/verify-release-assets-test.sh
+          sh scripts/write-sth-code-engine-manifest-test.sh
+          sh scripts/verify-release-assets-test.sh
+
       - name: Verify writer contracts
         run: go test ./internal/writer ./internal/fs/... -count=1
 
@@ -134,6 +157,38 @@ jobs:
 
       - name: Verify STH binary lifecycle against local provider
         run: sh scripts/compat-sth-lifecycle-test.sh
+
+      - name: Generate an ephemeral snapshot signing key
+        shell: bash
+        run: |
+          key_output="$(go run ./tools/release-sign -genkey)"
+          private_key="$(printf '%s\n' "$key_output" | sed -n 's/^STH_RELEASE_SIGNING_KEY=//p')"
+          public_key="$(printf '%s\n' "$key_output" | sed -n 's/^releaseSigningPublicKeyBase64=//p')"
+          test -n "$private_key"
+          test -n "$public_key"
+          echo "::add-mask::$private_key"
+          printf 'STH_RELEASE_SIGNING_KEY=%s\n' "$private_key" >> "$GITHUB_ENV"
+          printf 'STH_RELEASE_SIGNING_PUBKEY=%s\n' "$public_key" >> "$GITHUB_ENV"
+
+      - name: Build the signed release snapshot
+        uses: goreleaser/goreleaser-action@v7
+        with:
+          distribution: goreleaser
+          version: v2.17.1
+          args: release --snapshot --clean
+        env:
+          STH_RELEASE_SIGNING_KEY: ${{ env.STH_RELEASE_SIGNING_KEY }}
+
+      - name: Verify the signed release snapshot
+        shell: bash
+        run: |
+          snapshot_version="$(jq -r '.engine_version' .release/sth-code-engine.json)"
+          sh scripts/verify-release-assets.sh dist "$snapshot_version"
+          bridge_version="$(printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"handshake","params":{"protocol_version":1}}' | dist/sth-engine-linux-amd64 bridge --stdio | jq -er '.result.bridge_version')"
+          if [ "$bridge_version" != "$snapshot_version" ]; then
+            echo "Snapshot bridge version $bridge_version does not match manifest version $snapshot_version." >&2
+            exit 1
+          fi
 
   # Single stable status check to require in branch protection. Because the
   # matrix composition varies by event (macOS only on main), requiring the
@@ -163,4 +218,21 @@ jobs:
             echo "sth-code-contract did not succeed (result: $sth_code_contract)"
             exit 1
           fi
-          echo "All test-and-build, compatibility, and STH Code contract jobs succeeded."
+          echo "All test-and-build, compatibility, and contract jobs succeeded."
+
+  auto-release:
+    name: Auto Release
+    needs: ci-gate
+    if: >-
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main' &&
+      needs.ci-gate.result == 'success'
+    permissions:
+      contents: write
+      pull-requests: read
+    uses: ./.github/workflows/auto-release.yml
+    with:
+      release_sha: ${{ github.sha }}
+    secrets:
+      RELEASE_PAT: ${{ secrets.RELEASE_PAT }}
+      RELEASE_SSH_SIGNING_KEY: ${{ secrets.RELEASE_SSH_SIGNING_KEY }}

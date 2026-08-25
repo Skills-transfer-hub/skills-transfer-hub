@@ -16,12 +16,12 @@ func PlanManagedBundle(targetDir string, entry CatalogEntry, files map[string][]
 		return nil, err
 	}
 	if len(files) == 0 {
-		return nil, fmt.Errorf("aucun fichier bundle à synchroniser pour %s", entry.CatalogID)
+		return nil, fmt.Errorf("no bundle files to synchronize for %s", entry.CatalogID)
 	}
 
 	sourceRoot := path.Dir(path.Clean(strings.ReplaceAll(strings.TrimSpace(entry.SourcePath), "\\", "/")))
 	if sourceRoot == "." || sourceRoot == "/" || sourceRoot == "" {
-		return nil, fmt.Errorf("source_path bundle invalide : %q", entry.SourcePath)
+		return nil, fmt.Errorf("invalid bundle source_path: %q", entry.SourcePath)
 	}
 	managedRoot, err := BuildManagedRoot(targetDir, entry.FolderName, entry.Name)
 	if err != nil {
@@ -39,7 +39,7 @@ func PlanManagedBundle(targetDir string, entry CatalogEntry, files map[string][]
 		normalizedSourcePath := path.Clean(strings.ReplaceAll(strings.TrimSpace(sourcePath), "\\", "/"))
 		relativePath, err := relativeRepositoryPath(sourceRoot, normalizedSourcePath)
 		if err != nil {
-			return nil, fmt.Errorf("impossible de résoudre le fichier bundle %s : %w", sourcePath, err)
+			return nil, fmt.Errorf("unable to resolve bundle file %s: %w", sourcePath, err)
 		}
 		installedPath, err := ResolveManagedPath(managedRoot, relativePath)
 		if err != nil {

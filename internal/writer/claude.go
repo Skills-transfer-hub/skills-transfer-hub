@@ -17,7 +17,8 @@ import (
 // Exported so the fs package (which still owns a few legacy write paths)
 // can share the single source of truth; previously fs.go duplicated this
 // constant under the name skillHeader.
-const ClaudeManagedHeader = "> ⚠️ ATTENTION : Skill géré par STH. Ne pas modifier manuellement.\n\n"
+const ClaudeManagedHeader = "> ⚠️ WARNING: Skill managed by STH. Do not edit manually.\n\n"
+const claudeLegacyManagedHeader = "> ⚠️ ATTENTION : Skill géré par STH. Ne pas modifier manuellement.\n\n"
 
 // ClaudeWriter installs artifacts under a Claude Code project tree.
 // It is the historical (and currently only) writer; other tools land in PR5.
@@ -101,10 +102,10 @@ func skillBundleRoot(sources []string) string {
 // Write materializes req on disk and returns the on-disk SHA-256.
 func (ClaudeWriter) Write(req WriteRequest) (WriteResult, error) {
 	if strings.TrimSpace(req.InstalledPath) == "" {
-		return WriteResult{}, fmt.Errorf("installed_path doit être renseigné")
+		return WriteResult{}, fmt.Errorf("installed_path is required")
 	}
 	if err := os.MkdirAll(filepath.Dir(req.InstalledPath), 0o755); err != nil {
-		return WriteResult{}, fmt.Errorf("création du dossier %s échouée : %w", filepath.Dir(req.InstalledPath), err)
+		return WriteResult{}, fmt.Errorf("failed to create directory %s: %w", filepath.Dir(req.InstalledPath), err)
 	}
 
 	content := req.Content
@@ -113,7 +114,7 @@ func (ClaudeWriter) Write(req WriteRequest) (WriteResult, error) {
 	}
 
 	if err := os.WriteFile(req.InstalledPath, content, 0o644); err != nil {
-		return WriteResult{}, fmt.Errorf("écriture de %s échouée : %w", req.InstalledPath, err)
+		return WriteResult{}, fmt.Errorf("failed to write %s: %w", req.InstalledPath, err)
 	}
 
 	return WriteResult{
@@ -130,10 +131,18 @@ func applyClaudeManagedHeader(installedPath string, content []byte) []byte {
 	}
 
 	header := []byte(ClaudeManagedHeader)
+	legacyHeader := []byte(claudeLegacyManagedHeader)
 
 	if bodyStart := FrontmatterBodyOffset(content); bodyStart >= 0 {
 		if bytes.HasPrefix(content[bodyStart:], header) {
 			return content
+		}
+		if bytes.HasPrefix(content[bodyStart:], legacyHeader) {
+			updatedContent := make([]byte, 0, len(content)-len(legacyHeader)+len(header))
+			updatedContent = append(updatedContent, content[:bodyStart]...)
+			updatedContent = append(updatedContent, header...)
+			updatedContent = append(updatedContent, content[bodyStart+len(legacyHeader):]...)
+			return updatedContent
 		}
 		out := make([]byte, 0, len(content)+len(header))
 		out = append(out, content[:bodyStart]...)
@@ -144,6 +153,12 @@ func applyClaudeManagedHeader(installedPath string, content []byte) []byte {
 
 	if bytes.HasPrefix(content, header) {
 		return content
+	}
+	if bytes.HasPrefix(content, legacyHeader) {
+		updatedContent := make([]byte, 0, len(content)-len(legacyHeader)+len(header))
+		updatedContent = append(updatedContent, header...)
+		updatedContent = append(updatedContent, content[len(legacyHeader):]...)
+		return updatedContent
 	}
 	return append(header, content...)
 }

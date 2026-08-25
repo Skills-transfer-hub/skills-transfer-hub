@@ -15,10 +15,10 @@ func (AntigravityWriter) Kind() string { return "antigravity" }
 
 func (AntigravityWriter) Write(req WriteRequest) (WriteResult, error) {
 	if strings.TrimSpace(req.InstalledPath) == "" {
-		return WriteResult{}, fmt.Errorf("installed_path doit être renseigné")
+		return WriteResult{}, fmt.Errorf("installed_path is required")
 	}
 	if err := os.MkdirAll(filepath.Dir(req.InstalledPath), 0o755); err != nil {
-		return WriteResult{}, fmt.Errorf("création du dossier %s échouée : %w", filepath.Dir(req.InstalledPath), err)
+		return WriteResult{}, fmt.Errorf("failed to create directory %s: %w", filepath.Dir(req.InstalledPath), err)
 	}
 
 	content := req.Content
@@ -27,7 +27,7 @@ func (AntigravityWriter) Write(req WriteRequest) (WriteResult, error) {
 	}
 
 	if err := os.WriteFile(req.InstalledPath, content, 0o644); err != nil {
-		return WriteResult{}, fmt.Errorf("écriture de %s échouée : %w", req.InstalledPath, err)
+		return WriteResult{}, fmt.Errorf("failed to write %s: %w", req.InstalledPath, err)
 	}
 	return WriteResult{
 		Path:   filepath.ToSlash(filepath.Clean(req.InstalledPath)),

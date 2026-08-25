@@ -53,7 +53,7 @@ func TestV2TransportRejectsInvalidPresentDesktopTokenWithoutFallback(t *testing.
 			defer server.Close()
 			t.Setenv("STH_CLOUD_BASE_URL", server.URL)
 			_, err := GetAsset(context.Background(), nil, "skill::skills::review-pr")
-			if err == nil || !strings.Contains(err.Error(), "jeton d’accès desktop invalide") {
+			if err == nil || !strings.Contains(err.Error(), "invalid desktop access token") {
 				t.Fatalf("error = %v", err)
 			}
 			if requests.Load() != 0 {
@@ -118,14 +118,14 @@ func TestDownloadResourceVersionBundleRejectsRedirectHashAndForeignOrigin(t *tes
 			configure: func(_ *testing.T, _ *httptest.Server, downloads *PackageDownloads) {
 				downloads.Downloads[0].SHA256 = strings.Repeat("0", 64)
 			},
-			want: "métadonnées incohérentes",
+			want: "inconsistent metadata",
 		},
 		{
 			name: "foreign origin",
 			configure: func(_ *testing.T, _ *httptest.Server, downloads *PackageDownloads) {
 				downloads.Downloads[0].DownloadURL = "https://attacker.invalid/blob"
 			},
-			want: "URL signée invalide",
+			want: "invalid signed URL",
 		},
 		{
 			name: "redirect",

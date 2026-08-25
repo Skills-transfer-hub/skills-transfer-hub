@@ -1,12 +1,12 @@
 package cmd
 
 import (
-	"bufio"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
+
+	"sth/internal/tui"
 )
 
 const (
@@ -28,33 +28,39 @@ const (
 // (matches the `sth init` exit-code policy).
 func (a *app) runPackInit(args []string) error {
 	if len(args) > 0 {
-		return fmt.Errorf("sth pack init n'accepte pas d'argument positionnel (reçu : %v)", args)
+		return fmt.Errorf("sth pack init does not accept positional arguments (received: %v)", args)
 	}
 
-	reader := bufio.NewReader(a.stdin)
+	session := tui.NewSession(a.stdin, a.stdout)
 	a.writeStdout(
-		"sth pack init — scaffolde un repo de skills compatible STH.",
+		"sth pack init — scaffold an STH-compatible skill repository.",
 		"",
 	)
 
-	name, err := promptValue(reader, a.stdout, "Nom du pack (ex: my-skills)", "")
+	name, err := tui.Input(session, tui.InputConfig{Label: "Pack name (example: my-skills)", Required: true})
 	if err != nil {
 		return err
 	}
 	if !isValidPackName(name) {
-		return fmt.Errorf("nom de pack invalide %q : caractères autorisés [a-z0-9-_]", name)
+		return fmt.Errorf("invalid pack name %q: allowed characters are [a-z0-9-_]", name)
 	}
 
-	layout, err := promptValue(reader, a.stdout, "Layout (flat|multi-stack)", packLayoutMultiStack)
+	layoutIndex, err := tui.Select(session, tui.SelectConfig{
+		Title: "Pack layout",
+		Options: []tui.Option{
+			{Label: "multi-stack — one folder per target stack", Aliases: []string{"multi-stack", "multi", "m"}},
+			{Label: "flat — everything at the repository root", Aliases: []string{"flat", "f"}},
+		},
+	})
 	if err != nil {
 		return err
 	}
-	layout = strings.ToLower(strings.TrimSpace(layout))
-	if layout != packLayoutFlat && layout != packLayoutMultiStack {
-		return fmt.Errorf("layout inconnu %q (attendu : flat ou multi-stack)", layout)
+	layout := packLayoutMultiStack
+	if layoutIndex == 1 {
+		layout = packLayoutFlat
 	}
 
-	targetDir, err := promptValue(reader, a.stdout, "Dossier cible", "./"+name)
+	targetDir, err := tui.Input(session, tui.InputConfig{Label: "Target folder", Default: "./" + name, Required: true})
 	if err != nil {
 		return err
 	}
@@ -62,14 +68,14 @@ func (a *app) runPackInit(args []string) error {
 
 	a.writeStdout(
 		"",
-		fmt.Sprintf("Récap : pack %q | layout %s | dossier %s", name, layout, targetDir),
+		fmt.Sprintf("Summary: pack %q | layout %s | folder %s", name, layout, targetDir),
 	)
-	confirm, err := promptYesNo(reader, a.stdout, "Confirmer la création", true)
+	confirm, err := tui.Confirm(session, tui.ConfirmConfig{Question: "Confirm creation?", DefaultYes: true})
 	if err != nil {
 		return err
 	}
 	if !confirm {
-		return errors.New("annulé par l'utilisateur")
+		return errors.New("canceled by user")
 	}
 
 	if err := scaffoldPack(targetDir, name, layout); err != nil {
@@ -78,11 +84,11 @@ func (a *app) runPackInit(args []string) error {
 
 	a.writeStdout(
 		"",
-		fmt.Sprintf("Pack scaffold dans %s.", targetDir),
-		"Étapes suivantes :",
+		fmt.Sprintf("Pack scaffolded in %s.", targetDir),
+		"Next steps:",
 		"  1. cd "+targetDir,
 		"  2. git init && git add . && git commit -m \"initial pack\"",
-		"  3. Publier sur ton provider git puis pointer un consommateur via `sth init`.",
+		"  3. Publish to your Git provider, then point a consumer at it with `sth init`.",
 	)
 	return validatePack(targetDir, layout)
 }
@@ -115,10 +121,10 @@ func isValidPackName(name string) bool {
 // expensive and the user has time to delete one folder.
 func scaffoldPack(targetDir, name, layout string) error {
 	if entries, err := os.ReadDir(targetDir); err == nil && len(entries) > 0 {
-		return fmt.Errorf("le dossier cible %s existe déjà et n'est pas vide ; choisis un chemin neuf ou vide-le d'abord", targetDir)
+		return fmt.Errorf("target folder %s already exists and is not empty; choose a new path or empty it first", targetDir)
 	}
 	if err := os.MkdirAll(targetDir, 0o755); err != nil {
-		return fmt.Errorf("création de %s échouée : %w", targetDir, err)
+		return fmt.Errorf("failed to create %s: %w", targetDir, err)
 	}
 
 	files := map[string]string{
@@ -130,9 +136,9 @@ func scaffoldPack(targetDir, name, layout string) error {
 
 	switch layout {
 	case packLayoutFlat:
-		files["sample-skill/SKILL.md"] = sampleSkillContent("sample-skill", "Exemple minimal de skill.")
+		files["sample-skill/SKILL.md"] = sampleSkillContent("sample-skill", "Minimal skill example.")
 	case packLayoutMultiStack:
-		files["skills/sample/SKILL.md"] = sampleSkillContent("sample", "Skill multi-stack d'exemple.")
+		files["skills/sample/SKILL.md"] = sampleSkillContent("sample", "Multi-stack skill example.")
 		files["agents/sample.md"] = sampleAgentContent("sample")
 		files["commands/sample.md"] = sampleCommandContent("sample")
 		files["common/instructions/sample.instructions.md"] = sampleInstructionContent()
@@ -141,10 +147,10 @@ func scaffoldPack(targetDir, name, layout string) error {
 	for relPath, content := range files {
 		full := filepath.Join(targetDir, relPath)
 		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
-			return fmt.Errorf("création de %s échouée : %w", filepath.Dir(full), err)
+			return fmt.Errorf("failed to create %s: %w", filepath.Dir(full), err)
 		}
 		if err := os.WriteFile(full, []byte(content), 0o644); err != nil {
-			return fmt.Errorf("écriture de %s échouée : %w", full, err)
+			return fmt.Errorf("failed to write %s: %w", full, err)
 		}
 	}
 	return nil
@@ -155,16 +161,16 @@ func scaffoldPack(targetDir, name, layout string) error {
 func validatePack(targetDir, layout string) error {
 	manifest := filepath.Join(targetDir, "manifest.json")
 	if _, err := os.Stat(manifest); err != nil {
-		return fmt.Errorf("validation post-scaffold : manifest.json manquant : %w", err)
+		return fmt.Errorf("post-scaffold validation: missing manifest.json: %w", err)
 	}
 	switch layout {
 	case packLayoutFlat:
 		if _, err := os.Stat(filepath.Join(targetDir, "sample-skill", "SKILL.md")); err != nil {
-			return fmt.Errorf("validation post-scaffold : sample-skill/SKILL.md manquant : %w", err)
+			return fmt.Errorf("post-scaffold validation: missing sample-skill/SKILL.md: %w", err)
 		}
 	case packLayoutMultiStack:
 		if _, err := os.Stat(filepath.Join(targetDir, "skills", "sample", "SKILL.md")); err != nil {
-			return fmt.Errorf("validation post-scaffold : skills/sample/SKILL.md manquant : %w", err)
+			return fmt.Errorf("post-scaffold validation: missing skills/sample/SKILL.md: %w", err)
 		}
 	}
 	return nil
@@ -180,23 +186,23 @@ dist/
 func renderReadme(name, layout string) string {
 	return fmt.Sprintf(`# %s
 
-Skills pack scaffold par sth (`+"`sth pack init`"+`).
+Skills pack scaffolded by sth (`+"`sth pack init`"+`).
 
-Layout : **%s**
+Layout: **%s**
 
 ## Usage
 
-Depuis un projet consommateur :
+From a consumer project:
 
-    sth init    # pointer ce repo
-    sth list    # lister les skills exposés
+    sth init    # point to this repository
+    sth list    # list exposed skills
     sth install <ref>
 
 `, name, layout)
 }
 
 func renderSkillsMd(layout string) string {
-	header := `# Catalogue
+	header := `# Catalog
 
 | Type | Name | Folder | Source |
 |------|------|--------|--------|
@@ -232,42 +238,41 @@ description: %s
 
 # %s
 
-Décris ici la skill et son usage. Tu peux ajouter des sous-fichiers dans le
-dossier `+"`references/`"+` à côté de ce SKILL.md.
+Describe the skill and its usage here. You can add supporting files in the
+`+"`references/`"+` folder next to this SKILL.md.
 `, name, description, name)
 }
 
 func sampleAgentContent(name string) string {
 	return fmt.Sprintf(`---
 name: %s
-description: Agent d'exemple scaffold par sth pack init.
+description: Sample agent scaffolded by sth pack init.
 ---
 
-Tu es un agent d'exemple. Remplace ce prompt par les instructions réelles
-de ton agent.
+You are a sample agent. Replace this prompt with your agent's actual
+instructions.
 `, name)
 }
 
 func sampleCommandContent(name string) string {
 	return fmt.Sprintf(`---
 name: %s
-description: Commande slash d'exemple scaffold par sth pack init.
+description: Sample slash command scaffolded by sth pack init.
 ---
 
-Documente ici ce que la commande doit accomplir. Le contenu est exposé en
-tant que `+"`/%s`"+` dans les outils compatibles (Claude Code, Copilot CLI,
-Cursor, Antigravity et Gemini CLI).
+Document what the command should do here. The content is exposed as `+"`/%s`"+`
+in compatible tools (Claude Code, Copilot CLI, Cursor, Antigravity, and Gemini CLI).
 `, name, name)
 }
 
 func sampleInstructionContent() string {
 	return `---
-description: Instruction d'exemple scaffold par sth pack init.
+description: Sample instruction scaffolded by sth pack init.
 applyTo: '**/*.md'
 ---
 
-Cette instruction sera injectée comme contexte ambiant pour les fichiers
-matchant ` + "`applyTo`" + `. Format compatible GitHub Copilot, mappé en
-` + "`globs:`" + ` côté Cursor et en règles projet pour Claude Code et Antigravity.
+This instruction is injected as ambient context for files matching ` + "`applyTo`" + `.
+It is compatible with GitHub Copilot, mapped to ` + "`globs:`" + ` for Cursor,
+and mapped to project rules for Claude Code and Antigravity.
 `
 }

@@ -12,7 +12,7 @@ import (
 // the server boundary; it must not make this local scaffold paywalled.
 func (a *app) runPack(args []string) error {
 	if len(args) == 0 {
-		return errors.New("usage : sth pack <init|promote>")
+		return errors.New("usage: sth pack <init|promote>")
 	}
 	if isHelpFlag(args[0]) {
 		a.writeStdout(commandHelpText("pack"))
@@ -32,5 +32,5 @@ func (a *app) runPack(args []string) error {
 		}
 		return a.runPackPromote(args[1:])
 	}
-	return fmt.Errorf("commande pack inconnue : %q", args[0])
+	return fmt.Errorf("unknown pack command: %q", args[0])
 }
