@@ -1,29 +1,34 @@
 package cmd
 
 import (
-	"bufio"
+	"errors"
 	"fmt"
-	"io"
 	"os"
 	"strings"
 
 	"sth/internal/fs"
+	"sth/internal/tui"
 )
 
-// alphaProviderGateSkipValue must match cmd/alpha_gate.go — the same env var
-// disables every Alpha-period restriction (version check + provider cap).
 const alphaProviderGateSkipValue = "0"
 
-// runInit is the dispatcher: handles the existing-config branch and the
-// optional legacy ~/.sthrc import, then hands off to runInitWizard for the
-// narrated step-by-step flow. The bulk of the UX lives in cmd/init_wizard.go.
-//
-// Recognized flags:
-//
-//	--no-cloud-prompt   skip the connected-mode cloud-login sub-prompt even
-//	                    when the user picks telemetry mode = connected. Used
-//	                    by power users / CI wrappers that don't want the
-//	                    extra interactive step.
+type initUserError struct {
+	message string
+	cause   error
+}
+
+func (userErr initUserError) Error() string {
+	return userErr.message
+}
+
+func (userErr initUserError) Unwrap() error {
+	return userErr.cause
+}
+
+func newInitUserError(message string, cause error) error {
+	return initUserError{message: message, cause: cause}
+}
+
 func (a *app) runInit(args ...string) error {
 	skipCloudPrompt := false
 	for _, arg := range args {
@@ -32,42 +37,16 @@ func (a *app) runInit(args ...string) error {
 		}
 	}
 
-	reader := bufio.NewReader(a.stdin)
-
-	// First init asks for telemetry mode before anything else. Re-running
-	// init never re-prompts: the decision is user-scoped and durable.
-	if !fs.HasTelemetryDecision() {
-		mode, err := a.promptTelemetryMode(reader)
-		if err != nil {
-			return err
-		}
-		if !skipCloudPrompt {
-			a.promptCloudLoginIfNeeded(reader, mode)
-		}
-	}
+	session := tui.NewSession(a.stdin, a.stdout)
+	defer session.Close()
 
 	existingCfg, err := fs.ReadProjectConfigV2()
 	if err != nil {
-		return err
+		return newInitUserError("could not read the project configuration", err)
 	}
 	legacyConfig, err := fs.ReadConfigIfPresent()
 	if err != nil {
-		return err
-	}
-
-	if len(existingCfg.Providers) > 0 {
-		a.writeStdout(fmt.Sprintf("Configuration projet existante : %d provider(s) configuré(s) :", len(existingCfg.Providers)))
-		for _, p := range existingCfg.Providers {
-			a.writeStdout(fmt.Sprintf("- [%s] %s: %s @ %s", p.ID, p.Provider, p.RepositoryID, p.CatalogRef))
-		}
-		addNew, promptErr := promptYesNo(reader, a.stdout, "Ajouter un nouveau provider ?", false)
-		if promptErr != nil {
-			return promptErr
-		}
-		if !addNew {
-			a.writeStdout("Configuration projet conservée.", "Prochaine étape : utilisez `sth list`.")
-			return nil
-		}
+		return newInitUserError("could not read the legacy configuration", err)
 	}
 
 	defaults := fs.ProjectProfile{
@@ -76,33 +55,85 @@ func (a *app) runInit(args ...string) error {
 		CatalogPath: "SKILLS.md",
 		TargetDir:   ".sth",
 	}
-	if len(existingCfg.Providers) == 0 && legacyConfig != nil {
-		legacyProfile, legacyErr := fs.LegacyProfileFromConfig(*legacyConfig)
-		if legacyErr == nil {
-			shouldImport, promptErr := promptYesNo(reader, a.stdout, "Importer la configuration legacy ~/.sthrc ?", true)
-			if promptErr != nil {
-				return promptErr
-			}
-			if shouldImport {
-				defaults = *legacyProfile
-			}
-		}
-	}
 
-	// First provider gets "default" silently. For the 2nd+ provider we'll ask
-	// inside the wizard (passing "" signals "ask").
 	assignedAlias := "default"
 	if len(existingCfg.Providers) > 0 {
 		assignedAlias = ""
 	}
 
-	return a.runInitWizard(reader, existingCfg, defaults, assignedAlias)
+	var legacyProfile *fs.ProjectProfile
+	if len(existingCfg.Providers) == 0 && legacyConfig != nil {
+		if legacyProfileValue, legacyErr := fs.LegacyProfileFromConfig(*legacyConfig); legacyErr == nil {
+			legacyProfile = legacyProfileValue
+		}
+	}
+
+	if session.Interactive {
+		flow := newInitFlowModel(a, session.MaxWidth, skipCloudPrompt, existingCfg, defaults, assignedAlias, legacyProfile)
+		finalModel, programErr := session.RunProgram(flow)
+		if programErr != nil {
+			return programErr
+		}
+		result := finalModel.(initFlowModel)
+		if len(result.resultLines) > 0 {
+			a.writeStdout(result.resultLines...)
+		}
+		if errors.Is(result.flowErr, tui.ErrAborted) {
+			a.writeStdout("Setup cancelled.")
+			return nil
+		}
+		return result.flowErr
+	}
+
+	if !fs.HasTelemetryDecision() {
+		mode, err := a.promptTelemetryMode(session)
+		if err != nil {
+			return a.mapInitAbort(err)
+		}
+		if !skipCloudPrompt {
+			a.promptCloudLoginIfNeeded(session, mode)
+		}
+	}
+
+	if len(existingCfg.Providers) > 0 {
+		a.writeStdout(fmt.Sprintf("Existing project configuration: %d provider(s):", len(existingCfg.Providers)))
+		for _, provider := range existingCfg.Providers {
+			a.writeStdout(fmt.Sprintf("- [%s] %s: %s @ %s", provider.ID, provider.Provider, provider.RepositoryID, provider.CatalogRef))
+		}
+		addNew, promptErr := tui.Confirm(session, tui.ConfirmConfig{Question: "Add a new provider?", DefaultYes: false})
+		if promptErr != nil {
+			return a.mapInitAbort(promptErr)
+		}
+		if !addNew {
+			a.writeStdout("Project configuration kept.", "Next step: run `sth list`.")
+			return nil
+		}
+	}
+
+	if legacyProfile != nil {
+		shouldImport, promptErr := tui.Confirm(session, tui.ConfirmConfig{Question: "Import legacy ~/.sthrc configuration?", DefaultYes: true})
+		if promptErr != nil {
+			return a.mapInitAbort(promptErr)
+		}
+		if shouldImport {
+			defaults = *legacyProfile
+		}
+	}
+
+	if err := a.runInitWizard(session, existingCfg, defaults, assignedAlias); err != nil {
+		return a.mapInitAbort(err)
+	}
+	return nil
 }
 
-// providerAccessGuidance returns the public-or-private access guidance for a
-// provider. Kept here (not in init_wizard.go) because the per-provider wall
-// of text is shared with the "Détails complets ?" gate and any future
-// command that needs to show provider help.
+func (a *app) mapInitAbort(err error) error {
+	if errors.Is(err, tui.ErrAborted) {
+		a.writeStdout("Setup cancelled.")
+		return nil
+	}
+	return err
+}
+
 func providerAccessGuidance(provider string, isPrivate bool) []string {
 	if !isPrivate {
 		return providerPublicAccessGuidance(provider)
@@ -113,15 +144,15 @@ func providerAccessGuidance(provider string, isPrivate bool) []string {
 func providerPublicAccessGuidance(provider string) []string {
 	switch strings.ToLower(strings.TrimSpace(provider)) {
 	case "github":
-		return []string{"Depot public", "Authentification GitHub : aucune authentification n'est necessaire pour un depot public lisible anonymement."}
+		return []string{"Public repository", "GitHub authentication: none is required for a public repository with anonymous read access."}
 	case "gitlab":
-		return []string{"Depot public", "Authentification GitLab : aucune authentification n'est necessaire pour un depot public lisible anonymement."}
+		return []string{"Public repository", "GitLab authentication: none is required for a public repository with anonymous read access."}
 	case "azure-devops":
-		return []string{"Depot public", "Authentification Azure DevOps : un depot public peut rester accessible sans secret, sinon fournissez un PAT Azure DevOps."}
+		return []string{"Public repository", "Azure DevOps authentication: a public repository may be readable without a secret; otherwise provide an Azure DevOps PAT."}
 	case "bitbucket":
-		return []string{"Depot public", "Authentification Bitbucket : aucune authentification n'est necessaire pour un depot public lisible anonymement."}
+		return []string{"Public repository", "Bitbucket authentication: none is required for a public repository with anonymous read access."}
 	default:
-		return []string{"Depot public", "Si le depot est public, l'acces anonyme peut suffire; sinon configurez une authentification provider-specific."}
+		return []string{"Public repository", "Anonymous access may be enough for a public repository; otherwise configure authentication for this provider."}
 	}
 }
 
@@ -129,89 +160,88 @@ func providerPrivateAccessGuidance(provider string) []string {
 	guide, ok := findProviderGuide(provider)
 	if !ok {
 		return []string{
-			"Depot prive - Authentification requise",
+			"Private repository — authentication required",
 			"",
-			"Generez un token d'acces depuis l'interface de votre provider et definissez :",
-			"  export STH_TOKEN=<votre-token>",
+			"Generate an access token in your provider, then set:",
+			"  export STH_TOKEN=<your-token>",
 		}
 	}
 
 	switch strings.ToLower(strings.TrimSpace(provider)) {
 	case "github":
 		return []string{
-			"Depot prive - Authentification requise",
+			"Private repository — authentication required",
 			"",
-			"Pour acceder a ce depot GitHub prive, vous avez besoin d'un Personal Access Token (PAT).",
+			"You need a Personal Access Token (PAT) to access this private GitHub repository.",
 			"",
-			"Comment generer votre token :",
-			"  1. Rendez-vous sur : " + guide.ActionURL,
-			"  2. Selectionnez \"Fine-grained token\" (recommande) ou \"Classic token\"",
-			"     Fine-grained : accordez la permission \"" + guide.MinimumPermission + "\" sur le depot cible",
-			"     Classic      : cochez \"repo\" pour l'acces complet aux depots prives",
-			"  3. Cliquez \"Generate token\" et copiez la valeur affichee",
+			"Generate your token:",
+			"  1. Open: " + guide.ActionURL,
+			"  2. Select \"Fine-grained token\" (recommended) or \"Classic token\"",
+			"     Fine-grained: grant \"" + guide.MinimumPermission + "\" on the target repository",
+			"     Classic: enable \"repo\" for full access to private repositories",
+			"  3. Click \"Generate token\" and copy the displayed value",
 			"",
-			"Variable d'environnement a definir pour les prochaines utilisations :",
-			"  export GITHUB_TOKEN=<votre-token>",
-			"  ou STH_TOKEN=<votre-token>   (compatible toutes plateformes)",
+			"Set an environment variable for future runs:",
+			"  export GITHUB_TOKEN=<your-token>",
+			"  or STH_TOKEN=<your-token>   (works with every provider)",
 		}
 	case "gitlab":
 		return []string{
-			"Depot prive - Authentification requise",
+			"Private repository — authentication required",
 			"",
-			"Pour acceder a ce depot GitLab prive, vous avez besoin d'un Personal Access Token.",
+			"You need a Personal Access Token to access this private GitLab repository.",
 			"",
-			"Comment generer votre token :",
-			"  1. Rendez-vous sur : " + guide.ActionURL,
-			"  2. Donnez un nom au token et choisissez une date d'expiration",
-			"  3. Cochez la permission : \"" + guide.MinimumPermission + "\"",
-			"  4. Cliquez \"Create personal access token\" et copiez la valeur affichee",
+			"Generate your token:",
+			"  1. Open: " + guide.ActionURL,
+			"  2. Name the token and choose an expiration date",
+			"  3. Enable the permission: \"" + guide.MinimumPermission + "\"",
+			"  4. Click \"Create personal access token\" and copy the displayed value",
 			"",
-			"Variable d'environnement a definir pour les prochaines utilisations :",
-			"  export GITLAB_TOKEN=<votre-token>",
-			"  ou STH_TOKEN=<votre-token>   (compatible toutes plateformes)",
+			"Set an environment variable for future runs:",
+			"  export GITLAB_TOKEN=<your-token>",
+			"  or STH_TOKEN=<your-token>   (works with every provider)",
 		}
 	case "azure-devops":
 		return []string{
-			"Depot prive - Authentification requise",
+			"Private repository — authentication required",
 			"",
-			"Pour acceder a ce depot Azure DevOps prive, vous avez besoin d'un Personal Access Token (PAT).",
+			"You need a Personal Access Token (PAT) to access this private Azure DevOps repository.",
 			"",
-			"Comment generer votre token :",
-			"  1. Connectez-vous sur : https://dev.azure.com/<votre-organisation>",
-			"  2. Cliquez sur votre avatar en haut a droite > \"Personal access tokens\"",
-			"     Acces direct : " + guide.ActionURL,
-			"  3. Cliquez \"New Token\", selectionnez la permission : \"" + guide.MinimumPermission + "\"",
-			"  4. Cliquez \"Create\" et copiez la valeur affichee",
+			"Generate your token:",
+			"  1. Sign in at: https://dev.azure.com/<your-organization>",
+			"  2. Click your avatar in the upper-right corner, then \"Personal access tokens\"",
+			"     Direct link: " + guide.ActionURL,
+			"  3. Click \"New Token\" and select the permission: \"" + guide.MinimumPermission + "\"",
+			"  4. Click \"Create\" and copy the displayed value",
 			"",
-			"Variable d'environnement a definir pour les prochaines utilisations :",
-			"  export AZURE_DEVOPS_EXT_PAT=<votre-token>",
-			"  ou STH_TOKEN=<votre-token>   (compatible toutes plateformes)",
+			"Set an environment variable for future runs:",
+			"  export AZURE_DEVOPS_EXT_PAT=<your-token>",
+			"  or STH_TOKEN=<your-token>   (works with every provider)",
 		}
 	case "bitbucket":
 		return []string{
-			"Depot prive - Authentification requise",
+			"Private repository — authentication required",
 			"",
-			"Pour acceder a ce depot Bitbucket Cloud prive, vous avez besoin d'un API token Atlassian.",
+			"You need an Atlassian API token to access this private Bitbucket Cloud repository.",
 			"",
-			"Documentation officielle : " + guide.DocumentationURL,
-			"Point d'entree compte Atlassian : " + guide.ActionURL,
-			"Permission minimale attendue : \"" + guide.MinimumPermission + "\"",
+			"Official documentation: " + guide.DocumentationURL,
+			"Atlassian account page: " + guide.ActionURL,
+			"Minimum required permission: \"" + guide.MinimumPermission + "\"",
 			"",
-			"Variables d'environnement a definir pour les prochaines utilisations :",
-			"  export BITBUCKET_TOKEN=<votre-token>",
-			"  ou STH_TOKEN=<votre-token>   (compatible toutes plateformes)",
+			"Set an environment variable for future runs:",
+			"  export BITBUCKET_TOKEN=<your-token>",
+			"  or STH_TOKEN=<your-token>   (works with every provider)",
 		}
 	default:
 		return []string{
-			"Depot prive - Authentification requise",
+			"Private repository — authentication required",
 			"",
-			"Generez un token d'acces depuis l'interface de votre provider et definissez :",
-			"  export STH_TOKEN=<votre-token>",
+			"Generate an access token in your provider, then set:",
+			"  export STH_TOKEN=<your-token>",
 		}
 	}
 }
 
-// providerTokenEnvVar returns the primary environment variable name for the given provider's token.
 func providerTokenEnvVar(provider string) string {
 	guide, ok := findProviderGuide(provider)
 	if !ok || len(guide.EnvVars) == 0 {
@@ -219,27 +249,6 @@ func providerTokenEnvVar(provider string) string {
 	}
 
 	return guide.EnvVars[0]
-}
-
-func promptRepositoryID(reader *bufio.Reader, stdout io.Writer, provider, defaultValue string) (string, error) {
-	for {
-		value, err := promptValue(reader, stdout, "Repository ID", defaultValue)
-		if err != nil {
-			return "", err
-		}
-		normalizedValue, err := fs.NormalizeRepositoryID(provider, value)
-		if err != nil {
-			fmt.Fprintln(stdout, "Repository ID invalide.")
-			fmt.Fprintf(stdout, "Format attendu pour repository_id : %s\n", providerRepositoryIDFormat(provider))
-			fmt.Fprintf(stdout, "Exemple : %s\n", providerRepositoryIDExample(provider))
-			if hostedDomain := providerHostedDomain(provider); hostedDomain != "" {
-				fmt.Fprintf(stdout, "Host hébergé supporté : %s\n", hostedDomain)
-			}
-			continue
-		}
-
-		return normalizedValue, nil
-	}
 }
 
 func validateRepositoryID(provider, repositoryID string) error {
@@ -265,54 +274,6 @@ func providerRepositoryIDExample(provider string) string {
 	return guide.RepositoryIDExample
 }
 
-func promptProvider(reader *bufio.Reader, stdout io.Writer, defaultValue string) (string, error) {
-	allowed := supportedProviderKeys()
-	for {
-		value, err := promptValue(reader, stdout, "Provider [github|gitlab|azure-devops|bitbucket]", defaultValue)
-		if err != nil {
-			return "", err
-		}
-		normalized := strings.ToLower(strings.TrimSpace(value))
-		if _, ok := findProviderGuide(normalized); ok {
-			return normalized, nil
-		}
-		fmt.Fprintf(stdout, "Provider invalide. Choisissez %s.\n", strings.Join(allowed, ", "))
-	}
-}
-
-func promptValue(reader *bufio.Reader, stdout io.Writer, label, defaultValue string) (string, error) {
-	prompt := label
-	if strings.TrimSpace(defaultValue) != "" {
-		prompt = fmt.Sprintf("%s [%s]", label, defaultValue)
-	}
-	if _, err := fmt.Fprintf(stdout, "%s: ", prompt); err != nil {
-		return "", err
-	}
-	line, err := reader.ReadString('\n')
-	if err != nil {
-		if err == io.EOF && strings.TrimSpace(line) == "" {
-			return "", io.EOF
-		}
-		if err != io.EOF {
-			return "", fmt.Errorf("lecture de l'entrée utilisateur échouée : %w", err)
-		}
-	}
-	trimmed := strings.TrimSpace(line)
-	if trimmed == "" {
-		trimmed = strings.TrimSpace(defaultValue)
-	}
-	if trimmed == "" {
-		return "", fmt.Errorf("%s doit être renseigné", strings.ToLower(label))
-	}
-
-	return trimmed, nil
-}
-
-// (promptFirstInitWelcome was the legacy y/N consent prompt. It has been
-// replaced by promptTelemetryMode + promptCloudLoginIfNeeded which expose
-// the 3-tier choice — see cmd/init_telemetry_mode.go and
-// cmd/init_cloud_login.go.)
-
 func countPrivateGitProviders(cfg fs.ProjectConfigV2) int {
 	count := 0
 	for _, provider := range cfg.Providers {
@@ -326,30 +287,6 @@ func countPrivateGitProviders(cfg fs.ProjectConfigV2) int {
 	return count
 }
 
-// alphaProviderGateActive reports whether the Alpha-period provider cap is
-// currently enforced. The same escape hatch as the version gate (STH_ALPHA_GATE=0)
-// disables it — keeping the two gates aligned avoids users having to remember
-// two env vars.
 func alphaProviderGateActive() bool {
 	return strings.TrimSpace(os.Getenv(alphaGateSkipEnvVar)) != alphaProviderGateSkipValue
-}
-
-func promptYesNo(reader *bufio.Reader, stdout io.Writer, label string, defaultYes bool) (bool, error) {
-	suffix := "[y/N]"
-	if defaultYes {
-		suffix = "[Y/n]"
-	}
-	if _, err := fmt.Fprintf(stdout, "%s %s: ", label, suffix); err != nil {
-		return false, err
-	}
-	line, err := reader.ReadString('\n')
-	if err != nil && err != io.EOF {
-		return false, fmt.Errorf("lecture de l'entrée utilisateur échouée : %w", err)
-	}
-	trimmed := strings.ToLower(strings.TrimSpace(line))
-	if trimmed == "" {
-		return defaultYes, nil
-	}
-
-	return trimmed == "y" || trimmed == "yes" || trimmed == "o" || trimmed == "oui", nil
 }

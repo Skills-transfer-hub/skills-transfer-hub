@@ -69,16 +69,16 @@ func (a *app) enforceCapability(ctx context.Context, capability string) error {
 			// command doesn't keep trying. Best-effort delete.
 			_ = auth.DeleteAPIKey()
 			return errors.New(
-				"clé STH Cloud refusée par le serveur — relance `sth login` " +
-					"avec une clé valide (ou exporte " + proGateSkipEnvVar + "=0 pour bypass).",
+				"the STH Cloud key was rejected by the server — run `sth login` again " +
+					"with a valid key (or export " + proGateSkipEnvVar + "=0 to bypass the gate)",
 			)
 		}
 		if errors.Is(err, auth.ErrKeyNotFound) {
 			// No key configured at all (keychain empty + env unset) — that's
 			// a "please log in" UX, not a "subscribe to Pro" UX.
 			return errors.New(
-				"aucune clé STH Cloud configurée — exécute `sth login` " +
-					"(ou exporte " + proGateSkipEnvVar + "=0 pour bypass).",
+				"no STH Cloud key is configured — run `sth login` " +
+					"(or export " + proGateSkipEnvVar + "=0 to bypass the gate)",
 			)
 		}
 		// Network failure: tolerate a stale cache if it grants the capability.
@@ -100,7 +100,7 @@ func (a *app) enforceCapability(ctx context.Context, capability string) error {
 		Capabilities: ent.Capabilities,
 		CheckedAt:    time.Now().UTC(),
 	}); saveErr != nil {
-		a.writeStderr(fmt.Sprintf("Avertissement : cache entitlements non écrit : %v", saveErr))
+		a.writeStderr(fmt.Sprintf("Warning: could not write the entitlements cache: %v", saveErr))
 	}
 
 	if !containsCapability(ent.Capabilities, capability) {
@@ -144,15 +144,15 @@ func proGateNotEntitledError() error {
 
 func notEntitledError(capability string) error {
 	return fmt.Errorf(
-		"cette commande requiert la capability `%s` (offre Pro / Team). "+
-			"Voir %s pour souscrire, ou exporte %s=0 si tu travailles sur le binaire en local.",
+		"this command requires the `%s` capability (Pro or Team plan). "+
+			"Visit %s to subscribe, or export %s=0 when working on the binary locally",
 		capability, DocsURL(), proGateSkipEnvVar,
 	)
 }
 
 func containsCapability(haystack []string, needle string) bool {
-	for _, c := range haystack {
-		if c == needle {
+	for _, capability := range haystack {
+		if capability == needle {
 			return true
 		}
 	}

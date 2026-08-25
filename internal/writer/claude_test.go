@@ -30,7 +30,7 @@ func TestClaudeWriter_Write_PrependsBannerForPlainMarkdown(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadFile() error = %v", err)
 	}
-	if !strings.HasPrefix(string(data), "> ⚠️ ATTENTION : Skill géré par STH") {
+	if !strings.HasPrefix(string(data), ClaudeManagedHeader) {
 		t.Fatalf("missing managed banner, got: %q", string(data[:80]))
 	}
 	if result.SHA256 == "" {
@@ -62,10 +62,10 @@ func TestClaudeWriter_Write_InjectsBannerAfterFrontmatter(t *testing.T) {
 	if !strings.HasPrefix(str, "---\nname: foo\ndescription: bar\n---\n") {
 		t.Fatalf("frontmatter not preserved on line 1, got: %q", str)
 	}
-	if !strings.Contains(str, "> ⚠️ ATTENTION : Skill géré par STH") {
+	if !strings.Contains(str, ClaudeManagedHeader) {
 		t.Fatal("banner missing after frontmatter")
 	}
-	bannerAfter := strings.Index(str, "> ⚠️ ATTENTION") > strings.Index(str, "---\nname")
+	bannerAfter := strings.Index(str, ClaudeManagedHeader) > strings.Index(str, "---\nname")
 	if !bannerAfter {
 		t.Fatal("banner should appear AFTER frontmatter close")
 	}
@@ -132,6 +132,31 @@ func TestClaudeWriter_Write_IdempotentBanner(t *testing.T) {
 	}
 	if first.SHA256 != second.SHA256 {
 		t.Fatalf("SHA should be stable across re-writes (banner not doubled), got %s vs %s", first.SHA256, second.SHA256)
+	}
+}
+
+func TestClaudeWriter_Write_MigratesLegacyBanner(t *testing.T) {
+	directory := t.TempDir()
+	target := filepath.Join(directory, "skill.md")
+	legacyContent := []byte(claudeLegacyManagedHeader + "# Hi\n")
+
+	if _, err := NewClaudeWriter().Write(WriteRequest{
+		InstalledPath:    target,
+		Content:          legacyContent,
+		AddManagedHeader: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	data, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Count(string(data), ClaudeManagedHeader) != 1 {
+		t.Fatalf("expected exactly one English managed banner, got %q", data)
+	}
+	if strings.Contains(string(data), claudeLegacyManagedHeader) {
+		t.Fatalf("legacy managed banner was not migrated, got %q", data)
 	}
 }
 

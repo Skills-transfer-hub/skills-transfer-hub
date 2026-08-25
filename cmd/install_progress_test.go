@@ -15,8 +15,8 @@ import (
 func TestInstallProgress_NilSafe(t *testing.T) {
 	var progress *installProgress
 	progress.start(installStepCount)
-	progress.step("Téléchargement…")
-	progress.note("Configuration…")
+	progress.step("Downloading…")
+	progress.note("Configuring…")
 	progress.stop()
 }
 
@@ -24,14 +24,14 @@ func TestInstallProgress_NonTTYStepLines(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	progress := newInstallProgress(&stdout, &stderr, false)
 	progress.start(installStepCount)
-	progress.step("Récupération du catalogue…")
-	progress.step("Téléchargement de alpha…")
+	progress.step("Fetching catalog…")
+	progress.step("Downloading alpha…")
 	progress.stop()
 
 	if stdout.Len() != 0 {
 		t.Fatalf("stdout = %q, want empty in non-TTY mode", stdout.String())
 	}
-	want := "→ [1/4] Récupération du catalogue…\n→ [2/4] Téléchargement de alpha…\n"
+	want := "→ [1/4] Fetching catalog…\n→ [2/4] Downloading alpha…\n"
 	if stderr.String() != want {
 		t.Fatalf("stderr = %q, want %q", stderr.String(), want)
 	}
@@ -41,13 +41,56 @@ func TestInstallProgress_NoteDoesNotAdvanceCounter(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	progress := newInstallProgress(&stdout, &stderr, false)
 	progress.start(installStepCount)
-	progress.step("Installation des fichiers…")
-	progress.note("Configuration de Codex…")
-	progress.step("Finalisation…")
+	progress.step("Installing files…")
+	progress.note("Configuring Codex…")
+	progress.step("Finalizing…")
 
-	want := "→ [1/4] Installation des fichiers…\n→ Configuration de Codex…\n→ [2/4] Finalisation…\n"
+	want := "→ [1/4] Installing files…\n→ Configuring Codex…\n→ [2/4] Finalizing…\n"
 	if stderr.String() != want {
 		t.Fatalf("stderr = %q, want %q", stderr.String(), want)
+	}
+}
+
+func TestInstallProgressQueuesTTYErrorsUntilCompletion(t *testing.T) {
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	progress := newInstallProgress(&stdout, &stderr, true)
+	progress.start(2)
+	progress.step("First")
+	if !progress.printError("first resource failed\n") {
+		t.Fatal("TTY error was not queued")
+	}
+	progress.step("Second")
+	progress.complete()
+
+	if !strings.Contains(stdout.String(), "Second") || !strings.Contains(stdout.String(), "✔") {
+		t.Fatalf("progress did not finish after queued error: %q", stdout.String())
+	}
+	if stderr.String() != "first resource failed\n" {
+		t.Fatalf("stderr = %q", stderr.String())
+	}
+}
+
+func TestInstallProgressResumesAfterInteractivePrompt(t *testing.T) {
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	progress := newInstallProgress(&stdout, &stderr, true)
+	progress.start(4)
+	progress.step("Fetching catalog…")
+	progress.suspend()
+	promptQueued := progress.printError("prompt\n")
+	if !progress.suspended || promptQueued {
+		t.Fatalf("suspended progress = %v, prompt queued = %v", progress.suspended, promptQueued)
+	}
+	progress.resume()
+	progress.step("Downloading resource…")
+	progress.complete()
+
+	if progress.suspended || progress.current != 2 {
+		t.Fatalf("resumed progress = suspended %v, current %d", progress.suspended, progress.current)
+	}
+	if !strings.Contains(stdout.String(), "Downloading resource…") {
+		t.Fatalf("resumed progress output = %q", stdout.String())
 	}
 }
 
@@ -84,10 +127,10 @@ func TestRun_installEmitsProgressOnStderr(t *testing.T) {
 	if result.err != nil {
 		t.Fatalf("install error = %v\nstderr=%s", result.err, result.stderr)
 	}
-	assertContains(t, result.stderr, "[1/4] Récupération du catalogue")
-	assertContains(t, result.stderr, "[2/4] Téléchargement de alpha")
-	assertContains(t, result.stderr, "[4/4] Finalisation")
-	assertContains(t, result.stdout, "Ressource 'alpha' installée")
+	assertContains(t, result.stderr, "[1/4] Fetching catalog")
+	assertContains(t, result.stderr, "[2/4] Downloading alpha")
+	assertContains(t, result.stderr, "[4/4] Finalizing")
+	assertContains(t, result.stdout, "Resource 'alpha' installed")
 }
 
 func TestRun_installDryRunEmitsNoProgress(t *testing.T) {

@@ -34,7 +34,7 @@ type LastOperation struct {
 func LastOperationPath() (string, error) {
 	wd, err := os.Getwd()
 	if err != nil {
-		return "", fmt.Errorf("impossible de localiser le projet courant : %w", err)
+		return "", fmt.Errorf("unable to locate the current project: %w", err)
 	}
 	return filepath.Join(wd, projectConfigDirName, lastOperationFileName), nil
 }
@@ -79,7 +79,7 @@ func ReadLastOperation() (*LastOperation, error) {
 	}
 	var op LastOperation
 	if err := json.Unmarshal(data, &op); err != nil {
-		return nil, fmt.Errorf("last-operation.json malformé : %w", err)
+		return nil, fmt.Errorf("malformed last-operation.json: %w", err)
 	}
 	return &op, nil
 }

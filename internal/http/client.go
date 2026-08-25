@@ -14,6 +14,7 @@ import (
 	"os/exec"
 	"path"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -58,6 +59,7 @@ type ReleaseAsset struct {
 	DownloadURL     string
 	ChecksumURL     string
 	SignatureURL    string
+	ManifestURL     string
 	ChecksumName    string
 	AssetName       string
 	Highlights      []string
@@ -89,6 +91,10 @@ func NewClient(httpClient *stdhttp.Client) *Client {
 	}
 
 	return &Client{httpClient: httpClient, verbose: sthlog.NewVerbose(nil, false)}
+}
+
+func (c *Client) SilentCopy() *Client {
+	return NewClient(c.httpClient)
 }
 
 // SetVerbose attaches a verbose sink so the client can emit [verbose] HTTP
@@ -134,7 +140,7 @@ func (c *Client) CheckProjectAccess(ctx context.Context, profile fs.ProjectProfi
 		}
 	}
 
-	return fmt.Errorf("catalogue introuvable et aucun bundle compatible détecté")
+	return fmt.Errorf("catalog not found and no compatible bundle detected")
 }
 
 // ListCatalog returns the remote installable resources from SKILLS.md.
@@ -176,7 +182,7 @@ func (c *Client) ListBundleFiles(ctx context.Context, profile fs.ProjectProfile,
 
 	sourceRoot := path.Dir(normalizeDiscoveryPath(entry.SourcePath))
 	if sourceRoot == "." || sourceRoot == "/" || sourceRoot == "" {
-		return nil, fmt.Errorf("source_path bundle invalide : %q", entry.SourcePath)
+		return nil, fmt.Errorf("invalid bundle source_path: %q", entry.SourcePath)
 	}
 
 	treeEntries, err := c.ListRepositoryTree(ctx, profile)
@@ -203,7 +209,7 @@ func (c *Client) ListBundleFiles(ctx context.Context, profile fs.ProjectProfile,
 	}
 
 	if len(results) == 0 {
-		return nil, fmt.Errorf("aucun fichier bundle détecté pour %s", entry.CatalogID)
+		return nil, fmt.Errorf("no bundle file found for %s", entry.CatalogID)
 	}
 
 	sort.Strings(results)
@@ -244,10 +250,10 @@ func (c *Client) DownloadCatalogEntry(ctx context.Context, profile fs.ProjectPro
 // CheckForStableUpdate selects the latest stable release that matches the configured asset name.
 func (c *Client) CheckForStableUpdate(ctx context.Context, metadata ReleaseMetadata) (*ReleaseAsset, error) {
 	if strings.TrimSpace(metadata.ReleasesAPIURL) == "" {
-		return nil, errors.New("métadonnées de release absentes pour la mise à jour automatique")
+		return nil, errors.New("release metadata is missing for automatic updates")
 	}
 	if strings.TrimSpace(metadata.AssetName) == "" {
-		return nil, errors.New("nom d'artefact de release absent pour la plateforme courante")
+		return nil, errors.New("release artifact name is missing for the current platform")
 	}
 	if strings.TrimSpace(metadata.ChecksumName) == "" {
 		metadata.ChecksumName = "SHA256SUMS"
@@ -263,20 +269,21 @@ func (c *Client) CheckForStableUpdate(ctx context.Context, metadata ReleaseMetad
 
 	var releases []githubRelease
 	if err := json.Unmarshal(data, &releases); err != nil {
-		return nil, fmt.Errorf("réponse des releases GitHub invalide : %w", err)
+		return nil, fmt.Errorf("invalid GitHub releases response: %w", err)
 	}
 
 	for _, release := range releases {
 		if release.PreRelease {
 			continue
 		}
-		if sameVersion(metadata.CurrentVersion, release.TagName) {
-			return nil, nil
+		if !isNewerStableVersion(metadata.CurrentVersion, release.TagName) {
+			continue
 		}
 
 		assetURL := ""
 		checksumURL := ""
 		signatureURL := ""
+		manifestURL := ""
 		for _, asset := range release.Assets {
 			switch asset.Name {
 			case metadata.AssetName:
@@ -285,10 +292,12 @@ func (c *Client) CheckForStableUpdate(ctx context.Context, metadata ReleaseMetad
 				checksumURL = asset.BrowserDownloadURL
 			case metadata.SignatureName:
 				signatureURL = asset.BrowserDownloadURL
+			case fs.ReleaseEngineManifestName:
+				manifestURL = asset.BrowserDownloadURL
 			}
 		}
 
-		if assetURL == "" || checksumURL == "" {
+		if assetURL == "" || checksumURL == "" || signatureURL == "" || manifestURL == "" {
 			continue
 		}
 
@@ -297,6 +306,7 @@ func (c *Client) CheckForStableUpdate(ctx context.Context, metadata ReleaseMetad
 			DownloadURL:     assetURL,
 			ChecksumURL:     checksumURL,
 			SignatureURL:    signatureURL,
+			ManifestURL:     manifestURL,
 			ChecksumName:    metadata.ChecksumName,
 			AssetName:       metadata.AssetName,
 			Highlights:      extractReleaseHighlights(release.Body, 3),
@@ -455,7 +465,7 @@ func (c *Client) downloadURL(ctx context.Context, rawURL string, headers map[str
 func (c *Client) downloadURLWithLimit(ctx context.Context, rawURL string, headers map[string]string, limitBytes int64) ([]byte, error) {
 	req, err := stdhttp.NewRequestWithContext(ctx, stdhttp.MethodGet, strings.TrimSpace(rawURL), nil)
 	if err != nil {
-		return nil, fmt.Errorf("préparation de la requête pour %s échouée : %w", rawURL, err)
+		return nil, fmt.Errorf("failed to create request for %s: %w", rawURL, err)
 	}
 	for key, value := range headers {
 		if strings.TrimSpace(key) == "" || strings.TrimSpace(value) == "" {
@@ -467,7 +477,7 @@ func (c *Client) downloadURLWithLimit(ctx context.Context, rawURL string, header
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		c.emitHTTP(stdhttp.MethodGet, rawURL, 0)
-		return nil, fmt.Errorf("échec de la requête vers %s : %w", rawURL, err)
+		return nil, fmt.Errorf("request to %s failed: %w", rawURL, err)
 	}
 	defer resp.Body.Close()
 	c.emitHTTP(stdhttp.MethodGet, rawURL, resp.StatusCode)
@@ -477,17 +487,17 @@ func (c *Client) downloadURLWithLimit(ctx context.Context, rawURL string, header
 	case stdhttp.StatusUnauthorized, stdhttp.StatusForbidden:
 		return nil, &AuthError{StatusCode: resp.StatusCode, URL: rawURL}
 	case stdhttp.StatusNotFound:
-		return nil, fmt.Errorf("ressource distante introuvable (HTTP 404) : %s", rawURL)
+		return nil, fmt.Errorf("remote resource not found (HTTP 404): %s", rawURL)
 	default:
-		return nil, fmt.Errorf("réponse inattendue du serveur : HTTP %d pour %s", resp.StatusCode, rawURL)
+		return nil, fmt.Errorf("unexpected server response: HTTP %d for %s", resp.StatusCode, rawURL)
 	}
 
 	data, err := io.ReadAll(io.LimitReader(resp.Body, limitBytes+1))
 	if err != nil {
-		return nil, fmt.Errorf("lecture du corps de la réponse échouée : %w", err)
+		return nil, fmt.Errorf("failed to read response body: %w", err)
 	}
 	if int64(len(data)) > limitBytes {
-		return nil, fmt.Errorf("réponse trop volumineuse (> %d octets) : %s", limitBytes, rawURL)
+		return nil, fmt.Errorf("response too large (> %d bytes): %s", limitBytes, rawURL)
 	}
 
 	return data, nil
@@ -497,10 +507,10 @@ func providerResourceURL(profile fs.ProjectProfile, resourcePath string) (string
 	rawPath := strings.TrimSpace(resourcePath)
 	trimmedPath := path.Clean(rawPath)
 	if rawPath == "" || trimmedPath == "." || trimmedPath == "/" {
-		return "", fmt.Errorf("chemin distant invalide : %q", resourcePath)
+		return "", fmt.Errorf("invalid remote path: %q", resourcePath)
 	}
 	if path.IsAbs(rawPath) || path.IsAbs(trimmedPath) || trimmedPath == ".." || strings.HasPrefix(trimmedPath, "../") {
-		return "", fmt.Errorf("chemin distant invalide : %q", resourcePath)
+		return "", fmt.Errorf("invalid remote path: %q", resourcePath)
 	}
 
 	switch strings.ToLower(strings.TrimSpace(profile.Provider)) {
@@ -522,7 +532,7 @@ func providerResourceURL(profile fs.ProjectProfile, resourcePath string) (string
 	case "azure-devops":
 		parts := strings.Split(strings.TrimSpace(profile.RepositoryID), "/")
 		if len(parts) != 3 {
-			return "", fmt.Errorf("repository_id Azure DevOps invalide : %q (attendu : organisation/projet/repo)", profile.RepositoryID)
+			return "", fmt.Errorf("invalid Azure DevOps repository_id: %q (expected: organization/project/repo)", profile.RepositoryID)
 		}
 		baseURL := strings.TrimRight(getEnvOrDefault("STH_AZURE_DEVOPS_BASE_URL", "https://dev.azure.com"), "/")
 		return fmt.Sprintf("%s/%s/%s/_apis/git/repositories/%s/items?path=/%s&versionDescriptor.version=%s&includeContent=true&resolveLfs=true&api-version=7.1", baseURL, neturl.PathEscape(parts[0]), neturl.PathEscape(parts[1]), neturl.PathEscape(parts[2]), neturl.QueryEscape(strings.TrimPrefix(trimmedPath, "/")), neturl.QueryEscape(strings.TrimSpace(profile.Ref))), nil
@@ -530,7 +540,7 @@ func providerResourceURL(profile fs.ProjectProfile, resourcePath string) (string
 		baseURL := strings.TrimRight(getEnvOrDefault("STH_BITBUCKET_API_BASE_URL", "https://api.bitbucket.org/2.0"), "/")
 		return fmt.Sprintf("%s/repositories/%s/src/%s/%s", baseURL, strings.TrimSpace(profile.RepositoryID), neturl.PathEscape(strings.TrimSpace(profile.Ref)), strings.TrimPrefix(trimmedPath, "/")), nil
 	default:
-		return "", fmt.Errorf("provider non pris en charge : %s", profile.Provider)
+		return "", fmt.Errorf("unsupported provider: %s", profile.Provider)
 	}
 }
 
@@ -619,13 +629,13 @@ func providerCredentialTarget(profile fs.ProjectProfile) (string, string, error)
 	case "azure-devops":
 		parts := strings.Split(strings.TrimSpace(profile.RepositoryID), "/")
 		if len(parts) != 3 {
-			return "", "", fmt.Errorf("repository_id Azure DevOps invalide : %q", profile.RepositoryID)
+			return "", "", fmt.Errorf("invalid Azure DevOps repository_id: %q", profile.RepositoryID)
 		}
 		return "dev.azure.com", strings.Join(parts[:2], "/") + "/_git/" + parts[2], nil
 	case "bitbucket":
 		return "bitbucket.org", strings.TrimSpace(profile.RepositoryID), nil
 	default:
-		return "", "", fmt.Errorf("provider non pris en charge : %s", profile.Provider)
+		return "", "", fmt.Errorf("unsupported provider: %s", profile.Provider)
 	}
 }
 
@@ -699,7 +709,7 @@ func parseCatalogEntries(markdown string) ([]fs.CatalogEntry, error) {
 			folderName := tableValue(values, folderIndex)
 			sourcePath := tableValue(values, sourceIndex)
 			if resourceType == "" || name == "" || folderName == "" || sourcePath == "" {
-				return nil, fmt.Errorf("entrée catalogue invalide dans SKILLS.md : type, name, folder et source sont requis")
+				return nil, fmt.Errorf("invalid catalog entry in SKILLS.md: type, name, folder, and source are required")
 			}
 
 			entry := fs.CatalogEntry{
@@ -716,7 +726,7 @@ func parseCatalogEntries(markdown string) ([]fs.CatalogEntry, error) {
 		}
 
 		if len(entries) == 0 {
-			return nil, errors.New("aucune ressource installable trouvée dans SKILLS.md")
+			return nil, errors.New("no installable resource found in SKILLS.md")
 		}
 
 		if err := validateCatalogUniqueness(entries); err != nil {
@@ -733,7 +743,7 @@ func parseCatalogEntries(markdown string) ([]fs.CatalogEntry, error) {
 		return entries, nil
 	}
 
-	return nil, errors.New("table catalogue introuvable dans SKILLS.md")
+	return nil, errors.New("catalog table not found in SKILLS.md")
 }
 
 func validateCatalogUniqueness(entries []fs.CatalogEntry) error {
@@ -743,7 +753,7 @@ func validateCatalogUniqueness(entries []fs.CatalogEntry) error {
 			return err
 		}
 		if _, ok := seen[entry.CatalogID]; ok {
-			return fmt.Errorf("entrée catalogue dupliquée : %s", entry.CatalogID)
+			return fmt.Errorf("duplicate catalog entry: %s", entry.CatalogID)
 		}
 		seen[entry.CatalogID] = struct{}{}
 	}
@@ -753,20 +763,20 @@ func validateCatalogUniqueness(entries []fs.CatalogEntry) error {
 
 func validateProfile(profile fs.ProjectProfile) error {
 	if strings.TrimSpace(profile.Provider) == "" {
-		return errors.New("provider doit être renseigné")
+		return errors.New("provider is required")
 	}
 	// sth-cloud derives org scope from the API key — no repo/ref/catalog required.
 	if strings.EqualFold(strings.TrimSpace(profile.Provider), "sth-cloud") {
 		return nil
 	}
 	if strings.TrimSpace(profile.RepositoryID) == "" {
-		return errors.New("repository_id doit être renseigné")
+		return errors.New("repository_id is required")
 	}
 	if strings.TrimSpace(profile.Ref) == "" {
-		return errors.New("ref doit être renseigné")
+		return errors.New("ref is required")
 	}
 	if strings.TrimSpace(profile.CatalogPath) == "" {
-		return errors.New("catalog_path doit être renseigné")
+		return errors.New("catalog_path is required")
 	}
 
 	return nil
@@ -774,13 +784,13 @@ func validateProfile(profile fs.ProjectProfile) error {
 
 func validateCatalogEntry(entry fs.CatalogEntry) error {
 	if strings.TrimSpace(entry.Name) == "" {
-		return errors.New("name doit être renseigné")
+		return errors.New("name is required")
 	}
 	if strings.TrimSpace(entry.FolderName) == "" {
-		return errors.New("folder_name doit être renseigné")
+		return errors.New("folder_name is required")
 	}
 	if strings.TrimSpace(entry.SourcePath) == "" {
-		return errors.New("source_path doit être renseigné")
+		return errors.New("source_path is required")
 	}
 
 	return nil
@@ -809,17 +819,43 @@ func decorateAccessError(err error, source AccessSource, provider string) error 
 		return err
 	}
 
-	return fmt.Errorf("%w — authentifiez-vous via les variables d'environnement du provider ou vos identifiants Git pour %s", err, provider)
+	return fmt.Errorf("%w — authenticate using the provider's environment variables or your Git credentials for %s", err, provider)
 }
 
-func sameVersion(current, candidate string) bool {
-	trimmedCurrent := strings.TrimPrefix(strings.TrimSpace(current), "v")
-	trimmedCandidate := strings.TrimPrefix(strings.TrimSpace(candidate), "v")
-	if trimmedCurrent == "" || trimmedCandidate == "" {
+func isNewerStableVersion(current, candidate string) bool {
+	candidateParts, candidateValid := parseStableVersion(candidate)
+	if !candidateValid {
 		return false
 	}
+	currentParts, currentValid := parseStableVersion(current)
+	if !currentValid {
+		return true
+	}
+	for index := range candidateParts {
+		if candidateParts[index] != currentParts[index] {
+			return candidateParts[index] > currentParts[index]
+		}
+	}
+	return false
+}
 
-	return trimmedCurrent == trimmedCandidate
+func parseStableVersion(value string) ([3]uint64, bool) {
+	var parsed [3]uint64
+	parts := strings.Split(strings.TrimPrefix(strings.TrimSpace(value), "v"), ".")
+	if len(parts) != len(parsed) {
+		return parsed, false
+	}
+	for index, part := range parts {
+		if part == "" || (len(part) > 1 && strings.HasPrefix(part, "0")) {
+			return parsed, false
+		}
+		number, err := strconv.ParseUint(part, 10, 64)
+		if err != nil {
+			return parsed, false
+		}
+		parsed[index] = number
+	}
+	return parsed, true
 }
 
 func parseTableRow(line string) []string {

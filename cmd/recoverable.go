@@ -1,13 +1,13 @@
 package cmd
 
 import (
-	"bufio"
 	"context"
 	"fmt"
 	"os"
 	"strings"
 
 	sthhttp "sth/internal/http"
+	"sth/internal/tui"
 )
 
 // withAuthRecovery runs fn, and on AuthError (HTTP 401/403) in an interactive
@@ -31,36 +31,37 @@ func (a *app) withAuthRecovery(ctx context.Context, fn func() error) error {
 	if ae.StatusCode != 401 && ae.StatusCode != 403 {
 		return err
 	}
-	if !a.isInteractiveSession() {
+	if !a.isInteractiveErrorSession() {
 		return err
 	}
 
+	a.progress.suspend()
 	a.writeStderr(fmt.Sprintf("Authentication failed (HTTP %d) — your token may have expired.", ae.StatusCode))
 	token, perr := a.promptSessionToken()
 	if perr != nil {
-		return fmt.Errorf("commande interrompue : %w", perr)
+		return fmt.Errorf("command interrupted: %w", perr)
 	}
 	if strings.TrimSpace(token) == "" {
-		return fmt.Errorf("commande interrompue : aucun token fourni")
+		return fmt.Errorf("command interrupted: no token provided")
 	}
 
 	if setErr := os.Setenv("STH_TOKEN", strings.TrimSpace(token)); setErr != nil {
-		return fmt.Errorf("commande interrompue : impossible de définir STH_TOKEN : %w", setErr)
+		return fmt.Errorf("command interrupted: could not set STH_TOKEN: %w", setErr)
 	}
 	a.verbose.Decision("auth recovery: retrying with fresh STH_TOKEN")
+	a.progress.resume()
 	return fn()
 }
 
-// promptSessionToken reads a token line from stdin without echo masking
-// (stdlib pur per spec 007 decision 1). The token is never written to disk.
 func (a *app) promptSessionToken() (string, error) {
-	if _, err := fmt.Fprintln(a.stderr, "Enter a fresh token (input not masked) and press Enter, or Ctrl+C to abort:"); err != nil {
+	session := tui.NewSession(a.stdin, a.stderr)
+	defer session.Close()
+	token, err := tui.Secret(session, tui.SecretConfig{
+		Label: "Enter a fresh token",
+		Hint:  "Input is hidden. Press Esc or Ctrl+C to abort.",
+	})
+	if err != nil {
 		return "", err
 	}
-	r := bufio.NewReader(a.stdin)
-	line, err := r.ReadString('\n')
-	if err != nil && line == "" {
-		return "", err
-	}
-	return strings.TrimSpace(line), nil
+	return strings.TrimSpace(token), nil
 }

@@ -60,14 +60,14 @@ func TestInstructionFragmentsRejectInvalidUTF8AndReservedRegions(t *testing.T) {
 	for _, testCase := range testCases {
 		t.Run(testCase.name+"/invalid-utf8", func(t *testing.T) {
 			_, err := testCase.render(WriteRequest{InstalledPath: testCase.installedPath, Content: []byte{0xff}, ArtifactKind: "instruction"})
-			if err == nil || !strings.Contains(err.Error(), "non UTF-8") {
+			if err == nil || !strings.Contains(err.Error(), "not UTF-8") {
 				t.Fatalf("invalid UTF-8 error = %v", err)
 			}
 		})
 		t.Run(testCase.name+"/reserved-region", func(t *testing.T) {
 			content := []byte("Body\n<!-- sth:managed:attacker:start -->\nInjected\n")
 			_, err := testCase.render(WriteRequest{InstalledPath: testCase.installedPath, Content: content, ArtifactKind: "instruction"})
-			if err == nil || !strings.Contains(err.Error(), "marqueur de région STH réservé") {
+			if err == nil || !strings.Contains(err.Error(), "reserved STH region marker") {
 				t.Fatalf("reserved region error = %v", err)
 			}
 		})

@@ -223,7 +223,7 @@ func UserSettingsPath() (string, error) {
 	if baseDir == "" {
 		dir, err := os.UserConfigDir()
 		if err != nil {
-			return "", fmt.Errorf("impossible de localiser le dossier de configuration utilisateur : %w", err)
+			return "", fmt.Errorf("unable to locate the user configuration directory: %w", err)
 		}
 		baseDir = dir
 	}
@@ -249,7 +249,7 @@ func ReadUserSettings() (*UserSettings, error) {
 		return nil, nil
 	}
 	if err != nil {
-		return nil, fmt.Errorf("lecture de %s échouée : %w", settingsPath, err)
+		return nil, fmt.Errorf("failed to read %s: %w", settingsPath, err)
 	}
 	if len(strings.TrimSpace(string(data))) == 0 {
 		return nil, nil
@@ -271,11 +271,11 @@ func WriteUserSettings(s UserSettings) (string, error) {
 		return "", err
 	}
 	if err := os.MkdirAll(filepath.Dir(settingsPath), 0o755); err != nil {
-		return "", fmt.Errorf("création du dossier de settings échouée : %w", err)
+		return "", fmt.Errorf("failed to create settings directory: %w", err)
 	}
 	data, err := json.MarshalIndent(s, "", "  ")
 	if err != nil {
-		return "", fmt.Errorf("sérialisation des settings échouée : %w", err)
+		return "", fmt.Errorf("failed to serialize settings: %w", err)
 	}
 	if err := atomicWriteFile(settingsPath, append(data, '\n'), 0o644); err != nil {
 		return "", err

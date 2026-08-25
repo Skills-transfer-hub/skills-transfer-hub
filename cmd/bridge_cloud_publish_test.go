@@ -220,7 +220,7 @@ func TestBridgeCloudPublicationRejectsHeadTOCTOUBeforeServerMutation(t *testing.
 		t.Fatal(result.err)
 	}
 	errorValue := decodeBridgeTestResponses(t, result.stdout)[0]["error"].(map[string]any)
-	if errorValue["code"] != float64(-32033) || !strings.Contains(errorValue["message"].(string), "a changé") {
+	if errorValue["code"] != float64(-32033) || !strings.Contains(errorValue["message"].(string), "changed") {
 		t.Fatalf("error = %v", errorValue)
 	}
 	if fixture.requests.Load() != 0 {
@@ -264,7 +264,7 @@ func TestBridgeCloudPublicationRejectsSymlinkFromHEAD(t *testing.T) {
 		t.Fatal(result.err)
 	}
 	errorValue := decodeBridgeTestResponses(t, result.stdout)[0]["error"].(map[string]any)
-	if !strings.Contains(errorValue["message"].(string), "symlink") {
+	if !strings.Contains(errorValue["message"].(string), "symbolic link") {
 		t.Fatalf("error = %v", errorValue)
 	}
 }

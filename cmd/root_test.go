@@ -3,9 +3,9 @@ package cmd
 import (
 	"bytes"
 	"encoding/json"
-	sthhttp "sth/internal/http"
 	"os"
 	"path/filepath"
+	sthhttp "sth/internal/http"
 	"strings"
 	"testing"
 
@@ -190,8 +190,8 @@ func TestRun_noArgumentsNonInteractiveShowsNextStepGuidance(t *testing.T) {
 	if result.err != nil {
 		t.Fatalf("Run() error = %v", result.err)
 	}
-	assertContains(t, result.stdout, "État du projet : non configuré")
-	assertContains(t, result.stdout, "Action recommandée : sth init")
+	assertContains(t, result.stdout, "Project state: not configured")
+	assertContains(t, result.stdout, "Recommended action: sth init")
 	assertNotContains(t, result.stdout, "STH dev")
 	assertEmpty(t, result.stderr)
 }
@@ -205,9 +205,10 @@ func TestRun_noArgumentsInteractiveShowsGuidedMenuAndAllowsQuit(t *testing.T) {
 	if result.err != nil {
 		t.Fatalf("Run() error = %v\nstdout=%s\nstderr=%s", result.err, result.stdout, result.stderr)
 	}
-	assertContains(t, result.stdout, "Menu guidé STH")
-	assertContains(t, result.stdout, "1. init (recommandé)")
-	assertContains(t, result.stdout, "3. quit")
+	assertContains(t, result.stdout, "STH guided menu")
+	assertContains(t, result.stdout, "Configure this project (recommended)")
+	assertContains(t, result.stdout, "Quit")
+	assertNotContains(t, result.stdout, "1.")
 	assertEmpty(t, result.stderr)
 }
 
@@ -217,17 +218,31 @@ func TestRun_unknownCommandShowsErrorAndHelp(t *testing.T) {
 	if result.err == nil {
 		t.Fatal("Run() error = nil, want error")
 	}
-	assertContains(t, result.stderr, "commande inconnue")
-	assertContains(t, result.stderr, "Commandes visibles")
+	assertContains(t, result.stderr, "unknown command")
+	assertContains(t, result.stderr, "Run `sth help`")
+	assertNotContains(t, result.stderr, "Available commands")
 	assertNotContains(t, result.stderr, "stockholm")
 }
 
-func TestRun_helpCommandRejectsUnknownTarget(t *testing.T) {
-	result := runCLI(t, "", "", "help", "bogus")
+func TestRun_unknownCommandSuggestsClosestMatch(t *testing.T) {
+	result := runCLI(t, "", "", "instal")
 
 	if result.err == nil {
 		t.Fatal("Run() error = nil, want error")
 	}
-	assertContains(t, result.stderr, "commande inconnue")
+	assertContains(t, result.stderr, "`sth install`")
+
+	tooFar := runCLI(t, "", "", "xkjvzz")
+	assertNotContains(t, tooFar.stderr, "Did you mean")
+}
+
+func TestRun_helpCommandRejectsUnknownTarget(t *testing.T) {
+	result := runCLI(t, "", "", "help", "instal")
+
+	if result.err == nil {
+		t.Fatal("Run() error = nil, want error")
+	}
+	assertContains(t, result.stderr, "unknown command")
 	assertContains(t, result.stderr, "help")
+	assertContains(t, result.stderr, "`sth install`")
 }

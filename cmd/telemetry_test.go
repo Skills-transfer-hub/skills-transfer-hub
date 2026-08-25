@@ -18,8 +18,8 @@ func TestRunTelemetry_Status_NotYetConfigured(t *testing.T) {
 	if result.err != nil {
 		t.Fatalf("Run() error = %v", result.err)
 	}
-	if !strings.Contains(result.stdout, "pas encore configurée") {
-		t.Fatalf("expected 'pas encore configurée' in stdout, got: %s", result.stdout)
+	if !strings.Contains(result.stdout, "Telemetry: not configured yet") {
+		t.Fatalf("expected the not-configured message in stdout, got: %s", result.stdout)
 	}
 }
 
@@ -39,8 +39,8 @@ func TestRunTelemetry_Status_WhenConsented(t *testing.T) {
 	}
 	// Legacy SetTelemetryConsent(true) maps to anonymous mode; status now
 	// reports the mode by name rather than the binary "activée".
-	if !strings.Contains(result.stdout, "mode anonymous") {
-		t.Fatalf("expected 'mode anonymous' in stdout, got: %s", result.stdout)
+	if !strings.Contains(result.stdout, "Telemetry: anonymous mode") {
+		t.Fatalf("expected anonymous mode in stdout, got: %s", result.stdout)
 	}
 	if !strings.Contains(result.stdout, "v9.9.9") {
 		t.Fatalf("expected CLI version in stdout, got: %s", result.stdout)
@@ -57,10 +57,10 @@ func TestRunTelemetry_On_PersistsConsent(t *testing.T) {
 	if result.err != nil {
 		t.Fatalf("Run() error = %v", result.err)
 	}
-	if !strings.Contains(result.stdout, "anonyme activée") {
-		t.Fatalf("expected 'anonyme activée' in stdout, got: %s", result.stdout)
+	if !strings.Contains(result.stdout, "Anonymous telemetry enabled") {
+		t.Fatalf("expected the anonymous-mode confirmation in stdout, got: %s", result.stdout)
 	}
-	if !strings.Contains(result.stderr, "déprécié") {
+	if !strings.Contains(result.stderr, "deprecated") {
 		t.Fatalf("expected deprecation warning in stderr, got: %s", result.stderr)
 	}
 	if fs.TelemetryModeActive() != fs.TelemetryAnonymous {
@@ -82,7 +82,7 @@ func TestRunTelemetry_Off_PersistsRefusal(t *testing.T) {
 	if result.err != nil {
 		t.Fatalf("Run() error = %v", result.err)
 	}
-	if !strings.Contains(result.stdout, "Télémétrie désactivée") {
+	if !strings.Contains(result.stdout, "Telemetry disabled") {
 		t.Fatalf("expected confirmation in stdout, got: %s", result.stdout)
 	}
 	if fs.TelemetryConsented() {
@@ -125,10 +125,10 @@ func TestRunTelemetry_Output_Local_RendersSeededLog(t *testing.T) {
 	if !strings.Contains(result.stdout, "init") || !strings.Contains(result.stdout, "list") {
 		t.Fatalf("expected both commands from local log, got: %s", result.stdout)
 	}
-	if !strings.Contains(result.stdout, "journal local") {
+	if !strings.Contains(result.stdout, "local log") {
 		t.Fatalf("expected local-source note, got: %s", result.stdout)
 	}
-	if !strings.Contains(result.stdout, "2 envoi") {
+	if !strings.Contains(result.stdout, "2 submission(s)") {
 		t.Fatalf("expected local count footer, got: %s", result.stdout)
 	}
 }
@@ -147,7 +147,7 @@ func TestRunTelemetry_Output_Local_EmptyWhenOff(t *testing.T) {
 	if result.err != nil {
 		t.Fatalf("Run() error = %v", result.err)
 	}
-	if !strings.Contains(result.stdout, "désactivée") {
+	if !strings.Contains(result.stdout, "Telemetry disabled") {
 		t.Fatalf("expected disabled message, got: %s", result.stdout)
 	}
 }
@@ -197,7 +197,7 @@ func TestRunTelemetry_Output_RendersServerRecords(t *testing.T) {
 	if !strings.Contains(result.stdout, "v0.1.2") {
 		t.Fatalf("expected cli_version in output, got: %s", result.stdout)
 	}
-	if !strings.Contains(result.stdout, "2 enregistrement") {
+	if !strings.Contains(result.stdout, "2 server-side record(s)") {
 		t.Fatalf("expected count footer in output, got: %s", result.stdout)
 	}
 }
@@ -210,9 +210,9 @@ func TestRunTelemetry_Output_LimitFlag(t *testing.T) {
 	}{
 		{args: []string{"telemetry", "output", "--limit=10"}, wantErr: false},
 		{args: []string{"telemetry", "output", "--limit"}, wantErr: true, errSubstr: "--limit=N"},
-		{args: []string{"telemetry", "output", "--limit=abc"}, wantErr: true, errSubstr: "entier positif"},
-		{args: []string{"telemetry", "output", "--limit=-1"}, wantErr: true, errSubstr: "entier positif"},
-		{args: []string{"telemetry", "output", "--unknown"}, wantErr: true, errSubstr: "inattendu"},
+		{args: []string{"telemetry", "output", "--limit=abc"}, wantErr: true, errSubstr: "positive integer"},
+		{args: []string{"telemetry", "output", "--limit=-1"}, wantErr: true, errSubstr: "positive integer"},
+		{args: []string{"telemetry", "output", "--unknown"}, wantErr: true, errSubstr: "unexpected argument"},
 	} {
 		t.Run(strings.Join(tc.args, " "), func(t *testing.T) {
 			result := runCLIWithOptions(t, cliOptions{args: tc.args})

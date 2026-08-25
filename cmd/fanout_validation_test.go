@@ -89,7 +89,7 @@ func TestInstallFanoutRejectsInvalidCodexSkillWithoutMutation(t *testing.T) {
 	before := transactionalProjectFileSnapshot(t, projectDirectory)
 
 	result := runCLI(t, projectDirectory, t.TempDir(), "install", "invalid-codex")
-	if result.err == nil || !strings.Contains(result.err.Error(), "frontmatter name et description requis") {
+	if result.err == nil || !strings.Contains(result.err.Error(), "frontmatter name and description are required") {
 		t.Fatalf("install error = %v\nstdout=%s\nstderr=%s", result.err, result.stdout, result.stderr)
 	}
 
@@ -122,7 +122,7 @@ func TestUpdateFanoutRejectsInvalidCodexSkillAndPreservesInstalledVersion(t *tes
 	fixture.commitSHA = "2222222222222222"
 
 	updateResult := runCLI(t, projectDirectory, t.TempDir(), "update")
-	if updateResult.err == nil || !strings.Contains(updateResult.err.Error()+updateResult.stderr, "frontmatter name et description requis") {
+	if updateResult.err == nil || !strings.Contains(updateResult.err.Error()+updateResult.stderr, "frontmatter name and description are required") {
 		t.Fatalf("update error = %v\nstdout=%s\nstderr=%s", updateResult.err, updateResult.stdout, updateResult.stderr)
 	}
 
@@ -146,7 +146,7 @@ func TestInstallFanoutRejectsAntigravitySkillWithoutDescription(t *testing.T) {
 	before := transactionalProjectFileSnapshot(t, projectDirectory)
 
 	result := runCLI(t, projectDirectory, t.TempDir(), "install", "antigravity-only")
-	if result.err == nil || !strings.Contains(result.err.Error()+result.stderr, "description string requis") {
+	if result.err == nil || !strings.Contains(result.err.Error()+result.stderr, "description must be a non-empty string") {
 		t.Fatalf("install error = %v\nstdout=%s\nstderr=%s", result.err, result.stdout, result.stderr)
 	}
 

@@ -14,10 +14,10 @@ var providerIDRegexp = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
 func backupFile(path string) error {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return fmt.Errorf("lecture de %s échouée : %w", path, err)
+		return fmt.Errorf("failed to read %s: %w", path, err)
 	}
 	if err := os.WriteFile(path+".bak", data, 0o644); err != nil {
-		return fmt.Errorf("écriture du backup %s.bak échouée : %w", path, err)
+		return fmt.Errorf("failed to write backup %s.bak: %w", path, err)
 	}
 	return nil
 }
@@ -26,10 +26,10 @@ func backupFile(path string) error {
 // Valid IDs match ^[a-zA-Z0-9_-]+$.
 func ValidateProviderID(id string) error {
 	if id == "" {
-		return fmt.Errorf("provider ID ne peut pas être vide")
+		return fmt.Errorf("provider ID cannot be empty")
 	}
 	if !providerIDRegexp.MatchString(id) {
-		return fmt.Errorf("provider ID invalide %q : seuls les caractères alphanumérique, tiret et underscore sont autorisés", id)
+		return fmt.Errorf("invalid provider ID %q: only alphanumeric characters, hyphens, and underscores are allowed", id)
 	}
 	return nil
 }
@@ -43,18 +43,18 @@ func MigrateProjectConfig(path string, w io.Writer) (ProjectConfigV2, error) {
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return ProjectConfigV2{}, fmt.Errorf("lecture de %s échouée : %w", path, err)
+		return ProjectConfigV2{}, fmt.Errorf("failed to read %s: %w", path, err)
 	}
 
 	var raw map[string]any
 	if err := json.Unmarshal(data, &raw); err != nil {
-		return ProjectConfigV2{}, fmt.Errorf("fichier de configuration malformé (%s) : %w", path, err)
+		return ProjectConfigV2{}, fmt.Errorf("malformed configuration file (%s): %w", path, err)
 	}
 
 	if schemaVersion, _ := raw["schema_version"].(float64); int(schemaVersion) == 2 {
 		var cfg ProjectConfigV2
 		if err := json.Unmarshal(data, &cfg); err != nil {
-			return ProjectConfigV2{}, fmt.Errorf("fichier de configuration v2 malformé (%s) : %w", path, err)
+			return ProjectConfigV2{}, fmt.Errorf("malformed v2 configuration file (%s): %w", path, err)
 		}
 		return cfg, nil
 	}
@@ -86,10 +86,10 @@ func MigrateProjectConfig(path string, w io.Writer) (ProjectConfigV2, error) {
 
 	out, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
-		return ProjectConfigV2{}, fmt.Errorf("sérialisation v2 échouée : %w", err)
+		return ProjectConfigV2{}, fmt.Errorf("failed to serialize v2 configuration: %w", err)
 	}
 	if err := atomicWriteFile(path, append(out, '\n'), 0o644); err != nil {
-		return ProjectConfigV2{}, fmt.Errorf("écriture de %s échouée : %w", path, err)
+		return ProjectConfigV2{}, fmt.Errorf("failed to write %s: %w", path, err)
 	}
 	fmt.Fprintf(w, "[sth] migrating project.json v1 → v2 … done\n")
 
@@ -105,18 +105,18 @@ func MigrateInstalledState(path string, w io.Writer) (InstalledResourceStateV2, 
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return InstalledResourceStateV2{}, fmt.Errorf("lecture de %s échouée : %w", path, err)
+		return InstalledResourceStateV2{}, fmt.Errorf("failed to read %s: %w", path, err)
 	}
 
 	var raw map[string]any
 	if err := json.Unmarshal(data, &raw); err != nil {
-		return InstalledResourceStateV2{}, fmt.Errorf("fichier d'état malformé (%s) : %w", path, err)
+		return InstalledResourceStateV2{}, fmt.Errorf("malformed state file (%s): %w", path, err)
 	}
 
 	if schemaVersion, _ := raw["schema_version"].(float64); int(schemaVersion) == 2 {
 		var state InstalledResourceStateV2
 		if err := json.Unmarshal(data, &state); err != nil {
-			return InstalledResourceStateV2{}, fmt.Errorf("fichier d'état v2 malformé (%s) : %w", path, err)
+			return InstalledResourceStateV2{}, fmt.Errorf("malformed v2 state file (%s): %w", path, err)
 		}
 		return state, nil
 	}
@@ -131,7 +131,7 @@ func MigrateInstalledState(path string, w io.Writer) (InstalledResourceStateV2, 
 		} `json:"entries"`
 	}
 	if err := json.Unmarshal(data, &v1State); err != nil {
-		return InstalledResourceStateV2{}, fmt.Errorf("fichier d'état v1 malformé (%s) : %w", path, err)
+		return InstalledResourceStateV2{}, fmt.Errorf("malformed v1 state file (%s): %w", path, err)
 	}
 
 	entries := make([]InstalledResourceRecordV2, 0, len(v1State.Entries))
@@ -150,10 +150,10 @@ func MigrateInstalledState(path string, w io.Writer) (InstalledResourceStateV2, 
 
 	out, err := json.MarshalIndent(state, "", "  ")
 	if err != nil {
-		return InstalledResourceStateV2{}, fmt.Errorf("sérialisation v2 échouée : %w", err)
+		return InstalledResourceStateV2{}, fmt.Errorf("failed to serialize v2 state: %w", err)
 	}
 	if err := atomicWriteFile(path, append(out, '\n'), 0o644); err != nil {
-		return InstalledResourceStateV2{}, fmt.Errorf("écriture de %s échouée : %w", path, err)
+		return InstalledResourceStateV2{}, fmt.Errorf("failed to write %s: %w", path, err)
 	}
 	fmt.Fprintf(w, "[sth] migrating sth-state.json v1 → v2 … done\n")
 

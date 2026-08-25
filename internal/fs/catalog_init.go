@@ -36,7 +36,7 @@ func WalkLocalSkillTree(root string) ([]scanner.TreeEntry, error) {
 		return nil
 	})
 	if walkErr != nil {
-		return nil, fmt.Errorf("parcours de %s échoué : %w", root, walkErr)
+		return nil, fmt.Errorf("failed to scan %s: %w", root, walkErr)
 	}
 	return entries, nil
 }

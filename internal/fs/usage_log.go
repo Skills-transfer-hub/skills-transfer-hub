@@ -29,7 +29,7 @@ func UsageLogPath() (string, error) {
 	if baseDir == "" {
 		dir, err := os.UserConfigDir()
 		if err != nil {
-			return "", fmt.Errorf("impossible de localiser le dossier de configuration utilisateur : %w", err)
+			return "", fmt.Errorf("unable to locate the user configuration directory: %w", err)
 		}
 		baseDir = dir
 	}
@@ -45,24 +45,24 @@ func AppendUsageLogEntry(rec UsageLogRecord) error {
 		return err
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return fmt.Errorf("création du dossier du journal échouée : %w", err)
+		return fmt.Errorf("failed to create log directory: %w", err)
 	}
 
 	line, err := json.Marshal(rec)
 	if err != nil {
-		return fmt.Errorf("sérialisation de l'entrée du journal échouée : %w", err)
+		return fmt.Errorf("failed to serialize log entry: %w", err)
 	}
 
 	file, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 	if err != nil {
-		return fmt.Errorf("ouverture du journal échouée : %w", err)
+		return fmt.Errorf("failed to open log: %w", err)
 	}
 	if _, err := file.Write(append(line, '\n')); err != nil {
 		file.Close()
-		return fmt.Errorf("écriture dans le journal échouée : %w", err)
+		return fmt.Errorf("failed to write to log: %w", err)
 	}
 	if err := file.Close(); err != nil {
-		return fmt.Errorf("fermeture du journal échouée : %w", err)
+		return fmt.Errorf("failed to close log: %w", err)
 	}
 
 	return trimUsageLogIfNeeded(path)
@@ -75,7 +75,7 @@ func trimUsageLogIfNeeded(path string) error {
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return fmt.Errorf("lecture du journal pour rotation échouée : %w", err)
+		return fmt.Errorf("failed to read log for rotation: %w", err)
 	}
 	lines := splitNonEmptyLines(data)
 	if len(lines) <= usageLogKeep {
@@ -96,7 +96,7 @@ func ReadUsageLog(limit int) ([]UsageLogRecord, error) {
 		return []UsageLogRecord{}, nil
 	}
 	if err != nil {
-		return nil, fmt.Errorf("lecture de %s échouée : %w", path, err)
+		return nil, fmt.Errorf("failed to read %s: %w", path, err)
 	}
 
 	lines := splitNonEmptyLines(data)

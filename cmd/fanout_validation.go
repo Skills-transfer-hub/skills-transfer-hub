@@ -21,7 +21,7 @@ func validateFanoutTargetRoots(config fs.ProjectConfigV2) error {
 		configuredRoot := filepath.ToSlash(filepath.Clean(strings.TrimSpace(target.RootDir)))
 		canonicalRoot := filepath.ToSlash(filepath.Clean(targetSpecification.RootDir))
 		if configuredRoot != canonicalRoot {
-			return fmt.Errorf("root_dir %q non prise en charge pour la cible %q de type %s : valeur attendue %q", target.RootDir, target.ID, target.Kind, targetSpecification.RootDir)
+			return fmt.Errorf("root_dir %q is not supported for target %q of type %s: expected %q", target.RootDir, target.ID, target.Kind, targetSpecification.RootDir)
 		}
 	}
 	return nil
@@ -39,7 +39,7 @@ func validateSkillConsumerContracts(projectRoot, artifactName string, sourcePath
 		}
 		validatedKinds[consumerKind] = struct{}{}
 		if validationErr := writer.ValidateSkillConsumer(projectRoot, consumer, artifactName, sourcePaths, fetch); validationErr != nil {
-			return fmt.Errorf("skill %s incompatible avec la cible %s : %w", artifactName, consumerKind, validationErr)
+			return fmt.Errorf("skill %s is incompatible with target %s: %w", artifactName, consumerKind, validationErr)
 		}
 	}
 	return nil

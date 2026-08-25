@@ -57,6 +57,44 @@ func TestEnsureManagedGitignore_Idempotent(t *testing.T) {
 	}
 }
 
+func TestEnsureManagedGitignore_MigratesLegacyHeaderIdempotently(t *testing.T) {
+	directory := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(directory, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	gitignorePath := filepath.Join(directory, ".gitignore")
+	legacyBlock := strings.Replace(managedGitignoreBlock(), gitignoreManagedHeader, gitignoreLegacyManagedHeader, 1)
+	if err := os.WriteFile(gitignorePath, []byte("node_modules/\n\n"+legacyBlock+"*.log\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	changed, err := EnsureManagedGitignore(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !changed {
+		t.Fatal("legacy header migration should report a change")
+	}
+	secondChange, err := EnsureManagedGitignore(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if secondChange {
+		t.Fatal("migrated block should be idempotent")
+	}
+	data, err := os.ReadFile(gitignorePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := string(data)
+	if strings.Count(content, gitignoreManagedHeader) != 1 || strings.Contains(content, gitignoreLegacyManagedHeader) {
+		t.Fatalf("legacy header was not migrated exactly once: %s", content)
+	}
+	if !strings.Contains(content, "node_modules/") || !strings.Contains(content, "*.log") {
+		t.Fatalf("entries outside the managed block were not preserved: %s", content)
+	}
+}
+
 func TestEnsureManagedGitignore_PreservesExisting(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(dir, ".git"), 0o755); err != nil {

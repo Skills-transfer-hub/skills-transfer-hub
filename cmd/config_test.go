@@ -38,7 +38,7 @@ func TestRunConfig_BlockedWithoutExperimentalFlag(t *testing.T) {
 	if err == nil {
 		t.Fatal("sth config doit être bloqué sans STH_EXPERIMENTAL")
 	}
-	if !strings.Contains(err.Error(), "préversion") {
+	if !strings.Contains(err.Error(), "preview feature") {
 		t.Fatalf("erreur de préversion attendue, got %v", err)
 	}
 }
@@ -70,7 +70,7 @@ func TestRunConfigPull_DryRunWritesNothing(t *testing.T) {
 	if len(written.Providers) != 0 {
 		t.Fatalf("--dry-run ne doit rien écrire, providers = %+v", written.Providers)
 	}
-	if !strings.Contains(stdout.String(), "Aucune écriture") {
+	if !strings.Contains(stdout.String(), "No files written") {
 		t.Fatalf("attendu la mention dry-run, got %q", stdout.String())
 	}
 }
@@ -120,7 +120,7 @@ func TestRunConfigPull_EmptyConfigDegrades(t *testing.T) {
 	if err := application.runConfigPull(false); err != nil {
 		t.Fatalf("runConfigPull doit dégrader proprement (exit 0), got %v", err)
 	}
-	if !strings.Contains(stdout.String(), "Aucune configuration partagée") {
+	if !strings.Contains(stdout.String(), "No shared configuration") {
 		t.Fatalf("attendu le message d'absence de config, got %q", stdout.String())
 	}
 }

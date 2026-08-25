@@ -161,7 +161,7 @@ func TestE2EFunctional_HelpLoginAndListWording(t *testing.T) {
 		t.Fatalf("help login should not error, got: %v", loginHelp.err)
 	}
 	assertContains(t, loginHelp.stdout, "login")
-	assertNotContains(t, loginHelp.stdout, "commande inconnue")
+	assertNotContains(t, loginHelp.stdout, "unknown command")
 
 	listHelp := runCLI(t, "", homeDir, "help", "list")
 	if listHelp.err != nil {
@@ -341,12 +341,12 @@ func TestE2EFunctional_InitThenDoctor(t *testing.T) {
 		t.Fatalf("MkdirAll(.git): %v", err)
 	}
 
-	initInput := "github\norg/repo\nmain\nSKILLS.md\n\nn\n\n"
+	initInput := "github\norg/repo\nmain\nSKILLS.md\n\npublic\n\n"
 	initResult := runCLIWithInput(t, projectDir, homeDir, initInput, "init")
 	if initResult.err != nil {
 		t.Fatalf("init: %v\nstdout=%s\nstderr=%s", initResult.err, initResult.stdout, initResult.stderr)
 	}
-	assertContains(t, initResult.stdout, "Configuration enregistrée")
+	assertContains(t, initResult.stdout, "Configuration saved")
 	assertFileExists(t, filepath.Join(projectDir, ".sth", "project.json"))
 	assertFileExists(t, filepath.Join(projectDir, ".gitignore"))
 

@@ -18,9 +18,10 @@ import (
 	"strings"
 	"testing"
 
-	"sth/internal/fs"
 	stdhttp "net/http"
 	"net/http/httptest"
+	"sth/internal/fs"
+	"sth/internal/writer"
 )
 
 func TestRun_updateWithNoStateShowsNoopMessage(t *testing.T) {
@@ -39,7 +40,7 @@ func TestRun_updateWithNoStateShowsNoopMessage(t *testing.T) {
 	if result.err != nil {
 		t.Fatalf("Run() error = %v", result.err)
 	}
-	if !strings.Contains(result.stdout, "Aucune ressource à mettre à jour.") {
+	if !strings.Contains(result.stdout, "No resources to update.") {
 		t.Fatalf("stdout %q does not contain noop message", result.stdout)
 	}
 }
@@ -76,12 +77,15 @@ func TestRun_updateRefreshesEveryTrackedResource(t *testing.T) {
 	if result.err != nil {
 		t.Fatalf("Run() error = %v\nstderr=%s", result.err, result.stderr)
 	}
-	if !strings.Contains(result.stdout, "Ressource 'alpha' mise à jour") {
+	if !strings.Contains(result.stdout, "Resource 'alpha' updated") {
 		t.Fatalf("stdout %q does not contain alpha update", result.stdout)
 	}
-	if !strings.Contains(result.stdout, "Ressource 'beta' mise à jour") {
+	if !strings.Contains(result.stdout, "Resource 'beta' updated") {
 		t.Fatalf("stdout %q does not contain beta update", result.stdout)
 	}
+	assertContains(t, result.stderr, "[1/3] Preparing update")
+	assertContains(t, result.stderr, "[2/3] Updating agent::agents::beta")
+	assertContains(t, result.stderr, "[3/3] Updating skill::skills::alpha")
 
 	for _, relativePath := range []string{".claude/resources/skills/alpha.md", ".claude/resources/agents/beta.md"} {
 		fullPath := filepath.Join(projectDir, filepath.FromSlash(relativePath))
@@ -124,7 +128,7 @@ func TestRun_updateReportsPartialFailures(t *testing.T) {
 	if result.err == nil {
 		t.Fatal("Run() error = nil, want error")
 	}
-	if !strings.Contains(result.stdout, "Ressource 'alpha' mise à jour") {
+	if !strings.Contains(result.stdout, "Resource 'alpha' updated") {
 		t.Fatalf("stdout %q does not contain successful update", result.stdout)
 	}
 	if !strings.Contains(result.stderr, "missing") {
@@ -194,7 +198,7 @@ func TestRun_updateRefreshesTrackedBundleAndRemovesObsoleteFiles(t *testing.T) {
 	if result.err != nil {
 		t.Fatalf("Run() error = %v\nstdout=%s\nstderr=%s", result.err, result.stdout, result.stderr)
 	}
-	assertContains(t, result.stdout, "Ressource 'form-wizard' mise à jour")
+	assertContains(t, result.stdout, "Resource 'form-wizard' updated")
 
 	skillData, err := os.ReadFile(filepath.Join(projectDir, ".claude", "resources", "react", "form-wizard", "SKILL.md"))
 	if err != nil {
@@ -240,8 +244,10 @@ func TestRun_updateSelfAppliesStableRelease(t *testing.T) {
 
 	assetName := defaultReleaseAssetName()
 	archiveData := releaseArchiveForTest(t, assetName)
-	checksum := sha256.Sum256(archiveData)
-	checksumBody := []byte(fmt.Sprintf("%s  %s\n", hex.EncodeToString(checksum[:]), assetName))
+	manifestData := []byte("{\"schema_version\":1,\"engine_version\":\"9.9.9\",\"bridge_protocol\":1,\"contract\":\"sth-code-bridge-v1\"}\n")
+	archiveChecksum := sha256.Sum256(archiveData)
+	manifestChecksum := sha256.Sum256(manifestData)
+	checksumBody := []byte(fmt.Sprintf("%s  %s\n%s  %s\n", hex.EncodeToString(archiveChecksum[:]), assetName, hex.EncodeToString(manifestChecksum[:]), fs.ReleaseEngineManifestName))
 
 	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
@@ -254,13 +260,15 @@ func TestRun_updateSelfAppliesStableRelease(t *testing.T) {
 	server := httptest.NewServer(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		switch r.URL.Path {
 		case "/releases":
-			_, _ = w.Write([]byte(fmt.Sprintf(`[{"tag_name":"v9.9.9","prerelease":false,"assets":[{"name":"%s","browser_download_url":"%s/asset"},{"name":"SHA256SUMS","browser_download_url":"%s/checksum"},{"name":"SHA256SUMS.sig","browser_download_url":"%s/signature"}]},{"tag_name":"v10.0.0-beta.1","prerelease":true,"assets":[{"name":"%s","browser_download_url":"%s/beta"}]}]`, assetName, serverURL, serverURL, serverURL, assetName, serverURL)))
+			_, _ = w.Write([]byte(fmt.Sprintf(`[{"tag_name":"v9.9.9","prerelease":false,"assets":[{"name":"%s","browser_download_url":"%s/asset"},{"name":"SHA256SUMS","browser_download_url":"%s/checksum"},{"name":"SHA256SUMS.sig","browser_download_url":"%s/signature"},{"name":"sth-code-engine.json","browser_download_url":"%s/manifest"}]},{"tag_name":"v10.0.0-beta.1","prerelease":true,"assets":[{"name":"%s","browser_download_url":"%s/beta"}]}]`, assetName, serverURL, serverURL, serverURL, serverURL, assetName, serverURL)))
 		case "/asset":
 			_, _ = w.Write(archiveData)
 		case "/checksum":
 			_, _ = w.Write(checksumBody)
 		case "/signature":
 			_, _ = w.Write(signatureBody)
+		case "/manifest":
+			_, _ = w.Write(manifestData)
 		default:
 			stdhttp.NotFound(w, r)
 		}
@@ -285,8 +293,12 @@ func TestRun_updateSelfAppliesStableRelease(t *testing.T) {
 	if result.err != nil {
 		t.Fatalf("Run() error = %v\nstdout=%s\nstderr=%s", result.err, result.stdout, result.stderr)
 	}
-	assertContains(t, result.stdout, "Version stable détectée : Alpha v9.9.9")
-	assertContains(t, result.stdout, "Mise à jour appliquée")
+	assertContains(t, result.stdout, "Stable version available: Alpha v9.9.9")
+	assertContains(t, result.stdout, "Update applied")
+	assertContains(t, result.stderr, "[1/4] Downloading binary")
+	assertContains(t, result.stderr, "[2/4] Downloading checksum")
+	assertContains(t, result.stderr, "[3/4] Downloading signature")
+	assertContains(t, result.stderr, "[4/4] Downloading signed release manifest")
 
 	data, err := os.ReadFile(executablePath)
 	if err != nil {
@@ -519,8 +531,7 @@ func TestRunUpdate_dryRunJSONIncludesResourceName(t *testing.T) {
 func TestRunUpdate_dryRunNoChangesWhenAllCurrent(t *testing.T) {
 	projectDir := t.TempDir()
 	content := []byte("# Alpha\n")
-	header := "> ⚠️ ATTENTION : Skill géré par STH. Ne pas modifier manuellement.\n\n"
-	fullContent := []byte(header + "# Alpha\n")
+	fullContent := []byte(writer.ClaudeManagedHeader + "# Alpha\n")
 	sha := fs.ComputeSHA256(fullContent)
 
 	server := httptest.NewServer(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {

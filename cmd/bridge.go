@@ -73,11 +73,11 @@ func (a *app) runBridge(args []string) error {
 	for scanner.Scan() {
 		response := a.handleBridgeFrame(scanner.Bytes())
 		if err := encoder.Encode(response); err != nil {
-			return fmt.Errorf("écriture du bridge échouée : %w", err)
+			return fmt.Errorf("failed to write bridge output: %w", err)
 		}
 	}
 	if err := scanner.Err(); err != nil {
-		return fmt.Errorf("lecture du bridge échouée : %w", err)
+		return fmt.Errorf("failed to read bridge input: %w", err)
 	}
 	return nil
 }
@@ -85,7 +85,7 @@ func (a *app) runBridge(args []string) error {
 func (a *app) handleBridgeFrame(frame []byte) bridgeResponse {
 	request := bridgeRequest{}
 	if err := json.Unmarshal(frame, &request); err != nil || request.JSONRPC != "2.0" || request.ID < 1 || strings.TrimSpace(request.Method) == "" {
-		return bridgeFailure(request.ID, -32600, "Requête JSON-RPC invalide.")
+		return bridgeFailure(request.ID, -32600, "Invalid JSON-RPC request.")
 	}
 
 	result, rpcError := a.routeBridgeRequest(request)
@@ -102,7 +102,7 @@ func (a *app) routeBridgeRequest(request bridgeRequest) (any, *bridgeError) {
 			ProtocolVersion int `json:"protocol_version"`
 		}
 		if err := decodeBridgeParams(request.Params, &params); err != nil || params.ProtocolVersion != bridgeProtocolVersion {
-			return nil, &bridgeError{Code: -32001, Message: "Version du protocole bridge incompatible."}
+			return nil, &bridgeError{Code: -32001, Message: "Incompatible bridge protocol version."}
 		}
 		return map[string]any{
 			"protocol_version": bridgeProtocolVersion,
@@ -143,7 +143,7 @@ func (a *app) routeBridgeRequest(request bridgeRequest) (any, *bridgeError) {
 			Force       bool   `json:"force"`
 		}
 		if err := decodeBridgeParams(request.Params, &params); err != nil || strings.TrimSpace(params.ResourceRef) == "" {
-			return nil, &bridgeError{Code: -32602, Message: "Le paramètre resource_ref est requis."}
+			return nil, &bridgeError{Code: -32602, Message: "The resource_ref parameter is required."}
 		}
 		changes, err := a.previewBridgeResource(strings.TrimSpace(params.ResourceRef), params.Force)
 		if err != nil {
@@ -161,7 +161,7 @@ func (a *app) routeBridgeRequest(request bridgeRequest) (any, *bridgeError) {
 			Confirmed   bool   `json:"confirmed"`
 		}
 		if err := decodeBridgeParams(request.Params, &params); err != nil || strings.TrimSpace(params.ResourceRef) == "" || !params.Confirmed {
-			return nil, &bridgeError{Code: -32602, Message: "Une référence et une confirmation explicite sont requises."}
+			return nil, &bridgeError{Code: -32602, Message: "A reference and explicit confirmation are required."}
 		}
 		resourceRef := strings.TrimSpace(params.ResourceRef)
 		if err := a.installBridgeResource(resourceRef, params.Force); err != nil {
@@ -174,7 +174,7 @@ func (a *app) routeBridgeRequest(request bridgeRequest) (any, *bridgeError) {
 			Force   bool   `json:"force"`
 		}
 		if err := decodeBridgeParams(request.Params, &params); err != nil || strings.TrimSpace(params.AssetID) == "" {
-			return nil, &bridgeError{Code: -32602, Message: "Le paramètre asset_id est requis."}
+			return nil, &bridgeError{Code: -32602, Message: "The asset_id parameter is required."}
 		}
 		assetID := strings.TrimSpace(params.AssetID)
 		versionID, changes, warnings, err := previewBridgeCloudSkill(assetID, params.Force)
@@ -196,7 +196,7 @@ func (a *app) routeBridgeRequest(request bridgeRequest) (any, *bridgeError) {
 		}
 		if err := decodeBridgeParams(request.Params, &params); err != nil || strings.TrimSpace(params.AssetID) == "" ||
 			strings.TrimSpace(params.ExpectedVersionID) == "" || !params.Confirmed {
-			return nil, &bridgeError{Code: -32602, Message: "Un asset_id, expected_version_id et une confirmation explicite sont requis."}
+			return nil, &bridgeError{Code: -32602, Message: "An asset_id, expected_version_id, and explicit confirmation are required."}
 		}
 		assetID := strings.TrimSpace(params.AssetID)
 		versionID, err := installBridgeCloudSkill(assetID, strings.TrimSpace(params.ExpectedVersionID), params.Force)
@@ -211,7 +211,7 @@ func (a *app) routeBridgeRequest(request bridgeRequest) (any, *bridgeError) {
 			Version    string `json:"version"`
 		}
 		if err := decodeBridgeParams(request.Params, &params); err != nil || params.SourcePath == "" || params.FolderName == "" || params.Version == "" {
-			return nil, &bridgeError{Code: -32602, Message: "source_path, folder_name et version sont requis."}
+			return nil, &bridgeError{Code: -32602, Message: "source_path, folder_name, and version are required."}
 		}
 		plan, err := previewBridgeCloudPublication(params.SourcePath, params.FolderName, params.Version)
 		if err != nil {
@@ -234,7 +234,7 @@ func (a *app) routeBridgeRequest(request bridgeRequest) (any, *bridgeError) {
 		}
 		if err := decodeBridgeParams(request.Params, &params); err != nil || params.SourcePath == "" || params.FolderName == "" || params.Version == "" ||
 			!validBridgeGitOID(params.ExpectedCommit) || len(params.ExpectedManifestSHA256) != 64 || !validBridgeGitOID(params.ExpectedManifestSHA256) || !params.Confirmed {
-			return nil, &bridgeError{Code: -32602, Message: "Le manifest prévisualisé et une confirmation explicite sont requis."}
+			return nil, &bridgeError{Code: -32602, Message: "The previewed manifest and explicit confirmation are required."}
 		}
 		finalized, plan, err := publishBridgeCloudPublication(
 			params.SourcePath, params.FolderName, params.Version, params.ExpectedCommit, params.ExpectedManifestSHA256,
@@ -260,7 +260,7 @@ func (a *app) routeBridgeRequest(request bridgeRequest) (any, *bridgeError) {
 			Confirmed bool `json:"confirmed"`
 		}
 		if err := decodeBridgeParams(request.Params, &params); err != nil || !params.Confirmed {
-			return nil, &bridgeError{Code: -32602, Message: "Une confirmation explicite est requise."}
+			return nil, &bridgeError{Code: -32602, Message: "Explicit confirmation is required."}
 		}
 		if err := a.updateBridgeResources(); err != nil {
 			return nil, &bridgeError{Code: -32014, Message: err.Error()}
@@ -271,7 +271,7 @@ func (a *app) routeBridgeRequest(request bridgeRequest) (any, *bridgeError) {
 			ResourceRef string `json:"resource_ref"`
 		}
 		if err := decodeBridgeParams(request.Params, &params); err != nil || strings.TrimSpace(params.ResourceRef) == "" {
-			return nil, &bridgeError{Code: -32602, Message: "Le paramètre resource_ref est requis."}
+			return nil, &bridgeError{Code: -32602, Message: "The resource_ref parameter is required."}
 		}
 		resource, err := previewBridgeRemoval(strings.TrimSpace(params.ResourceRef))
 		if err != nil {
@@ -279,7 +279,7 @@ func (a *app) routeBridgeRequest(request bridgeRequest) (any, *bridgeError) {
 		}
 		return map[string]any{
 			"resource": resource,
-			"warnings": []string{"Les fichiers gérés par cette ressource seront supprimés après confirmation."},
+			"warnings": []string{"Files managed by this resource will be removed after confirmation."},
 		}, nil
 	case "remove":
 		var params struct {
@@ -287,7 +287,7 @@ func (a *app) routeBridgeRequest(request bridgeRequest) (any, *bridgeError) {
 			Confirmed   bool   `json:"confirmed"`
 		}
 		if err := decodeBridgeParams(request.Params, &params); err != nil || strings.TrimSpace(params.ResourceRef) == "" || !params.Confirmed {
-			return nil, &bridgeError{Code: -32602, Message: "Une référence et une confirmation explicite sont requises."}
+			return nil, &bridgeError{Code: -32602, Message: "A reference and explicit confirmation are required."}
 		}
 		resourceRef := strings.TrimSpace(params.ResourceRef)
 		if err := a.removeBridgeResource(resourceRef); err != nil {
@@ -297,7 +297,7 @@ func (a *app) routeBridgeRequest(request bridgeRequest) (any, *bridgeError) {
 	case "library.list":
 		items, err := fs.ReadLocalLibrary(".")
 		if err != nil {
-			return nil, &bridgeError{Code: -32020, Message: "La bibliothèque locale ne peut pas être lue."}
+			return nil, &bridgeError{Code: -32020, Message: "The local library cannot be read."}
 		}
 		return map[string]any{"items": items}, nil
 	case "library.get":
@@ -305,18 +305,18 @@ func (a *app) routeBridgeRequest(request bridgeRequest) (any, *bridgeError) {
 			ID string `json:"id"`
 		}
 		if err := decodeBridgeParams(request.Params, &params); err != nil || strings.TrimSpace(params.ID) == "" {
-			return nil, &bridgeError{Code: -32602, Message: "Le paramètre id est requis."}
+			return nil, &bridgeError{Code: -32602, Message: "The id parameter is required."}
 		}
 		items, err := fs.ReadLocalLibrary(".")
 		if err != nil {
-			return nil, &bridgeError{Code: -32020, Message: "La bibliothèque locale ne peut pas être lue."}
+			return nil, &bridgeError{Code: -32020, Message: "The local library cannot be read."}
 		}
 		for _, item := range items {
 			if item.ID == strings.TrimSpace(params.ID) {
 				return item, nil
 			}
 		}
-		return nil, &bridgeError{Code: -32021, Message: "Élément local introuvable."}
+		return nil, &bridgeError{Code: -32021, Message: "Local item not found."}
 	case "library.save", "capture":
 		var params struct {
 			Kind      string   `json:"kind"`
@@ -326,7 +326,7 @@ func (a *app) routeBridgeRequest(request bridgeRequest) (any, *bridgeError) {
 			Confirmed bool     `json:"confirmed"`
 		}
 		if err := decodeBridgeParams(request.Params, &params); err != nil || !params.Confirmed {
-			return nil, &bridgeError{Code: -32602, Message: "Une capture et une confirmation explicites sont requises."}
+			return nil, &bridgeError{Code: -32602, Message: "A capture and explicit confirmation are required."}
 		}
 		item, err := fs.SaveLocalLibraryItem(".", fs.LocalLibrarySaveInput{
 			Kind: params.Kind, Title: params.Title, Body: params.Body, Tags: params.Tags,
@@ -341,7 +341,7 @@ func (a *app) routeBridgeRequest(request bridgeRequest) (any, *bridgeError) {
 			Output    string `json:"output"`
 		}
 		if err := decodeBridgeParams(request.Params, &params); err != nil || strings.TrimSpace(params.LibraryID) == "" {
-			return nil, &bridgeError{Code: -32602, Message: "Le paramètre library_id est requis."}
+			return nil, &bridgeError{Code: -32602, Message: "The library_id parameter is required."}
 		}
 		plan, err := fs.PlanLocalLibraryPromotion(".", params.LibraryID, params.Output)
 		if err != nil {
@@ -351,7 +351,7 @@ func (a *app) routeBridgeRequest(request bridgeRequest) (any, *bridgeError) {
 			"library_id": plan.LibraryID,
 			"output":     plan.Output,
 			"files":      plan.Files,
-			"warnings":   []string{"Git reste la source de vérité ; aucune écriture n'a été effectuée."},
+			"warnings":   []string{"Git remains the source of truth; no files were written."},
 		}, nil
 	case "promote":
 		var params struct {
@@ -360,7 +360,7 @@ func (a *app) routeBridgeRequest(request bridgeRequest) (any, *bridgeError) {
 			Confirmed bool   `json:"confirmed"`
 		}
 		if err := decodeBridgeParams(request.Params, &params); err != nil || strings.TrimSpace(params.LibraryID) == "" || !params.Confirmed {
-			return nil, &bridgeError{Code: -32602, Message: "Un library_id et une confirmation explicite sont requis."}
+			return nil, &bridgeError{Code: -32602, Message: "A library_id and explicit confirmation are required."}
 		}
 		plan, err := fs.PlanLocalLibraryPromotion(".", params.LibraryID, params.Output)
 		if err != nil {
@@ -374,10 +374,10 @@ func (a *app) routeBridgeRequest(request bridgeRequest) (any, *bridgeError) {
 			"output":     plan.Output,
 			"files":      plan.Files,
 			"promoted":   true,
-			"guidance":   "Ajoutez le bundle à Git, commitez-le, puis ouvrez une pull request ; STH n'a exécuté ni commit ni push.",
+			"guidance":   "Add the bundle to Git, commit it, then open a pull request; STH did not commit or push.",
 		}, nil
 	default:
-		return nil, &bridgeError{Code: -32601, Message: "Méthode bridge inconnue."}
+		return nil, &bridgeError{Code: -32601, Message: "Unknown bridge method."}
 	}
 }
 
@@ -424,7 +424,7 @@ func (a *app) previewBridgeUpdate() ([]fs.DryRunChange, error) {
 	}
 	changes := []fs.DryRunChange{}
 	if err := json.Unmarshal(output, &changes); err != nil {
-		return nil, errors.New("le moteur de mise à jour a produit un preview invalide")
+		return nil, errors.New("the update engine produced an invalid preview")
 	}
 	return changes, nil
 }
@@ -448,7 +448,7 @@ func previewBridgeRemoval(resourceRef string) (bridgeResource, error) {
 			return resource, nil
 		}
 	}
-	return bridgeResource{}, fmt.Errorf("ressource %q introuvable", resourceRef)
+	return bridgeResource{}, fmt.Errorf("resource %q not found", resourceRef)
 }
 
 func (a *app) removeBridgeResource(resourceRef string) error {
@@ -643,7 +643,7 @@ func (a *app) previewBridgeResource(resourceRef string, force bool) ([]fs.DryRun
 	}
 	changes := []fs.DryRunChange{}
 	if err := json.Unmarshal(bytes.TrimSpace(stdout.Bytes()), &changes); err != nil {
-		return nil, errors.New("le moteur d’installation a produit un preview invalide")
+		return nil, errors.New("the installation engine produced an invalid preview")
 	}
 	return changes, nil
 }
@@ -669,5 +669,5 @@ func bridgeFailure(id int64, code int, message string) bridgeResponse {
 }
 
 func bridgeInternalError(error) *bridgeError {
-	return &bridgeError{Code: -32000, Message: "Le moteur STH local n’a pas pu lire ce projet."}
+	return &bridgeError{Code: -32000, Message: "The local STH engine could not read this project."}
 }

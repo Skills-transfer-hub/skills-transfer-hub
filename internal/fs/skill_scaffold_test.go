@@ -24,11 +24,11 @@ func TestValidateSkillRef_RejectsInvalidRefs(t *testing.T) {
 		expectedMessage string
 	}{
 		{"code-review", "Invalid format: use <category>/<name>"},
-		{"a/b/c", "un seul séparateur"},
-		{"prompts/", "segment invalide"},
-		{"/code-review", "segment invalide"},
-		{"prompts/code review", "segment invalide"},
-		{"prompts/code$review", "segment invalide"},
+		{"a/b/c", "exactly one"},
+		{"prompts/", "invalid segment"},
+		{"/code-review", "invalid segment"},
+		{"prompts/code review", "invalid segment"},
+		{"prompts/code$review", "invalid segment"},
 		{"", "Invalid format: use <category>/<name>"},
 	}
 

@@ -13,5 +13,5 @@ func experimentalEnabled() bool {
 }
 
 func errExperimentalDisabled(command string) error {
-	return fmt.Errorf("commande indisponible : %q est en préversion et n'est pas encore activée", command)
+	return fmt.Errorf("command unavailable: %q is a preview feature and is not enabled", command)
 }

@@ -50,7 +50,7 @@ func (transport generatedV2Transport) Do(
 	if input.Body != nil {
 		encoded, err := json.Marshal(input.Body)
 		if err != nil {
-			return fmt.Errorf("v2: encodage du corps : %w", err)
+			return fmt.Errorf("v2: failed to encode request body: %w", err)
 		}
 		body = bytes.NewReader(encoded)
 	}
@@ -64,7 +64,7 @@ func (transport generatedV2Transport) Do(
 
 	response, err := noRedirectClient(transport.httpClient).Do(request)
 	if err != nil {
-		return fmt.Errorf("v2: requête vers %s échouée : %w", requestURL, err)
+		return fmt.Errorf("v2: request to %s failed: %w", requestURL, err)
 	}
 	defer response.Body.Close()
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
@@ -75,13 +75,13 @@ func (transport generatedV2Transport) Do(
 	}
 	encoded, err := io.ReadAll(io.LimitReader(response.Body, maxResponseBytes+1))
 	if err != nil {
-		return fmt.Errorf("v2: lecture du corps : %w", err)
+		return fmt.Errorf("v2: failed to read response body: %w", err)
 	}
 	if len(encoded) > maxResponseBytes {
-		return fmt.Errorf("v2: réponse trop volumineuse")
+		return fmt.Errorf("v2: response too large")
 	}
 	if err := json.Unmarshal(encoded, output); err != nil {
-		return fmt.Errorf("v2: JSON invalide : %w", err)
+		return fmt.Errorf("v2: invalid JSON: %w", err)
 	}
 	return nil
 }
@@ -90,7 +90,7 @@ func v2AuthorizedRequest(ctx context.Context, method, requestURL string, body io
 	token, desktopTokenPresent := os.LookupEnv(EnvCloudAccessToken)
 	if desktopTokenPresent {
 		if !validShortAccessToken(token) {
-			return nil, fmt.Errorf("v2: jeton d’accès desktop invalide")
+			return nil, fmt.Errorf("v2: invalid desktop access token")
 		}
 	} else {
 		var err error
@@ -101,7 +101,7 @@ func v2AuthorizedRequest(ctx context.Context, method, requestURL string, body io
 	}
 	request, err := stdhttp.NewRequestWithContext(ctx, method, requestURL, body)
 	if err != nil {
-		return nil, fmt.Errorf("v2: préparation requête : %w", err)
+		return nil, fmt.Errorf("v2: failed to create request: %w", err)
 	}
 	request.Header.Set("Authorization", "Bearer "+token)
 	request.Header.Set("Accept", "application/json")
@@ -133,7 +133,7 @@ func validatedV2CloudBaseURL() (string, error) {
 	value := sthhttp.CloudBaseURL()
 	parsed, err := url.Parse(value)
 	if err != nil || parsed.Host == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
-		return "", fmt.Errorf("v2: URL Cloud invalide")
+		return "", fmt.Errorf("v2: invalid Cloud URL")
 	}
 	if parsed.Scheme == "https" {
 		return strings.TrimRight(value, "/"), nil
@@ -142,7 +142,7 @@ func validatedV2CloudBaseURL() (string, error) {
 	if parsed.Scheme == "http" && (host == "localhost" || host == "127.0.0.1" || host == "::1") {
 		return strings.TrimRight(value, "/"), nil
 	}
-	return "", fmt.Errorf("v2: HTTPS requis hors environnement loopback")
+	return "", fmt.Errorf("v2: HTTPS is required outside a loopback environment")
 }
 
 func noRedirectClient(client *stdhttp.Client) *stdhttp.Client {

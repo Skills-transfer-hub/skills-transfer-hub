@@ -22,13 +22,13 @@ func TestRunPackPromoteDryRunAndConfirmation(t *testing.T) {
 		t.Fatalf("dry-run: %v\nstderr=%s", dryRun.err, dryRun.stderr)
 	}
 	assertContains(t, dryRun.stdout, "skills/review-pr/SKILL.md")
-	assertContains(t, dryRun.stdout, "Aucune écriture")
+	assertContains(t, dryRun.stdout, "No files written")
 	if _, err := os.Lstat(filepath.Join(root, "skills")); !os.IsNotExist(err) {
 		t.Fatalf("dry-run created skills: %v", err)
 	}
 
 	unconfirmed := runCLI(t, root, t.TempDir(), "pack", "promote", item.ID)
-	if unconfirmed.err == nil || !strings.Contains(unconfirmed.err.Error(), "annulée") {
+	if unconfirmed.err == nil || !strings.Contains(unconfirmed.err.Error(), "canceled") {
 		t.Fatalf("unconfirmed promotion=%v", unconfirmed.err)
 	}
 	if _, err := os.Lstat(filepath.Join(root, "skills")); !os.IsNotExist(err) {
@@ -39,7 +39,7 @@ func TestRunPackPromoteDryRunAndConfirmation(t *testing.T) {
 	if confirmed.err != nil {
 		t.Fatalf("confirmed promotion: %v\nstderr=%s", confirmed.err, confirmed.stderr)
 	}
-	assertContains(t, confirmed.stdout, "ni commit, ni push")
+	assertContains(t, confirmed.stdout, "did not commit or push")
 	assertContains(t, confirmed.stdout, "pull request")
 	if _, err := os.Stat(filepath.Join(root, "skills", "review-pr", "references", "content.md")); err != nil {
 		t.Fatalf("reference not materialized: %v", err)

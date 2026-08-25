@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"bufio"
 	"context"
 	"errors"
 	"fmt"
@@ -9,20 +8,10 @@ import (
 
 	"sth/internal/auth"
 	"sth/internal/fs"
+	"sth/internal/tui"
 )
 
-// promptCloudLoginIfNeeded is the sub-prompt that runs after the user picked
-// telemetry mode "connected" in the init wizard. It guarantees that, at the
-// end of the call, the user is in one of two consistent states:
-//
-//   - mode = connected, keychain key present, provider sth-cloud attached;
-//   - mode = anonymous (gracefully downgraded), with a hint pointing at
-//     `sth login` to upgrade later.
-//
-// The function never returns a non-nil error to the caller — failures degrade
-// the mode silently rather than aborting `sth init`. The returned mode is
-// the persisted one after this call.
-func (a *app) promptCloudLoginIfNeeded(reader *bufio.Reader, current fs.TelemetryMode) fs.TelemetryMode {
+func (a *app) promptCloudLoginIfNeeded(session *tui.Session, current fs.TelemetryMode) fs.TelemetryMode {
 	if current != fs.TelemetryConnected {
 		return current
 	}
@@ -37,107 +26,90 @@ func (a *app) promptCloudLoginIfNeeded(reader *bufio.Reader, current fs.Telemetr
 
 	switch {
 	case hasKey && providerAttached:
-		// Nothing to do: the user is already fully wired for connected mode.
 		return fs.TelemetryConnected
 	case hasKey && !providerAttached:
-		// Key already in keychain (probably from a previous `sth login` on
-		// another project on the same machine). Silently attach the provider.
 		if err := ensureCloudProviderEntry(); err != nil {
-			a.writeStderr(fmt.Sprintf("Avertissement : provider sth-cloud non rattaché : %v", err))
-			return a.downgradeToAnonymous("STH Cloud injoignable", err)
+			a.writeStderr("Warning: could not attach the sth-cloud provider.")
+			return a.downgradeToAnonymous("STH Cloud unavailable", err)
 		}
-		a.writeStdout("Provider sth-cloud rattaché au projet.", "")
+		a.writeStdout("The sth-cloud provider is now attached to this project.", "")
 		return fs.TelemetryConnected
 	}
 
-	// No key yet. In non-interactive sessions we cannot prompt — degrade now
-	// with a hint instead of hanging.
 	if !a.isInteractiveSession() {
-		a.writeStderr("Astuce : lance `sth login` pour activer le dashboard STH Cloud.")
-		return a.downgradeToAnonymous("non-interactif", nil)
+		a.writeStderr("Tip: run `sth login` to enable the STH Cloud dashboard.")
+		return a.downgradeToAnonymous("non-interactive session", nil)
 	}
 
 	a.writeStdout(
 		renderBuddy(fs.BuddyAllGood),
 		"",
-		"Pour voir tes commandes dans le dashboard STH Cloud, connecte-toi maintenant.",
-		fmt.Sprintf("Récupère ta clé `lsk_live_…` sur %s", DashboardLicensesURL()),
-		"Tu peux refuser et le faire plus tard avec `sth login`.",
+		"Sign in now to see your commands in the STH Cloud dashboard.",
+		fmt.Sprintf("Get your `lsk_live_…` key from %s", DashboardLicensesURL()),
+		"You can decline and run `sth login` later.",
 		"",
 	)
-	doIt, err := promptYesNo(reader, a.stdout, "Se connecter à STH Cloud maintenant ?", false)
+	doIt, err := tui.Confirm(session, tui.ConfirmConfig{Question: "Connect to STH Cloud now?", DefaultYes: false})
 	if err != nil {
-		return a.downgradeToAnonymous("entrée utilisateur indisponible", err)
+		return a.downgradeToAnonymous("input unavailable", err)
 	}
 	if !doIt {
-		a.writeStdout("OK. Lance `sth login` quand tu veux activer ton dashboard.", "")
-		return a.downgradeToAnonymous("refus", nil)
+		a.writeStdout("OK. Run `sth login` whenever you want to enable your dashboard.", "")
+		return a.downgradeToAnonymous("declined", nil)
 	}
 
-	if err := a.promptCloudLoginInteractive(reader); err != nil {
-		return a.downgradeToAnonymous("login échoué", err)
+	if err := a.promptCloudLoginInteractive(session); err != nil {
+		return a.downgradeToAnonymous("sign-in failed", err)
 	}
 	return fs.TelemetryConnected
 }
 
-// promptCloudLoginInteractive runs the interactive cloud-login flow: prompt
-// for the key (masked TTY when possible), validate it via /v1/access-check,
-// persist it in the keychain, and attach the provider entry in project.json.
-//
-// Shared between the init sub-prompt and `sth login` so the two paths cannot
-// drift on validation rules, success messaging, or persistence order.
-func (a *app) promptCloudLoginInteractive(reader *bufio.Reader) error {
-	key, err := a.promptAPIKey(reader)
+func (a *app) promptCloudLoginInteractive(session *tui.Session) error {
+	secretSession, closeSecretSession := a.secureSecretSession(session)
+	defer closeSecretSession()
+	key, err := tui.Secret(secretSession, tui.SecretConfig{
+		Label: "Paste your STH Cloud key (lsk_live_…)",
+	})
 	if err != nil {
 		return err
 	}
 	key = strings.TrimSpace(key)
 	if key == "" {
-		return errors.New("clé vide")
+		return errors.New("key is empty")
 	}
 	if !strings.HasPrefix(key, "lsk_live_") {
-		return errors.New("clé invalide : doit commencer par lsk_live_")
+		return errors.New("invalid key: it must start with lsk_live_")
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), accessCheckTimeout)
 	defer cancel()
 	resp, err := a.client.AccessCheck(ctx, key)
 	if err != nil {
-		return fmt.Errorf("vérification de la clé échouée : %w", err)
+		return newInitUserError("key verification failed", err)
 	}
 	if !resp.OK {
-		return errors.New("clé refusée par le serveur")
+		return errors.New("the server rejected the key")
 	}
 
 	if err := auth.SaveAPIKey(key); err != nil {
-		return err
+		return newInitUserError("could not store the key in the OS keychain", err)
 	}
 
 	if err := ensureCloudProviderEntry(); err != nil {
-		// Non-fatal: keychain is set, user can still call commands. Warn only.
-		a.writeStderr(fmt.Sprintf("Avertissement : configuration projet non écrite : %v", err))
+		a.writeStderr("Warning: could not write the project configuration.")
 	}
 
 	a.writeStdout(
-		fmt.Sprintf("Connecté à %s (plan %s, expire le %s).", resp.Org.Name, resp.Plan, resp.ExpiresAt),
-		"Clé stockée dans le keychain de l'OS.",
+		fmt.Sprintf("Connected to %s (plan %s, expires %s).", resp.Org.Name, resp.Plan, resp.ExpiresAt),
+		"Key stored in the OS keychain.",
 		"",
 	)
 	return nil
 }
 
-// downgradeToAnonymous persists telemetry mode = anonymous and prints a
-// one-line stderr hint explaining why the connected path was abandoned.
-// Any error from persistence is swallowed (best-effort).
-func (a *app) downgradeToAnonymous(reason string, cause error) fs.TelemetryMode {
+func (a *app) downgradeToAnonymous(reason string, _ error) fs.TelemetryMode {
 	_, _ = fs.SetTelemetryMode(fs.TelemetryAnonymous, valueOrDefault(version, "dev"))
-	msg := fmt.Sprintf("Mode bascule sur anonymous (%s).", reason)
-	if cause != nil {
-		msg = fmt.Sprintf("Mode bascule sur anonymous (%s : %v).", reason, cause)
-	}
-	a.writeStderr(msg, "Tu pourras réessayer plus tard avec `sth login`.")
+	msg := fmt.Sprintf("Switched to anonymous mode (%s).", reason)
+	a.writeStderr(msg, "You can try again later with `sth login`.")
 	return fs.TelemetryAnonymous
 }
-
-// (DashboardLicensesURL was moved to cmd/docs_url.go alongside DocsURL et al.
-// so all customer-facing URLs share one override mechanism.)

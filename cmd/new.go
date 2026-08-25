@@ -13,7 +13,7 @@ func (a *app) runNew(args []string) error {
 		return nil
 	}
 	if len(args) != 1 {
-		return errors.New("usage : sth new <category>/<name>")
+		return errors.New("usage: sth new <category>/<name>")
 	}
 
 	category, name, err := fs.ValidateSkillRef(args[0])

@@ -42,7 +42,7 @@ func PlanLocalLibraryPromotion(startDir, libraryID, requestedOutput string) (Lib
 	}
 	items, err := ReadLocalLibrary(root)
 	if err != nil {
-		return LibraryPromotionPlan{}, fmt.Errorf("lecture de la bibliothèque locale échouée : %w", err)
+		return LibraryPromotionPlan{}, fmt.Errorf("failed to read local library: %w", err)
 	}
 	id := strings.TrimSpace(libraryID)
 	var selected *LocalLibraryItem
@@ -53,7 +53,7 @@ func PlanLocalLibraryPromotion(startDir, libraryID, requestedOutput string) (Lib
 		}
 	}
 	if selected == nil {
-		return LibraryPromotionPlan{}, fmt.Errorf("élément local %q introuvable", id)
+		return LibraryPromotionPlan{}, fmt.Errorf("local item %q not found", id)
 	}
 	if err := validatePromotionItem(*selected); err != nil {
 		return LibraryPromotionPlan{}, err
@@ -61,7 +61,7 @@ func PlanLocalLibraryPromotion(startDir, libraryID, requestedOutput string) (Lib
 
 	slug := promotionSlug(selected.Title)
 	if slug == "" {
-		return LibraryPromotionPlan{}, errors.New("le titre ne permet pas de produire un nom de skill sûr")
+		return LibraryPromotionPlan{}, errors.New("the title cannot produce a safe skill name")
 	}
 	output, err := normalizePromotionOutput(requestedOutput, slug)
 	if err != nil {
@@ -76,7 +76,7 @@ func PlanLocalLibraryPromotion(startDir, libraryID, requestedOutput string) (Lib
 	if err != nil {
 		return LibraryPromotionPlan{}, err
 	}
-	skillContent := []byte(fmt.Sprintf("---\nname: %s\ndescription: %s\n---\n\n# %s\n\nCette skill provient volontairement de la bibliothèque locale STH.\nLis `references/content.md` puis applique son contenu au contexte de la demande.\n", slug, quotedTitle, title))
+	skillContent := []byte(fmt.Sprintf("---\nname: %s\ndescription: %s\n---\n\n# %s\n\nThis skill was intentionally created from the local STH library.\nRead `references/content.md`, then apply its content to the request context.\n", slug, quotedTitle, title))
 	referenceContent := []byte(strings.ReplaceAll(strings.ReplaceAll(selected.Body, "\r\n", "\n"), "\r", "\n"))
 	if len(referenceContent) == 0 || referenceContent[len(referenceContent)-1] != '\n' {
 		referenceContent = append(referenceContent, '\n')
@@ -99,14 +99,14 @@ func ApplyLocalLibraryPromotion(plan LibraryPromotionPlan) (err error) {
 		return rootErr
 	}
 	if root != plan.WorktreeRoot {
-		return errors.New("le worktree Git a changé depuis le preview")
+		return errors.New("the Git worktree changed since the preview")
 	}
 	output, normalizeErr := normalizePromotionOutput(plan.Output, "")
 	if normalizeErr != nil {
 		return normalizeErr
 	}
 	if output != plan.Output {
-		return errors.New("le chemin de promotion a changé depuis le preview")
+		return errors.New("the promotion path changed since the preview")
 	}
 	if err := validatePromotionPlanFiles(plan); err != nil {
 		return err
@@ -119,7 +119,7 @@ func ApplyLocalLibraryPromotion(plan LibraryPromotionPlan) (err error) {
 	createdSkillsDir := false
 	if _, statErr := os.Lstat(skillsDir); errors.Is(statErr, os.ErrNotExist) {
 		if err := os.Mkdir(skillsDir, 0o755); err != nil {
-			return fmt.Errorf("création de skills échouée : %w", err)
+			return fmt.Errorf("failed to create skills directory: %w", err)
 		}
 		createdSkillsDir = true
 	} else if statErr != nil {
@@ -129,7 +129,7 @@ func ApplyLocalLibraryPromotion(plan LibraryPromotionPlan) (err error) {
 		if createdSkillsDir {
 			_ = os.Remove(skillsDir)
 		}
-		return errors.New("skills n'est pas un dossier local sûr")
+		return errors.New("skills is not a safe local directory")
 	}
 
 	targetDir := filepath.Join(root, filepath.FromSlash(output))
@@ -137,7 +137,7 @@ func ApplyLocalLibraryPromotion(plan LibraryPromotionPlan) (err error) {
 		if createdSkillsDir {
 			_ = os.Remove(skillsDir)
 		}
-		return fmt.Errorf("réservation de %s échouée : %w", output, err)
+		return fmt.Errorf("failed to reserve %s: %w", output, err)
 	}
 	createdFiles := make([]string, 0, len(plan.Files))
 	createdDirs := []string{}
@@ -159,7 +159,7 @@ func ApplyLocalLibraryPromotion(plan LibraryPromotionPlan) (err error) {
 
 	referencesDir := filepath.Join(targetDir, "references")
 	if err = os.Mkdir(referencesDir, 0o755); err != nil {
-		return fmt.Errorf("création du dossier references échouée : %w", err)
+		return fmt.Errorf("failed to create references directory: %w", err)
 	}
 	createdDirs = append(createdDirs, referencesDir)
 	for _, file := range plan.Files {
@@ -167,15 +167,15 @@ func ApplyLocalLibraryPromotion(plan LibraryPromotionPlan) (err error) {
 		var handle *os.File
 		handle, err = os.OpenFile(absolutePath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
 		if err != nil {
-			return fmt.Errorf("création de %s échouée : %w", file.Path, err)
+			return fmt.Errorf("failed to create %s: %w", file.Path, err)
 		}
 		createdFiles = append(createdFiles, absolutePath)
 		if _, err = handle.Write(file.Content); err != nil {
 			_ = handle.Close()
-			return fmt.Errorf("écriture de %s échouée : %w", file.Path, err)
+			return fmt.Errorf("failed to write %s: %w", file.Path, err)
 		}
 		if err = handle.Close(); err != nil {
-			return fmt.Errorf("fermeture de %s échouée : %w", file.Path, err)
+			return fmt.Errorf("failed to close %s: %w", file.Path, err)
 		}
 	}
 	return nil
@@ -191,22 +191,22 @@ func gitWorktreeRoot(startDir string) (string, error) {
 	check.Env = append(os.Environ(), "GIT_OPTIONAL_LOCKS=0")
 	output, err := check.Output()
 	if err != nil {
-		return "", errors.New("la promotion exige un vrai worktree Git")
+		return "", errors.New("promotion requires a real Git worktree")
 	}
 	lines := strings.Fields(string(output))
 	if len(lines) != 2 || lines[0] != "true" || lines[1] != "false" {
-		return "", errors.New("la promotion exige un vrai worktree Git non bare")
+		return "", errors.New("promotion requires a real non-bare Git worktree")
 	}
 	show := exec.Command("git", "rev-parse", "--show-toplevel")
 	show.Dir = directory
 	show.Env = append(os.Environ(), "GIT_OPTIONAL_LOCKS=0")
 	rawRoot, err := show.Output()
 	if err != nil {
-		return "", errors.New("la racine du worktree Git est introuvable")
+		return "", errors.New("Git worktree root not found")
 	}
 	root, err := filepath.EvalSymlinks(strings.TrimSpace(string(rawRoot)))
 	if err != nil {
-		return "", fmt.Errorf("résolution du worktree Git échouée : %w", err)
+		return "", fmt.Errorf("failed to resolve Git worktree: %w", err)
 	}
 	return filepath.Clean(root), nil
 }
@@ -237,17 +237,17 @@ func normalizePromotionOutput(requested, fallbackSlug string) (string, error) {
 	value := strings.TrimSpace(requested)
 	if value == "" {
 		if fallbackSlug == "" {
-			return "", errors.New("le dossier de sortie est requis")
+			return "", errors.New("output directory is required")
 		}
 		value = path.Join("skills", fallbackSlug)
 	}
 	if strings.Contains(value, "\\") || strings.ContainsRune(value, 0) || path.IsAbs(value) || filepath.IsAbs(value) || filepath.VolumeName(value) != "" {
-		return "", fmt.Errorf("chemin de sortie invalide : %q", requested)
+		return "", fmt.Errorf("invalid output path: %q", requested)
 	}
 	cleaned := path.Clean(value)
 	parts := strings.Split(cleaned, "/")
 	if cleaned != value || len(parts) != 2 || parts[0] != "skills" || !isValidPromotionSlug(parts[1]) {
-		return "", errors.New("--output doit être un chemin sûr de la forme skills/<slug>")
+		return "", errors.New("--output must be a safe path in the form skills/<slug>")
 	}
 	return cleaned, nil
 }
@@ -278,13 +278,13 @@ func ensurePromotionDestinationAvailable(root, output string) error {
 			return err
 		}
 		if info.Mode()&os.ModeSymlink != 0 {
-			return fmt.Errorf("le chemin de promotion %s contient un symlink", relative)
+			return fmt.Errorf("promotion path %s contains a symbolic link", relative)
 		}
 		if relative == output {
-			return fmt.Errorf("la destination %s existe déjà ; aucun écrasement n'est autorisé", output)
+			return fmt.Errorf("destination %s already exists; overwriting is not allowed", output)
 		}
 		if !info.IsDir() {
-			return errors.New("skills existe mais n'est pas un dossier")
+			return errors.New("skills exists but is not a directory")
 		}
 	}
 	return nil
@@ -294,10 +294,10 @@ func validatePromotionItem(item LocalLibraryItem) error {
 	title := strings.TrimSpace(item.Title)
 	body := strings.TrimSpace(item.Body)
 	if title == "" || len([]byte(title)) > 200 || strings.ContainsRune(title, 0) {
-		return errors.New("le titre de l'élément local est invalide")
+		return errors.New("local item title is invalid")
 	}
 	if body == "" || len([]byte(item.Body)) > localLibraryMaxBody || strings.ContainsRune(item.Body, 0) {
-		return errors.New("le contenu local est vide, invalide ou dépasse 1 Mio")
+		return errors.New("local content is empty, invalid, or exceeds 1 MiB")
 	}
 	return nil
 }
@@ -314,13 +314,13 @@ func validatePromotionPlanFiles(plan LibraryPromotionPlan) error {
 	for _, file := range plan.Files {
 		seen, ok := expected[file.Path]
 		if !ok || seen || file.SHA256 != ComputeSHA256(file.Content) || file.Size != len(file.Content) {
-			return errors.New("le plan de promotion est invalide")
+			return errors.New("promotion plan is invalid")
 		}
 		expected[file.Path] = true
 	}
 	for _, seen := range expected {
 		if !seen {
-			return errors.New("le plan de promotion est incomplet")
+			return errors.New("promotion plan is incomplete")
 		}
 	}
 	return nil

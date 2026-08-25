@@ -74,12 +74,20 @@ func (a *app) runUpdate(args []string) error {
 	}
 
 	if len(cfg.Targets) > 0 {
-		return a.updateFanout(profile, cfg, dryRun, jsonOut, failOnChanges)
+		if !dryRun && !jsonOut {
+			a.progress = newInstallProgress(a.stdout, a.stderr, a.interactiveProgress())
+			defer func() {
+				a.progress.stop()
+				a.progress = nil
+			}()
+		}
+		updateErr := a.updateFanout(profile, cfg, dryRun, jsonOut, failOnChanges)
+		if updateErr == nil {
+			a.progress.complete()
+		}
+		return updateErr
 	}
 
-	// FR-017/FR-018/FR-019: --fail-on-changes is a CI gate. Detect any
-	// locally-modified managed file and exit 1 BEFORE doing anything else
-	// (network calls, writes, etc.). Combines correctly with --dry-run.
 	if failOnChanges {
 		if state, stateErr := fs.ReadInstalledStateV2(profile.TargetDir); stateErr == nil {
 			projectRoot, _ := filepath.Abs(".")
@@ -119,7 +127,7 @@ func (a *app) runUpdate(args []string) error {
 			if jsonOut {
 				a.writeStdout("[]")
 			} else {
-				a.writeStdout("Aucune ressource à mettre à jour.")
+				a.writeStdout("No resources to update.")
 			}
 			return nil
 		}
@@ -143,7 +151,7 @@ func (a *app) runUpdate(args []string) error {
 			}
 			content, fetchErr := a.client.DownloadCatalogEntry(context.Background(), *profile, entry)
 			if fetchErr != nil {
-				a.writeStderr(fmt.Sprintf("Échec de récupération pour '%s' : %v", rec.ResourceName, fetchErr))
+				a.writeStderr(fmt.Sprintf("Failed to fetch '%s': %v", rec.ResourceName, fetchErr))
 				continue
 			}
 			// Deep-copy ManagedFiles before RefreshManagedFileHashes mutates the slice.
@@ -194,9 +202,19 @@ func (a *app) runUpdate(args []string) error {
 		if jsonOut {
 			a.writeStdout("[]")
 		} else {
-			a.writeStdout("Aucune ressource à mettre à jour.")
+			a.writeStdout("No resources to update.")
 		}
 		return nil
+	}
+
+	if !dryRun && !jsonOut {
+		a.progress = newInstallProgress(a.stdout, a.stderr, a.interactiveProgress())
+		a.progress.start(len(records) + 1)
+		a.progress.step("Preparing update…")
+		defer func() {
+			a.progress.stop()
+			a.progress = nil
+		}()
 	}
 
 	failures := 0
@@ -234,6 +252,9 @@ func (a *app) runUpdate(args []string) error {
 	}
 
 	for _, record := range records {
+		if !jsonOut {
+			a.progress.step(fmt.Sprintf("Updating %s…", record.CatalogID))
+		}
 		if pinnedVer := fs.PinnedVersion(cfg, record.CatalogID); pinnedVer != "" {
 			if jsonOut {
 				recordResult(record.CatalogID, "pinned", "", pinnedVer, "")
@@ -269,7 +290,7 @@ func (a *app) runUpdate(args []string) error {
 				if jsonOut {
 					recordResult(record.Name, "failed", "", "", bundleErr.Error())
 				} else {
-					a.writeStderr(fmt.Sprintf("Échec de mise à jour pour '%s' : %v", record.Name, bundleErr))
+					a.writeStderr(fmt.Sprintf("Failed to update '%s': %v", record.Name, bundleErr))
 				}
 				continue
 			}
@@ -279,7 +300,7 @@ func (a *app) runUpdate(args []string) error {
 				if jsonOut {
 					recordResult(record.Name, "failed", "", "", syncErr.Error())
 				} else {
-					a.writeStderr(fmt.Sprintf("Échec de mise à jour pour '%s' : %v", record.Name, syncErr))
+					a.writeStderr(fmt.Sprintf("Failed to update '%s': %v", record.Name, syncErr))
 				}
 				continue
 			}
@@ -287,7 +308,7 @@ func (a *app) runUpdate(args []string) error {
 			if jsonOut {
 				recordResult(record.Name, "updated", "", installedVersionOf(v2State, v2StateErr, record.CatalogID), "")
 			} else {
-				a.writeStdout(fmt.Sprintf("Ressource '%s' mise à jour.", record.Name))
+				a.writeStdout(fmt.Sprintf("Resource '%s' updated.", record.Name))
 				a.printBundleChangelog(record.Name, bundleContents, installedVersionOf(v2State, v2StateErr, record.CatalogID))
 			}
 			continue
@@ -299,7 +320,7 @@ func (a *app) runUpdate(args []string) error {
 			if jsonOut {
 				recordResult(record.Name, "failed", "", "", downloadErr.Error())
 			} else {
-				a.writeStderr(fmt.Sprintf("Échec de mise à jour pour '%s' : %v", record.Name, downloadErr))
+				a.writeStderr(fmt.Sprintf("Failed to update '%s': %v", record.Name, downloadErr))
 			}
 			continue
 		}
@@ -308,7 +329,7 @@ func (a *app) runUpdate(args []string) error {
 			if jsonOut {
 				recordResult(record.Name, "excluded", "", "", "")
 			} else {
-				a.writeStdout(fmt.Sprintf("Ressource '%s' exclue par .sthignore.", record.Name))
+				a.writeStdout(fmt.Sprintf("Resource '%s' excluded by .sthignore.", record.Name))
 			}
 			continue
 		}
@@ -319,7 +340,7 @@ func (a *app) runUpdate(args []string) error {
 				if jsonOut {
 					recordResult(record.Name, "failed", "", "", conflict.Error())
 				} else {
-					a.writeStderr(fmt.Sprintf("Conflit de propriété pour '%s' : %v", record.Name, conflict))
+					a.writeStderr(fmt.Sprintf("Ownership conflict for '%s': %v", record.Name, conflict))
 				}
 				continue
 			}
@@ -330,7 +351,7 @@ func (a *app) runUpdate(args []string) error {
 			if jsonOut {
 				recordResult(record.Name, "failed", "", "", saveErr.Error())
 			} else {
-				a.writeStderr(fmt.Sprintf("Échec de mise à jour pour '%s' : %v", record.Name, saveErr))
+				a.writeStderr(fmt.Sprintf("Failed to update '%s': %v", record.Name, saveErr))
 			}
 			continue
 		}
@@ -340,7 +361,7 @@ func (a *app) runUpdate(args []string) error {
 			if jsonOut {
 				recordResult(record.Name, "failed", "", "", upsertErr.Error())
 			} else {
-				a.writeStderr(fmt.Sprintf("Échec de mise à jour pour '%s' : %v", record.Name, upsertErr))
+				a.writeStderr(fmt.Sprintf("Failed to update '%s': %v", record.Name, upsertErr))
 			}
 			continue
 		}
@@ -368,13 +389,13 @@ func (a *app) runUpdate(args []string) error {
 		if jsonOut {
 			recordResult(record.Name, "updated", resolvedVersion, previousVersion, "")
 		} else {
-			a.writeStdout(fmt.Sprintf("Ressource '%s' mise à jour.", record.Name))
+			a.writeStdout(fmt.Sprintf("Resource '%s' updated.", record.Name))
 		}
 	}
 
 	if v2Updated {
 		if writeErr := fs.WriteInstalledStateV2(profile.TargetDir, v2State); writeErr != nil {
-			stateErr := fmt.Errorf("impossible de mettre à jour l'état v2 : %w", writeErr)
+			stateErr := fmt.Errorf("unable to update v2 state: %w", writeErr)
 			if jsonOut {
 				emitJSONError(a.stdout, stateErr, 1)
 			}
@@ -391,9 +412,10 @@ func (a *app) runUpdate(args []string) error {
 	}
 
 	if failures > 0 {
-		return fmt.Errorf("mise à jour incomplète : %d ressource(s) en échec", failures)
+		return fmt.Errorf("update incomplete: %d resource(s) failed", failures)
 	}
 
+	a.progress.complete()
 	return nil
 }
 
@@ -409,13 +431,6 @@ func installedVersionOf(v2State fs.InstalledResourceStateV2, v2StateErr error, r
 	return ""
 }
 
-// sourcePath derives the catalog source path for a v2 record during dry-run.
-// When the record's ResourceName uses the catalog ID format (e.g., "skill::skills::alpha"),
-// the first managed file's path is resolved relative to targetDir to reconstruct
-// the original source path (e.g., "skills/alpha.md").
-// Falls back to ResourceName when no managed files are present or path resolution
-// fails; in both cases the DownloadCatalogEntry call will use the raw ResourceName,
-// which is acceptable for legacy records that already store a valid source path.
 func sourcePath(rec fs.InstalledResourceRecordV2, targetDir string) string {
 	if len(rec.ManagedFiles) > 0 {
 		rel, err := filepath.Rel(targetDir, rec.ManagedFiles[0].Path)
@@ -423,59 +438,75 @@ func sourcePath(rec fs.InstalledResourceRecordV2, targetDir string) string {
 			return filepath.ToSlash(rel)
 		}
 	}
-	// Fallback: ResourceName may itself be a valid source path (legacy records).
 	return rec.ResourceName
 }
 
 func (a *app) runSelfUpdate() error {
-	// Bail before doing any work if the binary is owned by a package manager —
-	// `update self` would otherwise overwrite the file in place and corrupt
-	// the manager's tracking (Cellar/<v>, scoop/apps/<v>). The user's right
-	// move is `brew upgrade` / `scoop update`.
+	_, err := a.runSelfUpdateResult()
+	return err
+}
+
+func (a *app) runSelfUpdateResult() (bool, error) {
 	execPath, _ := currentExecutablePath()
 	if pm := detectPackageManager(execPath); pm.name != "" {
-		return fmt.Errorf(
-			"sth a été installé via %s. Pour mettre à jour, lance `%s` au lieu de `sth update self`",
+		return false, fmt.Errorf(
+			"sth was installed with %s. Run `%s` instead of `sth update self`",
 			pm.name, pm.upgradeHint,
 		)
 	}
 
 	release, _, err := a.resolveStableUpdate(context.Background(), true)
 	if err != nil {
-		return err
+		return false, err
 	}
 	if release == nil {
-		a.writeStdout("Aucune mise à jour stable disponible.")
-		return nil
+		a.writeStdout("No stable update is available.")
+		return false, nil
 	}
 
+	progress := newInstallProgress(a.stdout, a.stderr, a.interactiveProgress())
+	progress.start(4)
+	defer progress.stop()
+
+	progress.step("Downloading binary…")
 	assetData, err := a.client.DownloadURL(context.Background(), release.DownloadURL, nil, sthhttp.ReleaseAssetResponseLimitBytes)
 	if err != nil {
-		return err
+		return false, err
 	}
+	progress.step("Downloading checksum…")
 	checksumData, err := a.client.DownloadURL(context.Background(), release.ChecksumURL, nil, sthhttp.ChecksumManifestResponseLimitBytes)
 	if err != nil {
-		return err
+		return false, err
 	}
+	progress.step("Downloading signature…")
 	signatureData, err := a.client.DownloadURL(context.Background(), release.SignatureURL, nil, sthhttp.ChecksumManifestResponseLimitBytes)
 	if err != nil {
-		return err
+		return false, err
+	}
+	progress.step("Downloading signed release manifest…")
+	manifestData, err := a.client.DownloadURL(context.Background(), release.ManifestURL, nil, sthhttp.ChecksumManifestResponseLimitBytes)
+	if err != nil {
+		return false, err
+	}
+	if err := fs.VerifyReleaseEngineManifest(release.Version, manifestData, checksumData, signatureData); err != nil {
+		return false, fmt.Errorf("stable update %s is available, but its signed release manifest is invalid: %w", fs.DisplayVersion(release.Version), err)
 	}
 
 	executablePath, err := currentExecutablePath()
 	if err != nil {
-		return err
+		return false, err
 	}
 	if err := fs.ReplaceExecutableWithAsset(executablePath, release.AssetName, assetData, checksumData, signatureData); err != nil {
-		return fmt.Errorf("mise à jour stable %s détectée, mais le remplacement automatique a échoué : %w", fs.DisplayVersion(release.Version), err)
+		return false, fmt.Errorf("stable update %s is available, but automatic replacement failed: %w", fs.DisplayVersion(release.Version), err)
 	}
 
+	progress.complete()
 	a.writeStdout(
-		fmt.Sprintf("Version stable détectée : %s", fs.DisplayVersion(release.Version)),
-		"Mise à jour appliquée.",
+		fmt.Sprintf("Stable version available: %s", fs.DisplayVersion(release.Version)),
+		"Update applied.",
 	)
 	_, _ = fs.WriteUpdateCheckState(fs.NewNoUpdateCheckState(time.Now().UTC(), release.Version))
-	return nil
+	return true, nil
 }
 
 func (a *app) startupStableUpdateOffer() *fs.StableUpdateOffer {
@@ -483,8 +514,39 @@ func (a *app) startupStableUpdateOffer() *fs.StableUpdateOffer {
 	return offer
 }
 
+func (a *app) cachedStableUpdateOffer() *fs.StableUpdateOffer {
+	state, err := fs.ReadUpdateCheckState()
+	if err != nil || state == nil {
+		return nil
+	}
+	if !state.IsFresh(time.Now().UTC(), valueOrDefault(version, "dev")) {
+		return nil
+	}
+	offer := fs.StableUpdateOfferFromState(*state)
+	return &offer
+}
+
+func (a *app) refreshUpdateOfferInBackground() {
+	a.updateRefreshOnce.Do(func() {
+		metadata := currentReleaseMetadata()
+		client := a.client.SilentCopy()
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			_, _, _ = a.resolveStableUpdateWithClient(ctx, metadata, false, client)
+		}()
+	})
+}
+
 func (a *app) resolveStableUpdate(ctx context.Context, force bool) (*sthhttp.ReleaseAsset, *fs.StableUpdateOffer, error) {
-	metadata := currentReleaseMetadata()
+	return a.resolveStableUpdateWithMetadata(ctx, currentReleaseMetadata(), force)
+}
+
+func (a *app) resolveStableUpdateWithMetadata(ctx context.Context, metadata sthhttp.ReleaseMetadata, force bool) (*sthhttp.ReleaseAsset, *fs.StableUpdateOffer, error) {
+	return a.resolveStableUpdateWithClient(ctx, metadata, force, a.client)
+}
+
+func (a *app) resolveStableUpdateWithClient(ctx context.Context, metadata sthhttp.ReleaseMetadata, force bool, client *sthhttp.Client) (*sthhttp.ReleaseAsset, *fs.StableUpdateOffer, error) {
 	if strings.TrimSpace(metadata.ReleasesAPIURL) == "" {
 		return nil, nil, nil
 	}
@@ -498,7 +560,7 @@ func (a *app) resolveStableUpdate(ctx context.Context, force bool) (*sthhttp.Rel
 		}
 	}
 
-	release, err := a.client.CheckForStableUpdate(ctx, metadata)
+	release, err := client.CheckForStableUpdate(ctx, metadata)
 	if err != nil {
 		state := fs.NewErrorUpdateCheckState(now, metadata.CurrentVersion, err.Error())
 		_, _ = fs.WriteUpdateCheckState(state)
@@ -528,7 +590,7 @@ func currentExecutablePath() (string, error) {
 
 	path, err := os.Executable()
 	if err != nil {
-		return "", fmt.Errorf("impossible de déterminer le binaire courant : %w", err)
+		return "", fmt.Errorf("unable to locate the current binary: %w", err)
 	}
 
 	return path, nil

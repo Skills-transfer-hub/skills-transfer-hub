@@ -30,14 +30,14 @@ func ListOrgs(ctx context.Context, httpClient *stdhttp.Client) ([]Org, error) {
 	url := sthhttp.CloudBaseURL() + "/v1/orgs"
 	request, err := stdhttp.NewRequestWithContext(ctx, stdhttp.MethodGet, url, nil)
 	if err != nil {
-		return nil, fmt.Errorf("orgs: préparation requête : %w", err)
+		return nil, fmt.Errorf("orgs: failed to create request: %w", err)
 	}
 	request.Header.Set("Authorization", "Bearer "+key)
 	request.Header.Set("Accept", "application/json")
 
 	resp, err := httpClient.Do(request)
 	if err != nil {
-		return nil, fmt.Errorf("orgs: requête vers %s échouée : %w", url, err)
+		return nil, fmt.Errorf("orgs: request to %s failed: %w", url, err)
 	}
 	defer resp.Body.Close()
 
@@ -51,13 +51,13 @@ func ListOrgs(ctx context.Context, httpClient *stdhttp.Client) ([]Org, error) {
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes))
 	if err != nil {
-		return nil, fmt.Errorf("orgs: lecture du corps : %w", err)
+		return nil, fmt.Errorf("orgs: failed to read response body: %w", err)
 	}
 	var decoded struct {
 		Orgs []Org `json:"orgs"`
 	}
 	if err := json.Unmarshal(body, &decoded); err != nil {
-		return nil, fmt.Errorf("orgs: JSON invalide : %w", err)
+		return nil, fmt.Errorf("orgs: invalid JSON: %w", err)
 	}
 	return decoded.Orgs, nil
 }

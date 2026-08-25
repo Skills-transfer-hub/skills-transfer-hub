@@ -31,7 +31,7 @@ var artifactCapabilities = []ArtifactCapability{
 	{TargetKind: KindCodex, ArtifactKind: "instruction", Level: CompatibilityAdapted, Surface: "Codex", Destination: ".codex/sth/instructions/{name}.md", Implemented: true},
 	{TargetKind: KindCopilot, ArtifactKind: "skill", Level: CompatibilityNative, Surface: "Copilot", Destination: ".claude/skills/{name}/SKILL.md", Invocation: "/{name}", Implemented: true},
 	{TargetKind: KindCopilot, ArtifactKind: "agent", Level: CompatibilityNative, Surface: "Copilot", Destination: ".github/agents/{name}.agent.md", Implemented: true},
-	{TargetKind: KindCopilot, ArtifactKind: "command", Level: CompatibilityNative, Surface: "Copilot CLI et IDE", Destination: ".claude/commands/{name}.md + .github/prompts/{name}.prompt.md", Invocation: "/{name}", Implemented: true},
+	{TargetKind: KindCopilot, ArtifactKind: "command", Level: CompatibilityNative, Surface: "Copilot CLI and IDE", Destination: ".claude/commands/{name}.md + .github/prompts/{name}.prompt.md", Invocation: "/{name}", Implemented: true},
 	{TargetKind: KindCopilot, ArtifactKind: "instruction", Level: CompatibilityNative, Surface: "Copilot", Destination: ".github/instructions/{name}.instructions.md", Implemented: true},
 	{TargetKind: KindAntigravity, ArtifactKind: "skill", Level: CompatibilityNative, Surface: "Antigravity IDE", Destination: ".agents/skills/{name}/SKILL.md", Implemented: true},
 	{TargetKind: KindAntigravity, ArtifactKind: "agent", Level: CompatibilityNative, Surface: "Antigravity IDE", Destination: ".agents/agents/{name}.md", Implemented: true},

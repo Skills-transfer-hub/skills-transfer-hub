@@ -9,18 +9,18 @@ import (
 
 func TestRenderBuddy_AllStatesIncludeEmojiAndFace(t *testing.T) {
 	cases := []struct {
-		name     string
-		state    fs.BuddyState
-		emoji    string
-		face     string
-		caption  string
+		name    string
+		state   fs.BuddyState
+		emoji   string
+		face    string
+		caption string
 	}{
-		{"AllGood", fs.BuddyAllGood, "💧", ">/<", "à jour"},
-		{"UpdateAvailable", fs.BuddyUpdateAvailable, "⚠️", "o.O", "disponible"},
-		{"NoConfig", fs.BuddyNoConfig, "😶", "._.", "configuration"},
-		{"Error", fs.BuddyError, "❌", "x x", "erreur"},
-		{"Installing", fs.BuddyInstalling, "⏳", ">_<", "Installation"},
-		{"Done", fs.BuddyDone, "✅", "^.^", "terminée"},
+		{"AllGood", fs.BuddyAllGood, "💧", ">/<", "up to date"},
+		{"UpdateAvailable", fs.BuddyUpdateAvailable, "⚠️", "o.O", "Update available."},
+		{"NoConfig", fs.BuddyNoConfig, "😶", "._.", "No project configuration"},
+		{"Error", fs.BuddyError, "❌", "x x", "An error occurred."},
+		{"Installing", fs.BuddyInstalling, "⏳", ">_<", "Installing"},
+		{"Done", fs.BuddyDone, "✅", "^.^", "Operation finished."},
 	}
 
 	for _, tc := range cases {

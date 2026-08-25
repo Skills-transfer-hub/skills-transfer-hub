@@ -16,10 +16,10 @@ import (
 )
 
 var (
-	ErrForbiddenOrg    = errors.New("org-config: organisation non autorisée")
-	ErrForbiddenRole   = errors.New("org-config: rôle owner/admin requis")
-	ErrNotEntitled     = errors.New("org-config: capability fleet_sync requise")
-	ErrVersionConflict = errors.New("org-config: version périmée")
+	ErrForbiddenOrg    = errors.New("org-config: organization is not allowed")
+	ErrForbiddenRole   = errors.New("org-config: owner/admin role is required")
+	ErrNotEntitled     = errors.New("org-config: fleet_sync capability is required")
+	ErrVersionConflict = errors.New("org-config: version is stale")
 )
 
 type OrgConfig struct {
@@ -38,7 +38,7 @@ func GetOrgConfig(ctx context.Context, httpClient *stdhttp.Client, orgID string)
 	url := sthhttp.CloudBaseURL() + "/v1/org-config"
 	request, err := stdhttp.NewRequestWithContext(ctx, stdhttp.MethodGet, url, nil)
 	if err != nil {
-		return OrgConfig{}, fmt.Errorf("org-config: préparation requête : %w", err)
+		return OrgConfig{}, fmt.Errorf("org-config: failed to create request: %w", err)
 	}
 	request.Header.Set("Authorization", "Bearer "+key)
 	request.Header.Set("Accept", "application/json")
@@ -48,13 +48,13 @@ func GetOrgConfig(ctx context.Context, httpClient *stdhttp.Client, orgID string)
 
 	resp, err := httpClient.Do(request)
 	if err != nil {
-		return OrgConfig{}, fmt.Errorf("org-config: requête vers %s échouée : %w", url, err)
+		return OrgConfig{}, fmt.Errorf("org-config: request to %s failed: %w", url, err)
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes))
 	if err != nil {
-		return OrgConfig{}, fmt.Errorf("org-config: lecture du corps : %w", err)
+		return OrgConfig{}, fmt.Errorf("org-config: failed to read response body: %w", err)
 	}
 
 	switch resp.StatusCode {
@@ -72,7 +72,7 @@ func GetOrgConfig(ctx context.Context, httpClient *stdhttp.Client, orgID string)
 		ConfigVersion int                 `json:"config_version"`
 	}
 	if err := json.Unmarshal(body, &decoded); err != nil {
-		return OrgConfig{}, fmt.Errorf("org-config: JSON invalide : %w", err)
+		return OrgConfig{}, fmt.Errorf("org-config: invalid JSON: %w", err)
 	}
 	return OrgConfig{Config: decoded.Config, ConfigVersion: decoded.ConfigVersion}, nil
 }
@@ -90,12 +90,12 @@ func PutOrgConfig(ctx context.Context, httpClient *stdhttp.Client, orgID string,
 		BaseVersion int                `json:"base_version"`
 	}{Config: config, BaseVersion: baseVersion})
 	if err != nil {
-		return 0, fmt.Errorf("org-config: encodage : %w", err)
+		return 0, fmt.Errorf("org-config: failed to encode payload: %w", err)
 	}
 	url := sthhttp.CloudBaseURL() + "/v1/org-config"
 	request, err := stdhttp.NewRequestWithContext(ctx, stdhttp.MethodPut, url, bytes.NewReader(payload))
 	if err != nil {
-		return 0, fmt.Errorf("org-config: préparation requête : %w", err)
+		return 0, fmt.Errorf("org-config: failed to create request: %w", err)
 	}
 	request.Header.Set("Authorization", "Bearer "+key)
 	request.Header.Set("Content-Type", "application/json")
@@ -106,13 +106,13 @@ func PutOrgConfig(ctx context.Context, httpClient *stdhttp.Client, orgID string,
 
 	resp, err := httpClient.Do(request)
 	if err != nil {
-		return 0, fmt.Errorf("org-config: requête vers %s échouée : %w", url, err)
+		return 0, fmt.Errorf("org-config: request to %s failed: %w", url, err)
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes))
 	if err != nil {
-		return 0, fmt.Errorf("org-config: lecture du corps : %w", err)
+		return 0, fmt.Errorf("org-config: failed to read response body: %w", err)
 	}
 
 	switch resp.StatusCode {
@@ -131,7 +131,7 @@ func PutOrgConfig(ctx context.Context, httpClient *stdhttp.Client, orgID string,
 		ConfigVersion int `json:"config_version"`
 	}
 	if err := json.Unmarshal(body, &decoded); err != nil {
-		return 0, fmt.Errorf("org-config: JSON invalide : %w", err)
+		return 0, fmt.Errorf("org-config: invalid JSON: %w", err)
 	}
 	return decoded.ConfigVersion, nil
 }
@@ -149,6 +149,6 @@ func classifyForbidden(body []byte) error {
 	case "not_entitled":
 		return ErrNotEntitled
 	default:
-		return errors.New("org-config: accès refusé (HTTP 403)")
+		return errors.New("org-config: access denied (HTTP 403)")
 	}
 }

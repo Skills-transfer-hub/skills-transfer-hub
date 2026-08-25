@@ -95,7 +95,7 @@ func TestCodexSkillRejectsNameDifferentFromDirectory(t *testing.T) {
 	source := []byte("---\nname: other\ndescription: Review code\n---\nReview the change.\n")
 
 	_, err := (CodexWriter{}).Render(WriteRequest{InstalledPath: installedPath, Content: source, AddManagedHeader: true})
-	if err == nil || !strings.Contains(err.Error(), "différent du dossier") {
+	if err == nil || !strings.Contains(err.Error(), "differs from directory") {
 		t.Fatalf("mismatched skill name error = %v", err)
 	}
 }
@@ -105,7 +105,7 @@ func TestCodexSkillRejectsInvalidDirectoryName(t *testing.T) {
 	source := []byte("---\ndescription: Review code\n---\nReview the change.\n")
 
 	_, err := (CodexWriter{}).Render(WriteRequest{InstalledPath: installedPath, Content: source, AddManagedHeader: true})
-	if err == nil || !strings.Contains(err.Error(), "nom de skill Codex invalide") {
+	if err == nil || !strings.Contains(err.Error(), "invalid Codex skill name") {
 		t.Fatalf("invalid skill name error = %v", err)
 	}
 }

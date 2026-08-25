@@ -63,7 +63,7 @@ func (FlatSkillScanner) Scan(tree []TreeEntry) ([]Artifact, error) {
 	}
 
 	if len(seen) == 0 {
-		return nil, fmt.Errorf("aucun bundle compatible détecté dans l'arborescence du dépôt")
+		return nil, fmt.Errorf("no compatible bundle found in the repository tree")
 	}
 
 	results := make([]Artifact, 0, len(seen))
@@ -90,15 +90,15 @@ func IsFlatSkillPath(resourcePath string) bool {
 func SplitFlatSkillPath(resourcePath string) (string, string, error) {
 	normalized := NormalizePath(resourcePath)
 	if normalized == "" || path.IsAbs(normalized) || normalized == ".." || strings.HasPrefix(normalized, "../") {
-		return "", "", fmt.Errorf("resource path invalide : %q", resourcePath)
+		return "", "", fmt.Errorf("invalid resource path: %q", resourcePath)
 	}
 
 	parts := strings.Split(normalized, "/")
 	if len(parts) != 3 || parts[2] != "SKILL.md" {
-		return "", "", fmt.Errorf("resource path incompatible : %q", resourcePath)
+		return "", "", fmt.Errorf("incompatible resource path: %q", resourcePath)
 	}
 	if strings.TrimSpace(parts[0]) == "" || strings.TrimSpace(parts[1]) == "" {
-		return "", "", fmt.Errorf("resource path incompatible : %q", resourcePath)
+		return "", "", fmt.Errorf("incompatible resource path: %q", resourcePath)
 	}
 
 	return parts[0], parts[1], nil

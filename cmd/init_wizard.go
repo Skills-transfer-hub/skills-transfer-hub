@@ -1,121 +1,17 @@
 package cmd
 
 import (
-	"bufio"
 	"context"
 	"fmt"
-	"io"
 	"os"
-	"strconv"
 	"strings"
 
 	"sth/internal/fs"
 	sthhttp "sth/internal/http"
+	"sth/internal/tui"
 	"sth/internal/writer"
 )
 
-// wizardEmotion drives the buddy face/emoji shown above each prompt.
-// It is intentionally a wizard-private enum so we never have to add
-// narrator-specific entries to fs.BuddyState (which would break sth buddy).
-type wizardEmotion int
-
-const (
-	wizardHello    wizardEmotion = iota // greeting / neutral question
-	wizardThinking                      // contextual info / clarification
-	wizardWorried                       // invalid input, re-prompt
-	wizardSad                           // user aborted
-	wizardHappy                         // success / validation OK
-	wizardError                         // remote validation failed
-)
-
-type wizardView struct {
-	Emoji string
-	Face  string
-}
-
-func wizardViewFor(e wizardEmotion) wizardView {
-	switch e {
-	case wizardThinking:
-		return wizardView{Emoji: "🤔", Face: "o_o"}
-	case wizardWorried:
-		return wizardView{Emoji: "😟", Face: ">_<"}
-	case wizardSad:
-		return wizardView{Emoji: "🙁", Face: ":("}
-	case wizardHappy:
-		return wizardView{Emoji: "✅", Face: "^.^"}
-	case wizardError:
-		return wizardView{Emoji: "⚠️", Face: "o_o"}
-	default:
-		return wizardView{Emoji: "😊", Face: "^_^"}
-	}
-}
-
-// renderWizardBox draws a buddy-in-his-box block with narration on the right
-// of the small face box. Same outer frame width as the launch banner so the UI
-// stays visually consistent.
-func renderWizardBox(v wizardView, lines ...string) string {
-	const (
-		faceCells       = 3
-		leftFacePadding = 4 // spaces before the face box opening
-	)
-	face := padFace(v.Face, faceCells)              // " ^_^ "
-	innerBoxWidth := displayCells(face) + 2         // " ^_^ " + two borders
-	leftCol := strings.Repeat(" ", leftFacePadding) // "    "
-	box := struct {
-		Top, Mid, Bot string
-	}{
-		Top: leftCol + "╭" + strings.Repeat("─", innerBoxWidth-2) + "╮",
-		Mid: leftCol + "│" + face + "│",
-		Bot: leftCol + "╰" + strings.Repeat("─", innerBoxWidth-2) + "╯",
-	}
-	emojiRow := "      " + v.Emoji
-	const narrSep = "   " // 3 spaces between face box and narration
-
-	rows := []string{
-		"",
-		emojiRow,
-		box.Top + narrSep + lineAt(lines, 0),
-		box.Mid + narrSep + lineAt(lines, 1),
-		box.Bot + narrSep + lineAt(lines, 2),
-	}
-	for i := 3; i < len(lines); i++ {
-		// continuation lines align under the narration column (after box+sep).
-		indent := strings.Repeat(" ", displayCells(box.Bot)+len(narrSep))
-		rows = append(rows, indent+lines[i])
-	}
-	rows = append(rows, "")
-
-	innerWidth := bannerOuterWidth - 2
-	var b strings.Builder
-	b.WriteString("╭" + strings.Repeat("─", innerWidth) + "╮\n")
-	for _, row := range rows {
-		padN := innerWidth - displayCells(row)
-		if padN < 0 {
-			padN = 0
-		}
-		b.WriteString("│")
-		b.WriteString(row)
-		b.WriteString(strings.Repeat(" ", padN))
-		b.WriteString("│\n")
-	}
-	b.WriteString("╰" + strings.Repeat("─", innerWidth) + "╯")
-	return b.String()
-}
-
-func lineAt(lines []string, i int) string {
-	if i < len(lines) {
-		return lines[i]
-	}
-	return ""
-}
-
-func (a *app) narrate(emotion wizardEmotion, lines ...string) {
-	v := wizardViewFor(emotion)
-	fmt.Fprintln(a.stdout, renderWizardBox(v, lines...))
-}
-
-// wizardProfile is the in-memory draft built up step by step.
-// It is converted to fs.ProviderEntry + fs.ProjectProfile once confirmed.
 type wizardProfile struct {
 	Alias        string
 	Provider     string
@@ -125,33 +21,62 @@ type wizardProfile struct {
 	TargetDir    string
 	Targets      []string
 	IsPrivate    bool
-	Token        string // session-only, never persisted
-	TokenSource  string // "env:GITHUB_TOKEN" / "manual" / "" (none)
+	Token        string
+	TokenSource  string
 }
 
-// tokenLabel returns a redacted, user-facing description of the token state.
-// We deliberately never show even a fragment of the token value.
 func (p wizardProfile) tokenLabel() string {
 	switch {
 	case p.TokenSource == "":
-		return "aucun"
+		return "none"
 	case strings.HasPrefix(p.TokenSource, "env:"):
-		return fmt.Sprintf("depuis $%s", strings.TrimPrefix(p.TokenSource, "env:"))
+		return fmt.Sprintf("from $%s", strings.TrimPrefix(p.TokenSource, "env:"))
 	default:
-		return "saisi pour cette session"
+		return "entered for this session"
 	}
 }
 
-// runInitWizard drives the new narrated flow. It is called by runInit after
-// the dispatcher has handled existing-config and legacy-import branches.
-// `defaults` carries pre-filled values (e.g. from legacy import).
-// `existingCfg` is the current project config; we append our new entry to it.
-// `assignedAlias` is "default" for the first provider, or empty to ask.
-func (a *app) runInitWizard(reader *bufio.Reader, existingCfg fs.ProjectConfigV2, defaults fs.ProjectProfile, assignedAlias string) error {
-	a.narrate(wizardHello,
-		"Salut ! On va connecter ton catalogue de skills",
-		"en quelques questions. Tu pourras tout corriger",
-		"avant que j'écrive quoi que ce soit. (Ctrl+C pour annuler.)",
+func (a *app) narrateMood(session *tui.Session, mood tui.Mood, lines ...string) {
+	maxWidth := 0
+	if session != nil {
+		maxWidth = session.MaxWidth
+	}
+	a.writeStdout(tui.RenderNarrator(mood, maxWidth, lines...))
+}
+
+var providerKeysOrdered = []string{"github", "gitlab", "azure-devops", "bitbucket", "sth-cloud"}
+
+func providerSelectOptions() []tui.Option {
+	labels := map[string]string{
+		"github":       "GitHub",
+		"gitlab":       "GitLab",
+		"azure-devops": "Azure DevOps",
+		"bitbucket":    "Bitbucket",
+		"sth-cloud":    "STH Cloud (coming soon — Alpha)",
+	}
+	options := make([]tui.Option, 0, len(providerKeysOrdered))
+	for _, key := range providerKeysOrdered {
+		options = append(options, tui.Option{Label: labels[key], Aliases: []string{key}})
+	}
+	return options
+}
+
+func indexOfProvider(options []tui.Option, slug string) int {
+	for index, option := range options {
+		for _, alias := range option.Aliases {
+			if strings.EqualFold(alias, slug) {
+				return index
+			}
+		}
+	}
+	return -1
+}
+
+func (a *app) runInitWizard(session *tui.Session, existingCfg fs.ProjectConfigV2, defaults fs.ProjectProfile, assignedAlias string) error {
+	a.narrateMood(session, tui.MoodHello,
+		"Hi! We will connect your skills catalog",
+		"in a few questions. You can fix everything",
+		"before I write anything. (Esc to cancel.)",
 	)
 
 	draft := wizardProfile{
@@ -165,125 +90,152 @@ func (a *app) runInitWizard(reader *bufio.Reader, existingCfg fs.ProjectConfigV2
 	}
 
 	if assignedAlias == "" {
-		alias, err := a.askAlias(reader, existingCfg)
-		if err != nil {
+		if err := a.askAlias(session, &draft, existingCfg); err != nil {
 			return err
 		}
-		draft.Alias = alias
 	}
 
-	if err := a.askProvider(reader, &draft); err != nil {
+	if err := a.askProvider(session, &draft); err != nil {
 		return err
 	}
 
-	if IsCloudProvider(draft.Provider) {
-		a.writeStdout(
-			"",
-			"STH Cloud n'est pas encore disponible en Alpha.",
-			"Inscris-toi à la liste d'attente : https://sth-dashboard.vercel.app/pricing",
-			"",
-			"En attendant, choisis un provider Git (github, gitlab, azure-devops, bitbucket).",
-		)
-		return fmt.Errorf("sth-cloud sera disponible après l'Alpha")
-	}
-
-	if err := a.askRepository(reader, &draft); err != nil {
+	if err := a.askRepository(session, &draft); err != nil {
 		return err
 	}
 
-	if err := a.askCatalogSettings(reader, &draft); err != nil {
+	if err := a.askCatalogSettings(session, &draft); err != nil {
 		return err
 	}
 
-	if err := a.askTargets(reader, &draft, existingCfg); err != nil {
+	if err := a.askTargets(session, &draft, existingCfg); err != nil {
 		return err
 	}
 
-	if err := a.askAccessAndToken(reader, &draft, existingCfg); err != nil {
+	if err := a.askAccessAndToken(session, &draft, existingCfg); err != nil {
 		return err
 	}
 
-	confirmed, err := a.recapAndConfirm(reader, &draft, existingCfg)
+	confirmed, err := a.recapAndConfirm(session, &draft, existingCfg)
 	if err != nil {
 		return err
 	}
 	if !confirmed {
-		a.narrate(wizardSad, "OK, j'abandonne. Aucun fichier modifié.")
+		a.narrateMood(session, tui.MoodSad, "OK, setup cancelled.")
 		return nil
 	}
 
-	return a.writeAndValidate(existingCfg, draft)
+	return a.writeAndValidate(draft)
 }
 
-// aliasIsDuplicate reports whether `alias` collides with an existing
-// provider entry. Used by both the initial alias prompt and the recap-edit
-// loop so a recap-time edit can't sneak a duplicate past validation.
 func aliasIsDuplicate(alias string, existingCfg fs.ProjectConfigV2) bool {
-	for _, p := range existingCfg.Providers {
-		if p.ID == alias {
+	for _, provider := range existingCfg.Providers {
+		if provider.ID == alias {
 			return true
 		}
 	}
 	return false
 }
 
-func (a *app) askAlias(reader *bufio.Reader, existingCfg fs.ProjectConfigV2) (string, error) {
-	a.narrate(wizardThinking,
-		fmt.Sprintf("Tu as déjà %d provider(s) configuré(s).", len(existingCfg.Providers)),
-		"Donne un alias court à ce nouveau (ex : work, oss).",
+func aliasValidationMessage(alias string) string {
+	if strings.TrimSpace(alias) == "" {
+		return "Alias cannot be empty."
+	}
+	return "Alias may contain only letters, numbers, hyphens, and underscores."
+}
+
+func (a *app) askAlias(session *tui.Session, draft *wizardProfile, existingCfg fs.ProjectConfigV2) error {
+	a.narrateMood(session, tui.MoodThinking,
+		fmt.Sprintf("You already have %d configured provider(s).", len(existingCfg.Providers)),
+		"Give it a short alias (e.g. work, oss).",
 	)
 	for {
-		alias, err := promptValue(reader, a.stdout, "Alias", "")
+		alias, err := tui.Input(session, tui.InputConfig{Label: "Alias", Required: true})
 		if err != nil {
-			return "", err
+			return err
 		}
 		if validateErr := fs.ValidateProviderID(alias); validateErr != nil {
-			a.narrate(wizardWorried, "Alias invalide : "+validateErr.Error())
+			a.narrateMood(session, tui.MoodWorried, aliasValidationMessage(alias))
 			continue
 		}
 		if aliasIsDuplicate(alias, existingCfg) {
-			a.narrate(wizardWorried, fmt.Sprintf("L'alias %q est déjà utilisé. Choisis-en un autre.", alias))
+			a.narrateMood(session, tui.MoodWorried, fmt.Sprintf("Alias %q is already in use. Pick another one.", alias))
 			continue
 		}
-		return alias, nil
+		draft.Alias = alias
+		return nil
 	}
 }
 
-func (a *app) askProvider(reader *bufio.Reader, draft *wizardProfile) error {
-	a.narrate(wizardHello, "Quel hébergeur héberge ton catalogue ?")
-	provider, err := promptProvider(reader, a.stdout, draft.Provider)
-	if err != nil {
-		return err
+func (a *app) askProvider(session *tui.Session, draft *wizardProfile) error {
+	options := providerSelectOptions()
+	recommended := indexOfProvider(options, draft.Provider)
+	for {
+		a.narrateMood(session, tui.MoodHello, "Where is your catalog hosted?")
+		index, err := tui.Select(session, tui.SelectConfig{
+			Title:       "Provider",
+			Options:     options,
+			Recommended: max(recommended, 0),
+		})
+		if err != nil {
+			return err
+		}
+		chosen := providerKeysOrdered[index]
+		if IsCloudProvider(chosen) {
+			a.narrateMood(session, tui.MoodWorried,
+				"STH Cloud repositories are not available during Alpha yet.",
+				"Join the waitlist: https://sth-dashboard.vercel.app/pricing",
+				"For now, choose a Git provider below.",
+			)
+			continue
+		}
+		draft.Provider = chosen
+		return nil
 	}
-	draft.Provider = provider
-	return nil
 }
 
-func (a *app) askRepository(reader *bufio.Reader, draft *wizardProfile) error {
-	a.narrate(wizardHello,
-		"Donne-moi l'identifiant du dépôt.",
-		"Tu peux coller une URL (ex: https://github.com/owner/repo)",
-		"ou juste owner/repo — je m'occupe du nettoyage.",
+func (a *app) askRepository(session *tui.Session, draft *wizardProfile) error {
+	a.narrateMood(session, tui.MoodHello,
+		"Give me the repository identifier.",
+		"Paste a URL (e.g. https://github.com/owner/repo)",
+		"or just owner/repo — I will clean it up.",
 	)
-	repo, err := promptRepositoryID(reader, a.stdout, draft.Provider, draft.RepositoryID)
-	if err != nil {
-		return err
+	for {
+		value, err := tui.Input(session, tui.InputConfig{
+			Label:    "Repository (URL or owner/repo)",
+			Default:  draft.RepositoryID,
+			Required: true,
+		})
+		if err != nil {
+			return err
+		}
+		normalizedValue, normalizeErr := fs.NormalizeRepositoryID(draft.Provider, value)
+		if normalizeErr != nil {
+			a.writeStdout(
+				"Invalid repository identifier.",
+				fmt.Sprintf("Expected format: %s", providerRepositoryIDFormat(draft.Provider)),
+				fmt.Sprintf("Example: %s", providerRepositoryIDExample(draft.Provider)),
+			)
+			if hostedDomain := providerHostedDomain(draft.Provider); hostedDomain != "" {
+				a.writeStdout(fmt.Sprintf("Supported hosted domain: %s", hostedDomain))
+			}
+			continue
+		}
+		draft.RepositoryID = normalizedValue
+		return nil
 	}
-	draft.RepositoryID = repo
-	return nil
 }
 
-func (a *app) askCatalogSettings(reader *bufio.Reader, draft *wizardProfile) error {
-	a.narrate(wizardHello,
-		"Deux petits réglages.",
-		"Appuie sur Entrée pour accepter les valeurs par défaut.",
+func (a *app) askCatalogSettings(session *tui.Session, draft *wizardProfile) error {
+	a.narrateMood(session, tui.MoodHello,
+		"Two quick settings.",
+		"Press Enter to accept defaults.",
 	)
-	ref, err := promptValue(reader, a.stdout, "Référence Git", draft.Ref)
+	ref, err := tui.Input(session, tui.InputConfig{Label: "Git reference", Default: draft.Ref, Required: true})
 	if err != nil {
 		return err
 	}
 	draft.Ref = ref
-	catalog, err := promptValue(reader, a.stdout, "Chemin du catalogue", draft.CatalogPath)
+	catalog, err := tui.Input(session, tui.InputConfig{Label: "Catalog path", Default: draft.CatalogPath, Required: true})
 	if err != nil {
 		return err
 	}
@@ -291,22 +243,35 @@ func (a *app) askCatalogSettings(reader *bufio.Reader, draft *wizardProfile) err
 	return nil
 }
 
-func (a *app) askAccessAndToken(reader *bufio.Reader, draft *wizardProfile, existingCfg fs.ProjectConfigV2) error {
-	a.narrate(wizardHello, "Le dépôt est public ou privé ?")
-	access, err := promptAccessType(reader, a.stdout)
-	if err != nil {
-		return err
+func accessSelectOptions() []tui.Option {
+	return []tui.Option{
+		{Label: "Private — requires an access token", Aliases: []string{"privé", "prive", "private", "p"}},
+		{Label: "Public — anonymous read access", Aliases: []string{"public", "pub"}},
 	}
-	draft.IsPrivate = access
+}
 
-	if draft.IsPrivate && alphaProviderGateActive() && countPrivateGitProviders(existingCfg) >= 1 {
-		a.writeStdout(
-			"",
-			"Pendant l'Alpha, un projet ne peut référencer qu'un seul dépôt privé.",
-			"Choisis public pour ce dépôt, ou contourne (à tes risques) avec STH_ALPHA_GATE=0.",
-			fmt.Sprintf("Détails : %s", AlphaLimitsDocsURL()),
-		)
-		return fmt.Errorf("limite Alpha : 1 dépôt privé max par projet")
+func (a *app) askAccessAndToken(session *tui.Session, draft *wizardProfile, existingCfg fs.ProjectConfigV2) error {
+	for {
+		a.narrateMood(session, tui.MoodHello, "Is the repository public or private?")
+		accessIndex, err := tui.Select(session, tui.SelectConfig{
+			Title:       "Repository access type",
+			Options:     accessSelectOptions(),
+			Recommended: accessRecommendedIndex(draft.IsPrivate),
+		})
+		if err != nil {
+			return err
+		}
+		draft.IsPrivate = accessIndex == 0
+
+		if draft.IsPrivate && alphaProviderGateActive() && countPrivateGitProviders(existingCfg) >= 1 {
+			a.narrateMood(session, tui.MoodWorried,
+				"During Alpha, a project can reference only one private repository.",
+				"Choose public for this repository, or bypass at your own risk with STH_ALPHA_GATE=0.",
+				fmt.Sprintf("Details: %s", AlphaLimitsDocsURL()),
+			)
+			continue
+		}
+		break
 	}
 
 	if !draft.IsPrivate {
@@ -316,9 +281,9 @@ func (a *app) askAccessAndToken(reader *bufio.Reader, draft *wizardProfile, exis
 	}
 
 	if envVar, value := detectProviderToken(draft.Provider); value != "" {
-		a.narrate(wizardHappy,
-			fmt.Sprintf("J'ai trouvé un token dans $%s.", envVar),
-			"Je vais l'utiliser pour la vérification.",
+		a.narrateMood(session, tui.MoodHappy,
+			fmt.Sprintf("I found a token in $%s.", envVar),
+			"I will use it for the access check.",
 		)
 		draft.Token = ""
 		draft.TokenSource = "env:" + envVar
@@ -326,8 +291,8 @@ func (a *app) askAccessAndToken(reader *bufio.Reader, draft *wizardProfile, exis
 	}
 
 	guide, _ := findProviderGuide(draft.Provider)
-	a.narrate(wizardThinking, shortPrivateGuidance(draft.Provider, guide)...)
-	expand, err := promptYesNo(reader, a.stdout, "Détails complets ?", false)
+	a.narrateMood(session, tui.MoodThinking, shortPrivateGuidance(draft.Provider, guide)...)
+	expand, err := tui.Confirm(session, tui.ConfirmConfig{Question: "Show full details?", DefaultYes: false})
 	if err != nil {
 		return err
 	}
@@ -335,8 +300,12 @@ func (a *app) askAccessAndToken(reader *bufio.Reader, draft *wizardProfile, exis
 		a.writeStdout(providerPrivateAccessGuidance(draft.Provider)...)
 	}
 
-	a.writeStdout("⚠ La saisie sera masquée (rien ne s'affichera). Entrée vide = ignorer.")
-	token, err := promptSecret(a, reader, "Token (optionnel)")
+	secretSession, closeSecretSession := a.secureSecretSession(session)
+	defer closeSecretSession()
+	token, err := tui.Secret(secretSession, tui.SecretConfig{
+		Label: "Token (optional)",
+		Hint:  "⚠ Input is hidden. Leave empty to skip.",
+	})
 	if err != nil {
 		return err
 	}
@@ -350,79 +319,30 @@ func (a *app) askAccessAndToken(reader *bufio.Reader, draft *wizardProfile, exis
 	return nil
 }
 
-// shortPrivateGuidance returns a 2-3 line teaser for the private-repo flow.
-// The full multi-line guidance lives in providerPrivateAccessGuidance and is
-// shown on demand via the "Détails complets ?" gate.
+func accessRecommendedIndex(isPrivate bool) int {
+	if isPrivate {
+		return 0
+	}
+	return 1
+}
+
 func shortPrivateGuidance(provider string, guide providerGuide) []string {
 	if guide.ActionURL == "" {
 		return []string{
-			"Dépôt privé : il te faut un token d'accès.",
-			"Définis $STH_TOKEN ou saisis-le ci-dessous.",
+			"A private repository requires an access token.",
+			"Set $STH_TOKEN or enter a token below.",
 		}
 	}
 	return []string{
-		fmt.Sprintf("Pour un dépôt %s privé, génère un PAT :", strings.ToUpper(provider)),
+		fmt.Sprintf("Generate a PAT for a private %s repository:", strings.ToUpper(provider)),
 		"→ " + guide.ActionURL,
-		"→ permission « " + guide.MinimumPermission + " »",
-	}
-}
-
-// promptAccessType reads "public" or "privé" (default privé). For backward
-// compat with the old y/n test scripts we also accept y/n/yes/no/oui/non.
-// Returns true when the user picked "privé".
-func promptAccessType(reader *bufio.Reader, stdout io.Writer) (bool, error) {
-	for {
-		raw, err := promptValue(reader, stdout, "Type d'accès [public/privé]", "privé")
-		if err != nil {
-			return false, err
-		}
-		switch strings.ToLower(strings.TrimSpace(raw)) {
-		case "privé", "prive", "private", "p", "y", "yes", "o", "oui":
-			return true, nil
-		case "public", "pub", "n", "no", "non":
-			return false, nil
-		}
-		fmt.Fprintln(stdout, "Réponse invalide. Tape `public` ou `privé`.")
-	}
-}
-
-// promptChoice reads a value and re-prompts until the trimmed input matches
-// (case-insensitively) one of the allowed values. Empty input returns the
-// default (which must itself be in the allowed list, otherwise empty is rejected).
-// Returns io.EOF immediately when stdin is closed without input, mirroring
-// promptValue, so callers can unwind cleanly instead of looping forever.
-func promptChoice(reader *bufio.Reader, stdout io.Writer, label, defaultValue string, allowed []string) (string, error) {
-	allowedLower := make(map[string]string, len(allowed))
-	for _, v := range allowed {
-		allowedLower[strings.ToLower(v)] = v
-	}
-	for {
-		if _, err := fmt.Fprintf(stdout, "%s : ", label); err != nil {
-			return "", err
-		}
-		line, err := reader.ReadString('\n')
-		if err != nil {
-			if err == io.EOF && strings.TrimSpace(line) == "" {
-				return "", io.EOF
-			}
-			if err != io.EOF {
-				return "", fmt.Errorf("lecture de l'entrée utilisateur échouée : %w", err)
-			}
-		}
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "" {
-			trimmed = defaultValue
-		}
-		if canonical, ok := allowedLower[strings.ToLower(trimmed)]; ok {
-			return canonical, nil
-		}
-		fmt.Fprintf(stdout, "Réponse invalide. Choix valides : %s.\n", strings.Join(allowed, ", "))
+		"→ permission \"" + guide.MinimumPermission + "\"",
 	}
 }
 
 func detectProviderToken(provider string) (string, string) {
-	if v := strings.TrimSpace(os.Getenv("STH_TOKEN")); v != "" {
-		return "STH_TOKEN", v
+	if tokenValue := strings.TrimSpace(os.Getenv("STH_TOKEN")); tokenValue != "" {
+		return "STH_TOKEN", tokenValue
 	}
 	guide, ok := findProviderGuide(provider)
 	if !ok {
@@ -432,126 +352,156 @@ func detectProviderToken(provider string) (string, string) {
 		if name == "STH_TOKEN" {
 			continue
 		}
-		if v := strings.TrimSpace(os.Getenv(name)); v != "" {
-			return name, v
+		if envValue := strings.TrimSpace(os.Getenv(name)); envValue != "" {
+			return name, envValue
 		}
 	}
 	return "", ""
 }
 
-func (a *app) recapAndConfirm(reader *bufio.Reader, draft *wizardProfile, existingCfg fs.ProjectConfigV2) (bool, error) {
+func (a *app) recapAndConfirm(session *tui.Session, draft *wizardProfile, existingCfg fs.ProjectConfigV2) (bool, error) {
 	for {
-		a.narrate(wizardHello,
-			"Voici ce que je vais enregistrer.",
-			"Vérifie et confirme.",
+		a.narrateMood(session, tui.MoodHello,
+			"Here is what I am about to save.",
+			"Review and confirm.",
 		)
 		a.writeStdout(
 			fmt.Sprintf("  Alias         : %s", draft.Alias),
 			fmt.Sprintf("  Provider      : %s", draft.Provider),
-			fmt.Sprintf("  Dépôt         : %s", draft.RepositoryID),
-			fmt.Sprintf("  Référence     : %s", draft.Ref),
-			fmt.Sprintf("  Catalogue     : %s", draft.CatalogPath),
-			fmt.Sprintf("  Cibles        : %s", strings.Join(draft.Targets, ", ")),
-			fmt.Sprintf("  Accès         : %s", accessLabel(draft.IsPrivate)),
+			fmt.Sprintf("  Repository    : %s", draft.RepositoryID),
+			fmt.Sprintf("  Git ref       : %s", draft.Ref),
+			fmt.Sprintf("  Catalog       : %s", draft.CatalogPath),
+			fmt.Sprintf("  Targets       : %s", strings.Join(draft.Targets, ", ")),
+			fmt.Sprintf("  Access        : %s", accessLabel(draft.IsPrivate)),
 			fmt.Sprintf("  Token         : %s", draft.tokenLabel()),
 			"",
 		)
-		choice, err := promptChoice(reader, a.stdout, "Confirmer et enregistrer ? [Y/n/edit]", "Y", []string{"Y", "y", "yes", "o", "oui", "n", "no", "non", "edit", "e"})
+		action, err := tui.Select(session, tui.SelectConfig{
+			Title: "Save this configuration?",
+			Options: []tui.Option{
+				{Label: "Save this configuration", Aliases: []string{"y", "yes", "o", "oui"}},
+				{Label: "Edit a field", Aliases: []string{"edit", "e"}},
+				{Label: "Abort", Aliases: []string{"n", "no", "non"}},
+			},
+		})
 		if err != nil {
 			return false, err
 		}
-		switch strings.ToLower(choice) {
-		case "n", "no", "non":
-			return false, nil
-		case "edit", "e":
-			if err := a.editDraftField(reader, draft, existingCfg); err != nil {
-				return false, err
-			}
-			continue
-		default:
+		switch action {
+		case 0:
 			return true, nil
+		case 1:
+			if editErr := a.editDraftField(session, draft, existingCfg); editErr != nil {
+				return false, editErr
+			}
+		default:
+			return false, nil
 		}
 	}
 }
 
-func (a *app) editDraftField(reader *bufio.Reader, draft *wizardProfile, existingCfg fs.ProjectConfigV2) error {
-	a.narrate(wizardThinking, "Quelle entrée veux-tu corriger ?")
-	field, err := promptChoice(reader, a.stdout,
-		"Champ [alias|provider|dépôt|ref|catalogue|cibles|accès|token]",
-		"dépôt",
-		[]string{"alias", "provider", "dépôt", "depot", "ref", "catalogue", "cibles", "targets", "accès", "acces", "token"},
-	)
+func recapFieldOptions() []tui.Option {
+	return []tui.Option{
+		{Label: "Alias", Aliases: []string{"alias"}},
+		{Label: "Provider", Aliases: []string{"provider"}},
+		{Label: "Repository", Aliases: []string{"dépôt", "depot", "repository"}},
+		{Label: "Git reference", Aliases: []string{"ref"}},
+		{Label: "Catalog path", Aliases: []string{"catalogue", "catalog"}},
+		{Label: "Targets", Aliases: []string{"cibles", "targets"}},
+		{Label: "Access and token", Aliases: []string{"accès", "acces", "access", "token"}},
+	}
+}
+
+func (a *app) editDraftField(session *tui.Session, draft *wizardProfile, existingCfg fs.ProjectConfigV2) error {
+	a.narrateMood(session, tui.MoodThinking, "Which field do you want to edit?")
+	fieldIndex, err := tui.Select(session, tui.SelectConfig{
+		Title:   "Field to edit",
+		Options: recapFieldOptions(),
+	})
 	if err != nil {
 		return err
 	}
-	switch strings.ToLower(field) {
-	case "alias":
-		newAlias, err := promptValue(reader, a.stdout, "Alias", draft.Alias)
+	switch fieldIndex {
+	case 0:
+		newAlias, err := tui.Input(session, tui.InputConfig{Label: "Alias", Default: draft.Alias, Required: true})
 		if err != nil {
 			return err
 		}
-		if v := fs.ValidateProviderID(newAlias); v != nil {
-			a.narrate(wizardWorried, "Alias invalide : "+v.Error())
+		if validateErr := fs.ValidateProviderID(newAlias); validateErr != nil {
+			a.narrateMood(session, tui.MoodWorried, aliasValidationMessage(newAlias))
 			return nil
 		}
-		// Mirror the duplicate-check from askAlias so a recap-edit can't smuggle
-		// in a colliding alias and corrupt project.json.
 		if newAlias != draft.Alias && aliasIsDuplicate(newAlias, existingCfg) {
-			a.narrate(wizardWorried, fmt.Sprintf("L'alias %q est déjà utilisé. Alias inchangé.", newAlias))
+			a.narrateMood(session, tui.MoodWorried, fmt.Sprintf("Alias %q is already in use. Alias unchanged.", newAlias))
 			return nil
 		}
 		draft.Alias = newAlias
-	case "provider":
-		return a.askProvider(reader, draft)
-	case "dépôt", "depot":
-		return a.askRepository(reader, draft)
-	case "ref":
-		v, err := promptValue(reader, a.stdout, "Référence Git", draft.Ref)
+	case 1:
+		return a.askProvider(session, draft)
+	case 2:
+		return a.askRepository(session, draft)
+	case 3:
+		ref, err := tui.Input(session, tui.InputConfig{Label: "Git reference", Default: draft.Ref, Required: true})
 		if err != nil {
 			return err
 		}
-		draft.Ref = v
-	case "catalogue":
-		v, err := promptValue(reader, a.stdout, "Chemin du catalogue", draft.CatalogPath)
+		draft.Ref = ref
+	case 4:
+		catalog, err := tui.Input(session, tui.InputConfig{Label: "Catalog path", Default: draft.CatalogPath, Required: true})
 		if err != nil {
 			return err
 		}
-		draft.CatalogPath = v
-	case "cibles", "targets":
-		return a.askTargets(reader, draft, existingCfg)
-	case "accès", "acces", "token":
-		return a.askAccessAndToken(reader, draft, existingCfg)
+		draft.CatalogPath = catalog
+	case 5:
+		return a.askTargets(session, draft, existingCfg)
+	default:
+		return a.askAccessAndToken(session, draft, existingCfg)
 	}
 	return nil
 }
 
 func accessLabel(private bool) string {
 	if private {
-		return "privé"
+		return "private"
 	}
 	return "public"
 }
 
-func (a *app) askTargets(reader *bufio.Reader, draft *wizardProfile, existingCfg fs.ProjectConfigV2) error {
+func (a *app) askTargets(session *tui.Session, draft *wizardProfile, existingCfg fs.ProjectConfigV2) error {
 	specs := writer.AllTargetSpecs()
 	preselected := preselectedKinds(draft, existingCfg)
 
-	a.narrate(wizardHello,
-		"Quels modèles/agents veux-tu cibler ?",
-		"Je pré-coche ceux détectés dans le projet.",
-		"Entrée = garder ; ex : 1,3 ou claude,copilot ou all.",
-	)
-	for index, spec := range specs {
-		mark := " "
-		if containsKind(preselected, spec.Kind) {
-			mark = "x"
+	options := make([]tui.Option, 0, len(specs))
+	for _, spec := range specs {
+		options = append(options, tui.Option{Label: spec.DisplayName, Aliases: []string{spec.Kind}})
+	}
+	selectedIndices := make([]int, 0, len(preselected))
+	for _, kind := range preselected {
+		for index, spec := range specs {
+			if spec.Kind == kind {
+				selectedIndices = append(selectedIndices, index)
+				break
+			}
 		}
-		a.writeStdout(fmt.Sprintf("  %d. [%s] %s", index+1, mark, spec.DisplayName))
 	}
 
-	selected, err := promptMultiChoice(reader, a.stdout, "Cibles", specs, preselected)
+	a.narrateMood(session, tui.MoodHello,
+		"Which assistants do you target?",
+		"Ones detected in this project are pre-checked.",
+		"Enter keeps selection; typing \"1,3\", names or \"all\" also works.",
+	)
+
+	indices, err := tui.MultiSelect(session, tui.MultiSelectConfig{
+		Title:    "Targets to generate",
+		Options:  options,
+		Selected: selectedIndices,
+	})
 	if err != nil {
 		return err
+	}
+	selected := make([]string, 0, len(indices))
+	for _, index := range indices {
+		selected = append(selected, specs[index].Kind)
 	}
 	if len(selected) == 0 {
 		selected = []string{writer.KindClaude}
@@ -586,96 +536,6 @@ func preselectedKinds(draft *wizardProfile, existingCfg fs.ProjectConfigV2) []st
 	return kinds
 }
 
-func promptMultiChoice(reader *bufio.Reader, stdout io.Writer, label string, specs []writer.TargetSpec, preselected []string) ([]string, error) {
-	for {
-		if _, err := fmt.Fprintf(stdout, "%s [%s]: ", label, strings.Join(preselected, ",")); err != nil {
-			return nil, err
-		}
-		line, err := reader.ReadString('\n')
-		if err != nil {
-			if err == io.EOF && strings.TrimSpace(line) == "" {
-				return nil, io.EOF
-			}
-			if err != io.EOF {
-				return nil, fmt.Errorf("lecture de l'entrée utilisateur échouée : %w", err)
-			}
-		}
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "" {
-			return preselected, nil
-		}
-		selected, parseErr := parseTargetSelection(trimmed, specs)
-		if parseErr != nil {
-			fmt.Fprintln(stdout, parseErr.Error())
-			continue
-		}
-		return selected, nil
-	}
-}
-
-func parseTargetSelection(input string, specs []writer.TargetSpec) ([]string, error) {
-	if strings.EqualFold(strings.TrimSpace(input), "all") {
-		all := make([]string, 0, len(specs))
-		for _, spec := range specs {
-			all = append(all, spec.Kind)
-		}
-		return all, nil
-	}
-	fields := strings.FieldsFunc(input, func(separator rune) bool {
-		return separator == ',' || separator == ' ' || separator == '\t'
-	})
-	selected := make([]string, 0, len(fields))
-	seen := make(map[string]bool)
-	for _, field := range fields {
-		kind, ok := resolveTargetToken(field, specs)
-		if !ok {
-			return nil, fmt.Errorf("cible invalide : %q (choix : numéros, %s, ou all)", field, strings.Join(specKinds(specs), ", "))
-		}
-		if !seen[kind] {
-			seen[kind] = true
-			selected = append(selected, kind)
-		}
-	}
-	if len(selected) == 0 {
-		return nil, fmt.Errorf("aucune cible valide")
-	}
-	return selected, nil
-}
-
-func resolveTargetToken(token string, specs []writer.TargetSpec) (string, bool) {
-	trimmed := strings.TrimSpace(token)
-	if index, err := strconv.Atoi(trimmed); err == nil {
-		if index >= 1 && index <= len(specs) {
-			return specs[index-1].Kind, true
-		}
-		return "", false
-	}
-	lower := strings.ToLower(trimmed)
-	for _, spec := range specs {
-		if strings.ToLower(spec.Kind) == lower {
-			return spec.Kind, true
-		}
-	}
-	return "", false
-}
-
-func specKinds(specs []writer.TargetSpec) []string {
-	kinds := make([]string, 0, len(specs))
-	for _, spec := range specs {
-		kinds = append(kinds, spec.Kind)
-	}
-	return kinds
-}
-
-func containsKind(kinds []string, kind string) bool {
-	for _, candidate := range kinds {
-		if candidate == kind {
-			return true
-		}
-	}
-	return false
-}
-
 func targetEntriesFromKinds(kinds []string) []fs.TargetEntry {
 	entries := make([]fs.TargetEntry, 0, len(kinds))
 	for _, kind := range kinds {
@@ -688,7 +548,34 @@ func targetEntriesFromKinds(kinds []string) []fs.TargetEntry {
 	return entries
 }
 
-func (a *app) writeAndValidate(existingCfg fs.ProjectConfigV2, draft wizardProfile) error {
+func (a *app) validateInitDraft(validationContext context.Context, draft wizardProfile) error {
+	profile := fs.ProjectProfile{
+		Provider:     draft.Provider,
+		RepositoryID: draft.RepositoryID,
+		Ref:          draft.Ref,
+		CatalogPath:  draft.CatalogPath,
+		TargetDir:    draft.TargetDir,
+		APIToken:     draft.Token,
+	}
+	return a.client.CheckProjectAccess(validationContext, profile)
+}
+
+func (a *app) writeInitDraft(draft wizardProfile, validationErr error) error {
+	lines, err := a.collectInitDraftOutput(draft, validationErr)
+	if len(lines) > 0 {
+		a.writeStdout(lines...)
+	}
+	return err
+}
+
+func (a *app) collectInitDraftOutput(draft wizardProfile, validationErr error) ([]string, error) {
+	currentCfg, err := fs.ReadProjectConfigV2()
+	if err != nil {
+		return nil, newInitUserError("could not reload the project configuration", err)
+	}
+	if aliasIsDuplicate(draft.Alias, currentCfg) {
+		return nil, fmt.Errorf("alias %q was configured while setup was running; restart setup", draft.Alias)
+	}
 	entry := fs.ProviderEntry{
 		ID:           draft.Alias,
 		Provider:     draft.Provider,
@@ -698,76 +585,83 @@ func (a *app) writeAndValidate(existingCfg fs.ProjectConfigV2, draft wizardProfi
 		TargetDir:    draft.TargetDir,
 		Private:      draft.IsPrivate,
 	}
-	existingCfg.Providers = append(existingCfg.Providers, entry)
-	existingCfg.Targets = targetEntriesFromKinds(draft.Targets)
+	currentCfg.Providers = append(currentCfg.Providers, entry)
+	currentCfg.Targets = targetEntriesFromKinds(draft.Targets)
 
-	path, err := fs.WriteProjectConfigV2(existingCfg)
+	path, err := fs.WriteProjectConfigV2(currentCfg)
 	if err != nil {
-		return err
+		return nil, newInitUserError("could not save the project configuration", err)
 	}
-	a.writeStdout(fmt.Sprintf("✓ Configuration enregistrée : %s", path))
+	lines := []string{fmt.Sprintf("✓ Configuration saved: %s", path)}
 	if workingDir, wdErr := os.Getwd(); wdErr == nil {
 		if changed, gitErr := fs.EnsureManagedGitignore(workingDir); gitErr == nil && changed {
-			a.writeStdout("✓ .gitignore mis à jour (fichiers d'état STH ignorés)")
+			lines = append(lines, "✓ .gitignore updated (STH state files ignored)")
 		}
 	}
 
-	profile := fs.ProjectProfile{
-		Provider:     draft.Provider,
-		RepositoryID: draft.RepositoryID,
-		Ref:          draft.Ref,
-		CatalogPath:  draft.CatalogPath,
-		TargetDir:    draft.TargetDir,
-		APIToken:     draft.Token,
+	if validationErr != nil {
+		diagnosis, failureLines := validationFailureOutput(draft, validationErr)
+		lines = append(lines, failureLines...)
+		message := fmt.Sprintf("remote access validation failed (%s): %s", diagnosis.Kind, diagnosis.Summary)
+		return lines, newInitUserError(message, validationErr)
 	}
-	if err := a.client.CheckProjectAccess(context.Background(), profile); err != nil {
-		a.renderValidationFailure(draft, err)
-		// Return the error so CI/scripting wrappers see a non-zero exit. The
-		// config file is still on disk (written above) — the user can iterate
-		// without losing input. Diagnostic + remediation are already printed.
-		return err
-	}
-	a.renderValidationSuccess(draft)
-	return nil
+	lines = append(lines, validationSuccessOutput(draft)...)
+	return lines, nil
+}
+
+func (a *app) writeAndValidate(draft wizardProfile) error {
+	validationErr := a.validateInitDraft(context.Background(), draft)
+	return a.writeInitDraft(draft, validationErr)
 }
 
 func (a *app) renderValidationSuccess(draft wizardProfile) {
-	a.narrate(wizardHappy,
-		"Tout est bon ! Le catalogue est accessible.",
-		"Prochaine étape : exécute `sth list` pour voir les skills.",
-	)
-	if draft.TokenSource == "manual" {
-		envVar := providerTokenEnvVar(draft.Provider)
-		a.writeStdout(
-			"",
-			"Le token saisi a servi à valider mais n'est pas sauvegardé.",
-			"Pour les prochaines fois, définis-le en variable d'environnement :",
-			fmt.Sprintf("  export %s=<votre-token>", envVar),
-		)
-	}
+	a.writeStdout(validationSuccessOutput(draft)...)
 }
 
-func (a *app) renderValidationFailure(draft wizardProfile, err error) {
-	diag := classifyValidationError(err, draft)
-	a.narrate(wizardError,
-		"J'ai écrit la config mais je n'arrive pas à valider",
-		"l'accès au dépôt distant.",
-	)
-	a.writeStdout(
-		"⚠ Configuration écrite mais non validée.",
-		"",
-		fmt.Sprintf("  Cause détectée : %s", diag.Kind),
-		fmt.Sprintf("  Détail         : %s", diag.Summary),
-		"",
-		"  Pour corriger :",
-	)
-	for i, step := range diag.Remediation {
-		a.writeStdout(fmt.Sprintf("    %d. %s", i+1, step))
+func validationSuccessOutput(draft wizardProfile) []string {
+	lines := []string{tui.RenderNarrator(tui.MoodHappy, 0,
+		"All good! The catalog is reachable.",
+		"Next step: run `sth list` to browse skills.",
+	)}
+	if draft.TokenSource == "manual" {
+		envVar := providerTokenEnvVar(draft.Provider)
+		lines = append(lines,
+			"",
+			"The token was used for validation but was not saved.",
+			"Set it as an environment variable for future runs:",
+			fmt.Sprintf("  export %s=<your-token>", envVar),
+		)
 	}
-	a.writeStdout(
+	return lines
+}
+
+func (a *app) renderValidationFailure(draft wizardProfile, err error) validationDiagnosis {
+	diagnosis, lines := validationFailureOutput(draft, err)
+	a.writeStdout(lines...)
+	return diagnosis
+}
+
+func validationFailureOutput(draft wizardProfile, err error) (validationDiagnosis, []string) {
+	diagnosis := classifyValidationError(err, draft)
+	lines := []string{tui.RenderNarrator(tui.MoodError, 0,
+		"Config written, but I could not validate",
+		"remote repository access.",
+	),
+		"⚠ Config written but not validated.",
 		"",
-		"  → Relance la vérification : `sth doctor`",
+		fmt.Sprintf("  Detected cause : %s", diagnosis.Kind),
+		fmt.Sprintf("  Details        : %s", diagnosis.Summary),
+		"",
+		"  How to fix it:",
+	}
+	for index, step := range diagnosis.Remediation {
+		lines = append(lines, fmt.Sprintf("    %d. %s", index+1, step))
+	}
+	lines = append(lines,
+		"",
+		"  → Run the check again: `sth doctor`",
 	)
+	return diagnosis, lines
 }
 
 type validationDiagnosis struct {
@@ -783,45 +677,44 @@ func classifyValidationError(err error, draft wizardProfile) validationDiagnosis
 	if _, ok := sthhttp.IsAuthError(err); ok {
 		return validationDiagnosis{
 			Kind:    "auth_failed",
-			Summary: "Le serveur a refusé le token (HTTP 401/403).",
+			Summary: "The server rejected the token (HTTP 401/403).",
 			Remediation: []string{
-				"Vérifie que le token n'est pas expiré.",
-				fmt.Sprintf("Confirme la permission « %s ».", guide.MinimumPermission),
-				fmt.Sprintf("Régénère via %s", guide.ActionURL),
-				fmt.Sprintf("export %s=<nouveau-token>", envVar),
+				"Check that the token has not expired.",
+				fmt.Sprintf("Confirm the \"%s\" permission.", guide.MinimumPermission),
+				fmt.Sprintf("Generate a new token at %s", guide.ActionURL),
+				fmt.Sprintf("export %s=<new-token>", envVar),
 			},
 		}
 	}
 
 	msg := err.Error()
 	switch {
-	case strings.Contains(msg, "catalogue introuvable et aucun bundle"):
+	case strings.Contains(strings.ToLower(msg), "bundle"):
 		return validationDiagnosis{
 			Kind:    "catalog_empty",
-			Summary: "Le dépôt est accessible mais ne contient ni catalogue ni bundle reconnaissable.",
+			Summary: "The repository is reachable but contains no recognizable catalog or bundle.",
 			Remediation: []string{
-				fmt.Sprintf("Vérifie que `%s` existe au ref `%s`, ou qu'un dossier suit la convention category/folder/SKILL.md.", draft.CatalogPath, draft.Ref),
-				"Astuce : si le catalogue est ailleurs, modifie le champ `catalog_path` dans `.sth/project.json`.",
+				fmt.Sprintf("Check that `%s` exists at ref `%s`, or that a directory follows the category/folder/SKILL.md convention.", draft.CatalogPath, draft.Ref),
+				"Tip: if the catalog is elsewhere, edit `catalog_path` in `.sth/project.json`.",
 			},
 		}
 	case strings.Contains(msg, "HTTP 404"):
 		return validationDiagnosis{
 			Kind:    "not_found",
-			Summary: "Le dépôt, la branche ou le fichier catalogue n'existe pas (HTTP 404).",
+			Summary: "The repository, branch, or catalog file does not exist (HTTP 404).",
 			Remediation: []string{
-				fmt.Sprintf("Vérifie l'orthographe de `%s` et que la branche `%s` existe.", draft.RepositoryID, draft.Ref),
-				fmt.Sprintf("Vérifie que `%s` se trouve à cet emplacement dans le dépôt.", draft.CatalogPath),
-				"Pour un dépôt privé sans token : ça ressemble aussi à un 404 — fournis un token et réessaie.",
+				fmt.Sprintf("Check the spelling of `%s` and that branch `%s` exists.", draft.RepositoryID, draft.Ref),
+				fmt.Sprintf("Check that `%s` exists at this location in the repository.", draft.CatalogPath),
+				"A private repository without a token can also look like a 404. Provide a token and try again.",
 			},
 		}
 	default:
 		return validationDiagnosis{
 			Kind:    "network",
-			Summary: "Impossible de joindre le serveur distant.",
+			Summary: "Could not reach the remote server.",
 			Remediation: []string{
-				"Vérifie ta connexion réseau.",
-				"Si tu passes par un proxy, exporte HTTPS_PROXY.",
-				fmt.Sprintf("Détail : %s", msg),
+				"Check your network connection.",
+				"If you use a proxy, export HTTPS_PROXY.",
 			},
 		}
 	}
