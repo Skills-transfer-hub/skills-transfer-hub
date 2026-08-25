@@ -19,6 +19,9 @@ func TestFindProviderGuide_returnsBitbucketCloudMetadata(t *testing.T) {
 	if guide.ActionURL != "https://id.atlassian.com/manage-profile/security/api-tokens" {
 		t.Fatalf("guide.ActionURL = %q", guide.ActionURL)
 	}
+	if len(guide.Notes) != 1 || guide.Notes[0] != "Use an Atlassian API token for Bitbucket Cloud." {
+		t.Fatalf("guide.Notes = %q", guide.Notes)
+	}
 }
 
 func TestSupportedProviderKeys_areStableAndComplete(t *testing.T) {
@@ -57,6 +60,14 @@ func TestFindProviderGuide_sthCloudPointsAtRealServices(t *testing.T) {
 	}
 	if guide.HostedDomain == "" {
 		t.Fatal("guide.HostedDomain = empty, want the sth-cloud API host")
+	}
+	if guide.DisplayName != "STH Cloud (coming soon)" {
+		t.Fatalf("guide.DisplayName = %q", guide.DisplayName)
+	}
+	for _, note := range guide.Notes {
+		if strings.Contains(note, "pas encore") || strings.Contains(note, "L'option") {
+			t.Fatalf("guide note still contains French copy: %q", note)
+		}
 	}
 }
 

@@ -22,15 +22,15 @@ const (
 )
 
 // ErrKeyNotFound is returned when no API key is configured (keychain miss + env unset).
-var ErrKeyNotFound = errors.New("aucune clé STH Cloud configurée — exécute `sth login`")
+var ErrKeyNotFound = errors.New("no STH Cloud key is configured — run `sth login`")
 
 // SaveAPIKey persists the key to the OS keychain under (service=sth-cloud, user=default).
 func SaveAPIKey(key string) error {
 	if key == "" {
-		return errors.New("clé vide")
+		return errors.New("key is empty")
 	}
 	if err := keyring.Set(KeyringService, defaultAccount, key); err != nil {
-		return fmt.Errorf("écriture keychain échouée : %w", err)
+		return fmt.Errorf("failed to write to the OS keychain: %w", err)
 	}
 	return nil
 }
@@ -63,5 +63,5 @@ func DeleteAPIKey() error {
 	if err == nil || errors.Is(err, keyring.ErrNotFound) {
 		return nil
 	}
-	return fmt.Errorf("suppression keychain échouée : %w", err)
+	return fmt.Errorf("failed to remove the key from the OS keychain: %w", err)
 }

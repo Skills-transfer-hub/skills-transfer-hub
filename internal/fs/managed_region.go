@@ -9,8 +9,8 @@ import (
 	"path/filepath"
 )
 
-var ErrManagedMarkdownRegionNotFound = errors.New("région Markdown gérée absente")
-var ErrManagedMarkdownRegionMalformed = errors.New("marqueurs de région Markdown gérée invalides")
+var ErrManagedMarkdownRegionNotFound = errors.New("managed Markdown region not found")
+var ErrManagedMarkdownRegionMalformed = errors.New("invalid managed Markdown region markers")
 
 type managedMarkdownRegionLocation struct {
 	start int
@@ -28,7 +28,7 @@ func buildManagedMarkdownRegion(id string, body []byte, includeSeparator bool) (
 		return nil, err
 	}
 	if bytes.Contains(body, []byte("<!-- sth:managed:")) {
-		return nil, fmt.Errorf("%w pour %q : le contenu contient un marqueur réservé", ErrManagedMarkdownRegionMalformed, id)
+		return nil, fmt.Errorf("%w for %q: content contains a reserved marker", ErrManagedMarkdownRegionMalformed, id)
 	}
 
 	separatorMarker := managedMarkdownRegionSeparatorMarker(id)
@@ -123,10 +123,10 @@ func WriteManagedMarkdownRegion(path, id string, body []byte) (ManagedRegion, er
 		return ManagedRegion{}, err
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return ManagedRegion{}, fmt.Errorf("création du dossier de %s échouée : %w", path, err)
+		return ManagedRegion{}, fmt.Errorf("failed to create directory for %s: %w", path, err)
 	}
 	if err := atomicWriteFile(path, updated, fileMode); err != nil {
-		return ManagedRegion{}, fmt.Errorf("écriture de la région gérée dans %s échouée : %w", path, err)
+		return ManagedRegion{}, fmt.Errorf("failed to write managed region to %s: %w", path, err)
 	}
 	regionSHA256, err := ManagedMarkdownRegionSHA256(updated, id)
 	if err != nil {
@@ -145,14 +145,14 @@ func RemoveManagedMarkdownRegionFile(path, id string) ([]byte, error) {
 		return nil, err
 	}
 	if err := atomicWriteFile(path, updated, fileMode); err != nil {
-		return nil, fmt.Errorf("retrait de la région gérée dans %s échoué : %w", path, err)
+		return nil, fmt.Errorf("failed to remove managed region from %s: %w", path, err)
 	}
 	return updated, nil
 }
 
 func managedMarkdownRegionMarkers(id string) ([]byte, []byte, error) {
 	if !validManagedMarkdownRegionID(id) {
-		return nil, nil, fmt.Errorf("identifiant de région Markdown gérée invalide : %q", id)
+		return nil, nil, fmt.Errorf("invalid managed Markdown region identifier: %q", id)
 	}
 	startMarker := []byte("<!-- sth:managed:" + id + ":start -->")
 	endMarker := []byte("<!-- sth:managed:" + id + ":end -->")
@@ -195,19 +195,19 @@ func locateManagedMarkdownRegion(document []byte, id string) (managedMarkdownReg
 		return managedMarkdownRegionLocation{}, nil
 	}
 	if startCount != 1 || endCount != 1 || separatorCount > 1 {
-		return managedMarkdownRegionLocation{}, fmt.Errorf("%w pour %q : %d début(s), %d séparateur(s), %d fin(s)", ErrManagedMarkdownRegionMalformed, id, startCount, separatorCount, endCount)
+		return managedMarkdownRegionLocation{}, fmt.Errorf("%w for %q: %d start marker(s), %d separator(s), %d end marker(s)", ErrManagedMarkdownRegionMalformed, id, startCount, separatorCount, endCount)
 	}
 	startPosition := bytes.Index(document, startMarker)
 	endPosition := bytes.Index(document, endMarker)
 	if endPosition < startPosition {
-		return managedMarkdownRegionLocation{}, fmt.Errorf("%w pour %q : fin avant début", ErrManagedMarkdownRegionMalformed, id)
+		return managedMarkdownRegionLocation{}, fmt.Errorf("%w for %q: end marker before start marker", ErrManagedMarkdownRegionMalformed, id)
 	}
 	managedStartPosition := startPosition
 	if separatorCount == 1 {
 		separatorPosition := bytes.Index(document, separatorMarker)
 		expectedSeparatorPosition := startPosition + len(startMarker) + 1
 		if startPosition == 0 || document[startPosition-1] != '\n' || separatorPosition != expectedSeparatorPosition {
-			return managedMarkdownRegionLocation{}, fmt.Errorf("%w pour %q : séparateur mal placé", ErrManagedMarkdownRegionMalformed, id)
+			return managedMarkdownRegionLocation{}, fmt.Errorf("%w for %q: misplaced separator", ErrManagedMarkdownRegionMalformed, id)
 		}
 		managedStartPosition = startPosition - 1
 	}
@@ -232,14 +232,14 @@ func readManagedMarkdownDocument(path string, allowMissing bool) ([]byte, os.Fil
 		return nil, 0o644, nil
 	}
 	if err != nil {
-		return nil, 0, fmt.Errorf("lecture de %s échouée : %w", path, err)
+		return nil, 0, fmt.Errorf("failed to read %s: %w", path, err)
 	}
 	if fileInfo.Mode()&os.ModeSymlink != 0 || !fileInfo.Mode().IsRegular() {
-		return nil, 0, fmt.Errorf("fichier Markdown géré invalide : %s", path)
+		return nil, 0, fmt.Errorf("invalid managed Markdown file: %s", path)
 	}
 	document, err := os.ReadFile(path)
 	if err != nil {
-		return nil, 0, fmt.Errorf("lecture de %s échouée : %w", path, err)
+		return nil, 0, fmt.Errorf("failed to read %s: %w", path, err)
 	}
 	fileMode := fileInfo.Mode().Perm() | fileInfo.Mode()&(os.ModeSetuid|os.ModeSetgid|os.ModeSticky)
 	return document, fileMode, nil

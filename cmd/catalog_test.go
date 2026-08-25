@@ -62,7 +62,7 @@ func TestCatalogInit_GeneratesSkillsMarkdown(t *testing.T) {
 			t.Errorf("ligne manquante %q dans :\n%s", expectedRow, text)
 		}
 	}
-	if !strings.Contains(stdout.String(), "3 skill(s) across 2 categorie(s)") {
+	if !strings.Contains(stdout.String(), "3 skill(s) across 2 category or categories") {
 		t.Errorf("résumé inattendu : %q", stdout.String())
 	}
 }

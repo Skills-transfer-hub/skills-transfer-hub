@@ -1,46 +1,191 @@
 package cmd
 
 import (
-	"bufio"
-	"errors"
 	"fmt"
 	"os"
-	"os/signal"
 	"path/filepath"
-	"strings"
 	"time"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/fsnotify/fsnotify"
 	"sth/internal/fs"
 )
 
-const (
-	ansiHideCursor = "\x1b[?25l"
-	ansiShowCursor = "\x1b[?25h"
-	ansiCursorHome = "\x1b[H"
-	ansiClearAll   = "\x1b[2J"
-	ansiClearToEnd = "\x1b[J"
-)
+type watcherEventMsg struct{}
 
-// runBuddyWatch takes over the terminal and redraws the buddy whenever the
-// watched directories change. Exits on Ctrl+C or when the user types "q\n".
+type debounceTickMsg struct{}
+
+type networkResultMsg struct {
+	state fs.BuddyState
+}
+
+type watcherFailureMsg struct {
+	err   error
+	fatal bool
+}
+
+type watchModel struct {
+	app             *app
+	signals         *watchSignals
+	state           fs.BuddyState
+	debouncePending bool
+	watchErr        error
+	watchWarning    error
+}
+
+type watchSignals struct {
+	watcherEvents   chan struct{}
+	networkResults  chan fs.BuddyState
+	networkRequests chan struct{}
+	watcherFailures chan watcherFailureMsg
+	done            <-chan struct{}
+}
+
+func newWatchSignals(done <-chan struct{}) *watchSignals {
+	return &watchSignals{
+		watcherEvents:   make(chan struct{}, 1),
+		networkResults:  make(chan fs.BuddyState, 1),
+		networkRequests: make(chan struct{}, 1),
+		watcherFailures: make(chan watcherFailureMsg, 1),
+		done:            done,
+	}
+}
+
+func newWatchModel(application *app, signals *watchSignals) watchModel {
+	return watchModel{app: application, signals: signals, state: application.computeBuddyStateFast()}
+}
+
+func (model watchModel) Init() tea.Cmd {
+	return tea.Batch(model.signals.waitWatcherEvent(), model.signals.waitNetworkResult(), model.signals.waitWatcherFailure())
+}
+
+func (signals *watchSignals) waitWatcherEvent() tea.Cmd {
+	return func() tea.Msg {
+		select {
+		case <-signals.watcherEvents:
+			return watcherEventMsg{}
+		case <-signals.done:
+			return nil
+		}
+	}
+}
+
+func (signals *watchSignals) waitNetworkResult() tea.Cmd {
+	return func() tea.Msg {
+		select {
+		case state := <-signals.networkResults:
+			return networkResultMsg{state: state}
+		case <-signals.done:
+			return nil
+		}
+	}
+}
+
+func (signals *watchSignals) waitWatcherFailure() tea.Cmd {
+	return func() tea.Msg {
+		select {
+		case failure := <-signals.watcherFailures:
+			return failure
+		case <-signals.done:
+			return nil
+		}
+	}
+}
+
+func (signals *watchSignals) requestNetworkRefresh() {
+	select {
+	case signals.networkRequests <- struct{}{}:
+	default:
+	}
+}
+
+func (signals *watchSignals) sendWatcherEvent() {
+	select {
+	case signals.watcherEvents <- struct{}{}:
+	default:
+	}
+}
+
+func (signals *watchSignals) sendWatcherFailure(err error) {
+	signals.sendWatcherMessage(watcherFailureMsg{err: err, fatal: true})
+}
+
+func (signals *watchSignals) sendWatcherWarning(err error) {
+	signals.sendWatcherMessage(watcherFailureMsg{err: err})
+}
+
+func (signals *watchSignals) sendWatcherMessage(message watcherFailureMsg) {
+	select {
+	case signals.watcherFailures <- message:
+	case <-signals.done:
+	default:
+	}
+}
+
+func (model watchModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := message.(type) {
+	case tea.KeyMsg:
+		switch msg.Type {
+		case tea.KeyCtrlC, tea.KeyEsc:
+			return model, tea.Quit
+		case tea.KeyRunes:
+			if len(msg.Runes) > 0 && msg.Runes[0] == 'q' {
+				return model, tea.Quit
+			}
+		}
+	case watcherEventMsg:
+		commands := []tea.Cmd{model.signals.waitWatcherEvent()}
+		if !model.debouncePending {
+			model.debouncePending = true
+			commands = append(commands, tea.Tick(150*time.Millisecond, func(time.Time) tea.Msg {
+				return debounceTickMsg{}
+			}))
+		}
+		return model, tea.Batch(commands...)
+	case debounceTickMsg:
+		model.debouncePending = false
+		model.state = model.app.computeBuddyStateFast()
+		model.signals.requestNetworkRefresh()
+		return model, nil
+	case networkResultMsg:
+		model.state = msg.state
+		return model, model.signals.waitNetworkResult()
+	case watcherFailureMsg:
+		if msg.fatal {
+			model.watchErr = msg.err
+			return model, tea.Quit
+		}
+		model.watchWarning = msg.err
+		return model, model.signals.waitWatcherFailure()
+	}
+	return model, nil
+}
+
+func (model watchModel) View() string {
+	view := renderBuddy(model.state) + "\n"
+	if model.watchWarning != nil {
+		view += fmt.Sprintf("warning: %v\n", model.watchWarning)
+	}
+	return view + "q quit"
+}
+
 func (a *app) runBuddyWatch() error {
+	if !a.isInteractiveSession() {
+		return fmt.Errorf("buddy watch requires an interactive terminal")
+	}
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
-		return fmt.Errorf("création du watcher fsnotify échouée : %w", err)
+		return fmt.Errorf("unable to create fsnotify watcher: %w", err)
 	}
 	defer watcher.Close()
 
-	// addRecursive registers root and all its subdirectories with the watcher.
-	// fsnotify doesn't recurse on its own, so skills nested under
-	// <target_dir>/<category>/<folder>/ would otherwise be missed.
 	addRecursive := func(root string) {
-		_ = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
-			if err != nil || !d.IsDir() {
+		_ = filepath.WalkDir(root, func(path string, dirEntry os.DirEntry, walkErr error) error {
+			if walkErr != nil || !dirEntry.IsDir() {
 				return nil
 			}
-			if e := watcher.Add(path); e != nil {
-				fmt.Fprintf(a.stderr, "avertissement: surveillance de %s ignorée : %v\n", path, e)
+			if addErr := watcher.Add(path); addErr != nil {
+				fmt.Fprintf(a.stderr, "warning: unable to watch %s: %v\n", path, addErr)
 			}
 			return nil
 		})
@@ -50,56 +195,45 @@ func (a *app) runBuddyWatch() error {
 		addRecursive(dir)
 	}
 
-	fmt.Fprint(a.stdout, ansiHideCursor+ansiClearAll+ansiCursorHome)
-	defer fmt.Fprint(a.stdout, ansiShowCursor+"\n")
-
-	quit := make(chan struct{}, 1)
-	requestQuit := func() {
-		select {
-		case quit <- struct{}{}:
-		default:
-		}
-	}
-
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, os.Interrupt)
-	defer signal.Stop(sigCh)
-	go func() {
-		<-sigCh
-		requestQuit()
-	}()
-
-	stdinDone := make(chan struct{})
-	go func() {
-		defer close(stdinDone)
-		reader := bufio.NewReader(a.stdin)
-		for {
-			line, err := reader.ReadString('\n')
-			if err != nil {
-				return
-			}
-			if strings.TrimSpace(strings.ToLower(line)) == "q" {
-				requestQuit()
-				return
-			}
-		}
-	}()
-
-	// networkStateCh delivers the result of a background computeBuddyState call
-	// (which involves network I/O) so the UI is never blocked waiting for it.
 	done := make(chan struct{})
 	defer close(done)
-	networkRefreshReq := make(chan struct{}, 1)
-	networkStateCh := make(chan fs.BuddyState, 1)
+	signals := newWatchSignals(done)
+
 	go func() {
 		for {
 			select {
 			case <-done:
 				return
-			case <-networkRefreshReq:
-				s := a.computeBuddyState()
+			case event, ok := <-watcher.Events:
+				if !ok {
+					signals.sendWatcherFailure(fmt.Errorf("filesystem watcher stopped unexpectedly"))
+					return
+				}
+				if event.Op&fsnotify.Create != 0 {
+					if info, statErr := os.Stat(event.Name); statErr == nil && info.IsDir() {
+						addRecursive(event.Name)
+					}
+				}
+				signals.sendWatcherEvent()
+			case watchErr, ok := <-watcher.Errors:
+				if !ok {
+					signals.sendWatcherFailure(fmt.Errorf("filesystem watcher error channel closed unexpectedly"))
+					return
+				}
+				signals.sendWatcherWarning(fmt.Errorf("filesystem watcher warning: %w", watchErr))
+			}
+		}
+	}()
+
+	go func() {
+		for {
+			select {
+			case <-done:
+				return
+			case <-signals.networkRequests:
+				state := a.computeBuddyState()
 				select {
-				case networkStateCh <- s:
+				case signals.networkResults <- state:
 				case <-done:
 					return
 				}
@@ -107,83 +241,45 @@ func (a *app) runBuddyWatch() error {
 		}
 	}()
 
-	triggerNetworkRefresh := func() {
-		select {
-		case networkRefreshReq <- struct{}{}:
-		default:
-		}
+	signals.requestNetworkRefresh()
+	model := newWatchModel(a, signals)
+	options := []tea.ProgramOption{tea.WithOutput(a.stdout), tea.WithAltScreen()}
+	if file, ok := a.stdin.(*os.File); ok {
+		options = append(options, tea.WithInput(file))
+	} else {
+		options = append(options, tea.WithInput(nil))
 	}
-
-	// render draws immediately using the fast (disk-only) state, then kicks off
-	// an async network refresh whose result will arrive on networkStateCh.
-	render := func() {
-		state := a.computeBuddyStateFast()
-		fmt.Fprint(a.stdout, ansiCursorHome+renderBuddy(state)+"\n"+ansiClearToEnd)
-		triggerNetworkRefresh()
+	program := tea.NewProgram(model, options...)
+	finalModel, runErr := program.Run()
+	if runErr != nil {
+		return runErr
 	}
-	render()
-
-	debounce := time.NewTimer(time.Hour)
-	debounce.Stop()
-	pending := false
-
-	for {
-		select {
-		case <-quit:
-			return nil
-		case state := <-networkStateCh:
-			fmt.Fprint(a.stdout, ansiCursorHome+renderBuddy(state)+"\n"+ansiClearToEnd)
-		case event, ok := <-watcher.Events:
-			if !ok {
-				return errors.New("watcher fsnotify fermé")
-			}
-			// Dynamically watch newly created subdirectories so installs that
-			// create <category>/<folder>/ trees are picked up without restart.
-			if event.Op&fsnotify.Create != 0 {
-				if info, statErr := os.Stat(event.Name); statErr == nil && info.IsDir() {
-					addRecursive(event.Name)
-				}
-			}
-			if !pending {
-				debounce.Reset(150 * time.Millisecond)
-				pending = true
-			}
-		case err, ok := <-watcher.Errors:
-			if !ok {
-				return errors.New("watcher fsnotify fermé")
-			}
-			fmt.Fprintf(a.stderr, "avertissement: erreur fsnotify : %v\n", err)
-		case <-debounce.C:
-			pending = false
-			render()
-		}
-	}
+	result := finalModel.(watchModel)
+	return result.watchErr
 }
 
-// buddyWatchDirs returns the directories the watch loop should subscribe to.
-// Missing directories are silently skipped.
 func (a *app) buddyWatchDirs() []string {
-	wd, err := os.Getwd()
+	workingDirectory, err := os.Getwd()
 	if err != nil {
 		return nil
 	}
-	candidates := []string{filepath.Join(wd, ".sth")}
+	candidates := []string{filepath.Join(workingDirectory, ".sth")}
 	if profile, err := fs.ReadProjectProfileIfPresent(); err == nil && profile != nil && profile.TargetDir != "" {
-		td := profile.TargetDir
-		if !filepath.IsAbs(td) {
-			td = filepath.Join(wd, td)
+		targetDir := profile.TargetDir
+		if !filepath.IsAbs(targetDir) {
+			targetDir = filepath.Join(workingDirectory, targetDir)
 		}
-		candidates = append(candidates, td)
+		candidates = append(candidates, targetDir)
 	}
 
 	dirs := make([]string, 0, len(candidates))
 	seen := make(map[string]struct{})
-	for _, d := range candidates {
-		clean := filepath.Clean(d)
-		if _, ok := seen[clean]; ok {
+	for _, candidate := range candidates {
+		clean := filepath.Clean(candidate)
+		if _, alreadySeen := seen[clean]; alreadySeen {
 			continue
 		}
-		if info, err := os.Stat(clean); err != nil || !info.IsDir() {
+		if info, statErr := os.Stat(clean); statErr != nil || !info.IsDir() {
 			continue
 		}
 		seen[clean] = struct{}{}

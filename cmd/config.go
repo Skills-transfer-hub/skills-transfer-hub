@@ -17,7 +17,7 @@ func (a *app) runConfig(args []string) error {
 		return errExperimentalDisabled("sth config")
 	}
 	if len(args) == 0 {
-		return errors.New("usage : sth config <show|pull|push>")
+		return errors.New("usage: sth config <show|pull|push>")
 	}
 	if isHelpFlag(args[0]) {
 		a.writeStdout(commandHelpText("config"))
@@ -33,7 +33,7 @@ func (a *app) runConfig(args []string) error {
 		flags, _ := parseFlags(args[1:], "--dry-run")
 		return a.runConfigPush(flags["--dry-run"])
 	default:
-		return fmt.Errorf("commande config inconnue : %q", args[0])
+		return fmt.Errorf("unknown config command: %q", args[0])
 	}
 }
 
@@ -67,10 +67,10 @@ func (a *app) healStaleActiveOrg() {
 		return
 	}
 	if err := fs.ClearActiveOrg(); err != nil {
-		a.writeStderr(fmt.Sprintf("Avertissement : sélection d'organisation périmée non effacée : %v", err))
+		a.writeStderr(fmt.Sprintf("Warning: stale organization selection was not cleared: %v", err))
 		return
 	}
-	a.writeStderr(fmt.Sprintf("Avertissement : l'organisation active (%s) n'est plus accessible — retour à l'organisation par défaut.", active.OrgName))
+	a.writeStderr(fmt.Sprintf("Warning: the active organization (%s) is no longer accessible — reverting to the default organization.", active.OrgName))
 }
 
 func (a *app) runConfigShow() error {
@@ -90,25 +90,25 @@ func (a *app) runConfigShow() error {
 	}
 	result := fs.MergeOrgConfig(local, orgConfig)
 
-	a.writeStdout("providers :")
+	a.writeStdout("providers:")
 	for _, entry := range result.Entries {
 		if entry.Kind == fs.ConfigEntryProvider {
 			a.writeStdout(fmt.Sprintf("  %-24s [%s]", entry.Field, entry.Provenance))
 		}
 	}
-	a.writeStdout("pins :")
+	a.writeStdout("pins:")
 	for _, entry := range result.Entries {
 		if entry.Kind != fs.ConfigEntryResource {
 			continue
 		}
 		detail := entry.Detail
 		if detail == "" || detail == "(none)" {
-			detail = "(non épinglé)"
+			detail = "(unpinned)"
 		}
 		a.writeStdout(fmt.Sprintf("  %-24s [%s] %s", entry.Field, entry.Provenance, detail))
 	}
 	if remote.Config == nil {
-		a.writeStdout("", "Aucune configuration partagée pour cette organisation (affichage local uniquement).")
+		a.writeStdout("", "No shared configuration for this organization (showing local values only).")
 	}
 	return nil
 }
@@ -125,28 +125,28 @@ func (a *app) runConfigPull(dryRun bool) error {
 		return a.translateOrgError(err)
 	}
 	if remote.Config == nil {
-		a.writeStdout("Aucune configuration partagée pour cette organisation.")
+		a.writeStdout("No shared configuration for this organization.")
 		return nil
 	}
 	result := fs.MergeOrgConfig(local, *remote.Config)
 	changes := pullChanges(result.Entries)
 
 	if dryRun {
-		a.writeStdout(fmt.Sprintf("Configuration org (version %d) — aperçu :", remote.ConfigVersion))
+		a.writeStdout(fmt.Sprintf("Organization configuration (version %d) — preview:", remote.ConfigVersion))
 		if len(changes) == 0 {
-			a.writeStdout("  (aucun changement)")
+			a.writeStdout("  (no changes)")
 		}
 		for _, entry := range changes {
 			a.writeStdout(formatPullChange(entry))
 		}
-		a.writeStdout("Aucune écriture (--dry-run).")
+		a.writeStdout("No files written (--dry-run).")
 		return nil
 	}
 
 	if _, err := fs.WriteProjectConfigV2(result.Merged); err != nil {
 		return err
 	}
-	a.writeStdout(fmt.Sprintf("Configuration org appliquée (version %d).", remote.ConfigVersion))
+	a.writeStdout(fmt.Sprintf("Organization configuration applied (version %d).", remote.ConfigVersion))
 	for _, entry := range changes {
 		a.writeStdout(formatPullChange(entry))
 	}
@@ -167,9 +167,9 @@ func (a *app) runConfigPush(dryRun bool) error {
 
 	if dryRun {
 		a.writeStdout(
-			"Publierait la configuration partagée (sous-ensemble local, sans secret) :",
-			fmt.Sprintf("  %d provider(s), %d ressource(s) épinglée(s).", len(subset.Providers), countPins(subset.Resources)),
-			"Aucune écriture (--dry-run).",
+			"Would publish the shared configuration (local subset, without secrets):",
+			fmt.Sprintf("  %d provider(s), %d pinned resource(s).", len(subset.Providers), countPins(subset.Resources)),
+			"No files written (--dry-run).",
 		)
 		return nil
 	}
@@ -192,7 +192,7 @@ func (a *app) runConfigPush(dryRun bool) error {
 	if err != nil {
 		return a.translatePushError(err)
 	}
-	a.writeStdout(fmt.Sprintf("Configuration partagée publiée (version %d).", version))
+	a.writeStdout(fmt.Sprintf("Shared configuration published (version %d).", version))
 	return nil
 }
 
@@ -228,11 +228,11 @@ func countPins(resources []fs.ResourceEntry) int {
 func (a *app) translatePushError(err error) error {
 	switch {
 	case errors.Is(err, cloud.ErrVersionConflict):
-		return errors.New("la configuration a changé côté serveur — relance `sth config pull` puis `sth config push`.")
+		return errors.New("the server-side configuration changed — run `sth config pull` and then `sth config push` again")
 	case errors.Is(err, cloud.ErrForbiddenRole):
-		return errors.New("publication refusée : rôle owner/admin requis sur cette organisation.")
+		return errors.New("publication rejected: the owner or admin role is required for this organization")
 	case errors.Is(err, cloud.ErrNotEntitled):
-		return errors.New("publication refusée : la configuration partagée requiert l'offre Team (capability fleet_sync).")
+		return errors.New("publication rejected: shared configuration requires the Team plan (fleet_sync capability)")
 	default:
 		return a.translateOrgError(err)
 	}

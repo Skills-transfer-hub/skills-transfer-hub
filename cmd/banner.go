@@ -7,7 +7,10 @@ import (
 	"strings"
 	"time"
 
+	"golang.org/x/term"
+
 	"sth/internal/fs"
+	"sth/internal/timing"
 )
 
 // Largeur extérieure de la bannière (incluant les bordures `│`/`╭`/etc.).
@@ -20,6 +23,8 @@ type bannerFrame struct {
 }
 
 func (a *app) playLaunchBanner(finalState fs.BuddyState) {
+	timing.Mark("banner-start")
+	defer timing.Mark("banner-end")
 	final := bannerFrameFor(finalState)
 
 	if !isWriterTTY(a.stdout) {
@@ -38,7 +43,7 @@ func (a *app) playLaunchBanner(finalState fs.BuddyState) {
 	rewindRows := bannerRewindRows(first)
 
 	for _, frame := range frames[1:] {
-		time.Sleep(220 * time.Millisecond)
+		time.Sleep(70 * time.Millisecond)
 		fmt.Fprintf(a.stdout, "\x1b[%dA\r", rewindRows)
 		fmt.Fprint(a.stdout, renderBannerFrame(frame))
 	}
@@ -62,11 +67,11 @@ func bannerFrameFor(state fs.BuddyState) bannerFrame {
 func renderBannerFrame(f bannerFrame) string {
 	title := "STH " + fs.DisplayVersion(valueOrDefault(version, "dev"))
 	tagline := "Skills Transfer Hub."
-	tip := "Astuce : tapez `sth help` pour voir la liste des commandes."
-	footer := "STH gère .claude/skills depuis un dépôt distant."
+	tip := "Tip: run `sth help` to list commands."
+	footer := "STH manages .claude/skills from a remote repository."
 
-	innerFace := padFace(f.face, 3)         // toujours 3 chars
-	innerBoxWidth := len(innerFace) + 2     // " >/< " entouré de barres = 5 + 2 = 7
+	innerFace := padFace(f.face, 3)
+	innerBoxWidth := len(innerFace) + 2
 
 	// Toutes les lignes de contenu (avec les marges gauches déjà appliquées).
 	rows := []string{
@@ -165,14 +170,10 @@ func isWideRune(r rune) bool {
 	return false
 }
 
-func isWriterTTY(w io.Writer) bool {
-	f, ok := w.(*os.File)
-	if !ok {
+func isWriterTTY(writer io.Writer) bool {
+	outputFile, outputIsFile := writer.(*os.File)
+	if !outputIsFile {
 		return false
 	}
-	stat, err := f.Stat()
-	if err != nil {
-		return false
-	}
-	return stat.Mode()&os.ModeCharDevice != 0
+	return term.IsTerminal(int(outputFile.Fd()))
 }

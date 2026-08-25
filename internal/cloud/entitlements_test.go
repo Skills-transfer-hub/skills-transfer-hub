@@ -138,7 +138,7 @@ func TestFetchEntitlements_BadJSON(t *testing.T) {
 		_, _ = io.WriteString(w, `{not valid json`)
 	})
 	_, err := FetchEntitlements(context.Background(), nil)
-	if err == nil || !strings.Contains(err.Error(), "JSON invalide") {
+	if err == nil || !strings.Contains(err.Error(), "invalid JSON") {
 		t.Fatalf("expected JSON parse error, got %v", err)
 	}
 }

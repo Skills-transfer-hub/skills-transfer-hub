@@ -43,11 +43,11 @@ func (a *app) runListWithArgs(args []string) error {
 		return err
 	}
 	if len(entries) == 0 {
-		a.writeStdout("Aucune ressource disponible dans le catalogue distant.")
+		a.writeStdout("No resources available in the remote catalog.")
 		return nil
 	}
 
-	lines := []string{fmt.Sprintf("%d ressource(s) disponible(s) :", len(entries))}
+	lines := []string{fmt.Sprintf("%d resource(s) available:", len(entries))}
 	for _, entry := range entries {
 		line := fmt.Sprintf("- [%s] %s", entry.ResourceType, catalogDisplayRef(entry))
 		if entry.ResourceType != "bundle" {

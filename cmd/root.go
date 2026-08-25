@@ -5,11 +5,15 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
+	"sync"
+	"time"
+
+	"golang.org/x/term"
+
 	sthfs "sth/internal/fs"
 	sthhttp "sth/internal/http"
 	sthlog "sth/internal/log"
-	"strings"
-	"time"
 )
 
 func contextWithTimeout(ms int) (context.Context, context.CancelFunc) {
@@ -30,16 +34,16 @@ var commandCatalog = []commandSpec{
 	{
 		name:    "init",
 		usage:   "sth init [--no-cloud-prompt]",
-		summary: "Configure pas à pas un dépôt distant hébergé supporté pour le projet courant",
+		summary: "Configure a supported hosted remote repository for the current project step by step",
 		details: []string{
-			"Providers hébergés supportés : github.com, gitlab.com, dev.azure.com et bitbucket.org.",
-			"Le wizard affiche les URLs officielles pour créer le token/API token, la permission minimale attendue et les variables d'environnement reconnues.",
-			"Le repository_id accepte un identifiant canonique ou une URL hébergée supportée. Les hosts self-hosted sont rejetés.",
-			"Le wizard demande quels modèles/agents cibler (Claude Code, GitHub Copilot, OpenAI Codex, Cursor, Google Antigravity), pré-coche ceux détectés, et n'a plus besoin du dossier d'install : il est dérivé automatiquement.",
-			"Les skills sont dédupliqués (.claude/skills sert de hub partagé lu par Claude/Cursor/Copilot ; .agents/skills sert à Codex et Gemini/Antigravity). init met aussi à jour .gitignore pour les fichiers d'état STH.",
-			"La guidance provider peut être relue pendant le wizard et aucun secret n'est persisté dans .sth/project.json.",
-			"Au premier init, le wizard propose un menu télémétrie (off / anonymous / connected). Mode connected enchaîne sur un sub-prompt `sth login`.",
-			"--no-cloud-prompt : skippe le sub-prompt login même quand le mode connecté est choisi (CI, wrappers).",
+			"Supported hosted providers: github.com, gitlab.com, dev.azure.com, and bitbucket.org.",
+			"The wizard shows the official token or API-token URLs, the minimum required permission, and the supported environment variables.",
+			"repository_id accepts a canonical identifier or a supported hosted URL. Self-hosted domains are rejected.",
+			"The wizard asks which AI tools and agents to target (Claude Code, GitHub Copilot, OpenAI Codex, Cursor, Google Antigravity), preselects detected tools, and derives the installation directory automatically.",
+			"Skills are deduplicated: .claude/skills is the shared hub read by Claude, Cursor, and Copilot; .agents/skills is used by Codex and Gemini/Antigravity. init also updates .gitignore for STH state files.",
+			"Provider guidance remains available throughout the wizard, and no secret is stored in .sth/project.json.",
+			"On first init, the wizard offers telemetry modes off, anonymous, and connected. Connected mode then opens an `sth login` prompt.",
+			"--no-cloud-prompt skips the login prompt even when connected mode is selected (CI and wrappers).",
 		},
 		examples: []string{
 			"sth init",
@@ -50,11 +54,11 @@ var commandCatalog = []commandSpec{
 	{
 		name:    "list",
 		usage:   "sth list [--json]",
-		summary: "Liste le catalogue du dépôt provider distant configuré (nécessite `sth init`)",
+		summary: "List the configured remote provider repository catalog (requires `sth init`)",
 		details: []string{
-			"Mode texte : lit SKILLS.md dans le dépôt provider distant (github, gitlab…) ; s'il est absent, scanne l'arborescence distante pour en déduire les bundles category/folder. Nécessite `sth init` et un accès réseau.",
-			"Pour générer un SKILLS.md local à partir du dépôt courant, utilisez plutôt `catalog init`.",
-			"Avec --json, retourne l'état des ressources installées localement (resource_name, provider_id, status, resolved_version, pinned_version) — sémantique différente du mode texte.",
+			"Text mode reads SKILLS.md from the remote provider repository (GitHub, GitLab, and others). If it is missing, STH scans the remote tree and infers category/folder bundles. Requires `sth init` and network access.",
+			"To generate a local SKILLS.md from the current repository, use `catalog init` instead.",
+			"With --json, returns the state of locally installed resources (resource_name, provider_id, status, resolved_version, pinned_version). This differs from text mode.",
 		},
 		examples: []string{
 			"sth list",
@@ -65,10 +69,10 @@ var commandCatalog = []commandSpec{
 	{
 		name:    "install",
 		usage:   "sth install <resource-ref> [--dry-run] [--force]",
-		summary: "Installe une ressource du catalogue distant ou un bundle compatible dans le projet courant",
+		summary: "Install a remote catalog resource or compatible bundle in the current project",
 		details: []string{
-			"Accepte un nom catalogue classique ou une référence bundle canonique category/folder.",
-			"Pour un bundle détecté par scan, STH synchronise tous les fichiers du dossier source et suit leur manifeste dans sth-state.json.",
+			"Accepts a standard catalog name or a canonical category/folder bundle reference.",
+			"For a bundle discovered by scanning, STH synchronizes every file in the source directory and tracks its manifest in sth-state.json.",
 		},
 		examples: []string{
 			"sth install react/form-wizard",
@@ -80,9 +84,9 @@ var commandCatalog = []commandSpec{
 	{
 		name:    "update",
 		usage:   "sth update [self] [--dry-run] [--fail-on-changes] [--json]",
-		summary: "Met à jour les ressources suivies ou le binaire STH lui-même",
+		summary: "Update tracked resources or the STH binary itself",
 		details: []string{
-			"--fail-on-changes : si une ressource gérée a été modifiée localement (SHA256 ne correspond plus), exit 1 sans appliquer la mise à jour.",
+			"--fail-on-changes exits with status 1 without updating when a managed resource has local changes (its SHA-256 no longer matches).",
 		},
 		examples: []string{
 			"sth update",
@@ -95,7 +99,7 @@ var commandCatalog = []commandSpec{
 	{
 		name:    "status",
 		usage:   "sth status [--json]",
-		summary: "Affiche l'état de chaque ressource installée (à jour, obsolète, modifiée localement)",
+		summary: "Show the status of each installed resource (current, outdated, or locally modified)",
 		examples: []string{
 			"sth status",
 			"sth status --json",
@@ -105,7 +109,7 @@ var commandCatalog = []commandSpec{
 	{
 		name:    "remove",
 		usage:   "sth remove <resource-name> [--yes]",
-		summary: "Supprime une ressource installée et ses fichiers gérés",
+		summary: "Remove an installed resource and its managed files",
 		examples: []string{
 			"sth remove skills/analyse-risque",
 			"sth remove skills/analyse-risque --yes",
@@ -115,11 +119,11 @@ var commandCatalog = []commandSpec{
 	{
 		name:    "buddy",
 		usage:   "sth buddy [--watch]",
-		summary: "Affiche l'état du projet STH sous forme de compagnon visuel",
+		summary: "Show the STH project state as a visual companion",
 		details: []string{
-			"Sans flag, affiche l'état courant et quitte immédiatement.",
-			"--watch lance le mode tableau de bord : surveille .sth/ et le répertoire d'état, se rafraîchit à chaque changement.",
-			"Quittez avec Ctrl+C.",
+			"Without flags, shows the current state and exits immediately.",
+			"--watch starts dashboard mode, watches .sth/ and the state directory, and refreshes after every change.",
+			"Exit with Ctrl+C.",
 		},
 		examples: []string{
 			"sth buddy",
@@ -128,8 +132,8 @@ var commandCatalog = []commandSpec{
 	},
 	{
 		name:    "help",
-		usage:   "sth help [commande]",
-		summary: "Affiche l'aide générale ou l'aide ciblée d'une commande visible",
+		usage:   "sth help [command]",
+		summary: "Show general help or detailed help for a visible command",
 		examples: []string{
 			"sth help",
 			"sth help list",
@@ -138,7 +142,7 @@ var commandCatalog = []commandSpec{
 	{
 		name:    "version",
 		usage:   "sth version [--json]",
-		summary: "Affiche la signature de version minimale du CLI",
+		summary: "Show the CLI version signature",
 		examples: []string{
 			"sth version",
 			"sth version --json",
@@ -148,10 +152,10 @@ var commandCatalog = []commandSpec{
 	{
 		name:    "doctor",
 		usage:   "sth doctor",
-		summary: "Diagnostique la configuration STH du projet courant (token, config, état, accès provider)",
+		summary: "Diagnose the current project's STH setup (token, config, state, and provider access)",
 		details: []string{
-			"Liste pass/fail pour chaque vérification avec une étape de remédiation en cas d'échec.",
-			"Si aucun project.json n'existe, les vérifications provider et état sont marquées [SKIP].",
+			"Shows pass or fail for every check, with a remediation step after each failure.",
+			"If project.json does not exist, provider and state checks are marked [SKIP].",
 		},
 		examples: []string{
 			"sth doctor",
@@ -160,14 +164,14 @@ var commandCatalog = []commandSpec{
 	{
 		name:    "telemetry",
 		usage:   "sth telemetry <status|off|anon|connect|output>",
-		summary: "Gère le mode de télémétrie (off / anonymous / connected) et lit les enregistrements",
+		summary: "Manage telemetry mode (off, anonymous, or connected) and read usage records",
 		details: []string{
-			"status : affiche le mode actif, la date de décision et — si connecté — le rattachement STH Cloud.",
-			"off : désactive tout envoi.",
-			"anon : envoie ts + version CLI + nom de commande sur /v1/usage/anon, sans clé. Pas de dashboard.",
-			"connect : passe en mode connecté et lance le sub-prompt `sth login` pour rattacher la clé.",
-			"on : alias déprécié de `anon` (warning stderr).",
-			"output [--limit=N] : récupère depuis le cloud les derniers enregistrements liés à la clé courante (mode connected requis).",
+			"status shows the active mode, decision date, and STH Cloud link when connected.",
+			"off disables all telemetry submissions.",
+			"anon sends the timestamp, CLI version, and command name to /v1/usage/anon without a key. No dashboard is available.",
+			"connect switches to connected mode and opens an `sth login` prompt to link the key.",
+			"on is a deprecated alias for `anon` and prints a warning to stderr.",
+			"output [--limit=N] reads recent records for the current key from the cloud (connected mode required).",
 		},
 		examples: []string{
 			"sth telemetry status",
@@ -180,9 +184,9 @@ var commandCatalog = []commandSpec{
 	{
 		name:    "completion",
 		usage:   "sth completion <bash|zsh|powershell>",
-		summary: "Génère un script de complétion shell pour STH",
+		summary: "Generate a shell completion script for STH",
 		details: []string{
-			"Source la sortie dans votre shell pour activer la complétion : bash, zsh ou powershell.",
+			"Source the output in your shell to enable completion for Bash, Zsh, or PowerShell.",
 		},
 		examples: []string{
 			"sth completion bash",
@@ -193,12 +197,12 @@ var commandCatalog = []commandSpec{
 	{
 		name:    "pack",
 		usage:   "sth pack <init|promote>",
-		summary: "Crée ou enrichit localement un pack Git compatible STH",
+		summary: "Create or extend an STH-compatible Git pack locally",
 		details: []string{
-			"Disponible localement et hors ligne dans l’offre Starter open source.",
-			"Deux layouts proposés : flat (anthropics/skills) et multi-stack (skills + agents + commands + instructions, à la Lore.Skills).",
-			"Le manifest.json racine sert d'heuristique forte au MultiStackScanner pour les consommateurs.",
-			"promote transforme volontairement un élément de .sth/local/code/library.json en bundle skills/<slug>, après preview et sans commit ni push.",
+			"Available locally and offline in the open-source Starter plan.",
+			"Offers two layouts: flat (anthropics/skills) and multi-stack (skills, agents, commands, and instructions, as in Lore.Skills).",
+			"The root manifest.json provides a strong MultiStackScanner hint for consumers.",
+			"promote intentionally turns an item from .sth/local/code/library.json into a skills/<slug> bundle after preview, without committing or pushing.",
 		},
 		examples: []string{
 			"sth pack init",
@@ -210,11 +214,11 @@ var commandCatalog = []commandSpec{
 	{
 		name:    "catalog",
 		usage:   "sth catalog init [--force]",
-		summary: "Génère SKILLS.md à partir de la structure category/skill/SKILL.md du dépôt courant",
+		summary: "Generate SKILLS.md from the current repository's category/skill/SKILL.md structure",
 		details: []string{
-			"Ne retient que les dossiers contenant un SKILL.md ; la description est lue depuis le front matter.",
-			"Le SKILLS.md généré est un tableau unique trié par catégorie puis nom, directement consommable par sth list.",
-			"Si SKILLS.md existe déjà, une confirmation est demandée avant écrasement ; --force la saute. Les éditions manuelles sont alors perdues.",
+			"Includes only directories that contain a SKILL.md; descriptions come from front matter.",
+			"The generated SKILLS.md is a single table sorted by category and name, ready for `sth list`.",
+			"If SKILLS.md already exists, STH asks before overwriting it; --force skips confirmation. Manual edits will be lost.",
 		},
 		examples: []string{
 			"sth catalog init",
@@ -225,10 +229,10 @@ var commandCatalog = []commandSpec{
 	{
 		name:    "new",
 		usage:   "sth new <category>/<name>",
-		summary: "Scaffolde un nouveau skill conforme dans <category>/<name>/SKILL.md",
+		summary: "Scaffold a compliant skill in <category>/<name>/SKILL.md",
 		details: []string{
-			"Crée le dossier (catégorie comprise) et un SKILL.md pré-rempli : front matter name/description et section ## Usage.",
-			"Refuse d'écraser un dossier existant. Caractères autorisés par segment : lettres, chiffres, tirets et underscores.",
+			"Creates the full directory path and a prefilled SKILL.md with name and description front matter plus a ## Usage section.",
+			"Refuses to overwrite an existing directory. Each path segment may contain letters, digits, hyphens, and underscores.",
 		},
 		examples: []string{
 			"sth new prompts/code-review",
@@ -237,11 +241,11 @@ var commandCatalog = []commandSpec{
 	{
 		name:    "alpha",
 		usage:   "sth alpha request",
-		summary: "Demande à tester les options payantes pendant l'Alpha (compte requis)",
+		summary: "Request access to paid features during the Alpha (account required)",
 		details: []string{
-			"`sth alpha request` envoie une demande d'accès aux offres payantes à l'équipe STH.",
-			"Nécessite d'être connecté : exécute `sth login` au préalable.",
-			"La demande est approuvée ou refusée depuis le dashboard ; une fois approuvée, les droits se rafraîchissent au prochain appel CLI.",
+			"`sth alpha request` sends the STH team a request for paid-plan access.",
+			"You must be signed in first with `sth login`.",
+			"Requests are approved or declined in the dashboard. After approval, permissions refresh on the next CLI request.",
 		},
 		examples: []string{
 			"sth alpha request",
@@ -250,11 +254,11 @@ var commandCatalog = []commandSpec{
 	{
 		name:    "org",
 		usage:   "sth org <current|list|use>",
-		summary: "Gère l'organisation active du CLI (multi-organisations)",
+		summary: "Manage the CLI's active organization (multi-organization)",
 		details: []string{
-			"current : affiche l'organisation active (id, nom, rôle, plan). Lisible hors-ligne depuis le cache.",
-			"list : liste les organisations ciblables et marque l'active (requiert la capability multi_org).",
-			"use <id|nom> : bascule l'organisation active (appartenance validée côté serveur).",
+			"current shows the active organization (ID, name, role, and plan). Cached data remains available offline.",
+			"list shows available organizations and marks the active one (requires the multi_org capability).",
+			"use <id|name> switches the active organization after server-side membership validation.",
 		},
 		examples: []string{
 			"sth org current",
@@ -267,13 +271,13 @@ var commandCatalog = []commandSpec{
 	{
 		name:    "mcp",
 		usage:   "sth mcp [install]",
-		summary: "Branche vos agents IA sur les assets STH locaux ou partagés via MCP",
+		summary: "Connect AI agents to local or shared STH assets through MCP",
 		details: []string{
-			"sth mcp : démarre le serveur MCP stdio (library_search, library_get, library_save, asset_search, asset_get). Sans compte, il utilise uniquement les données locales du projet.",
-			"STH_MCP_LOCAL_ONLY=1 force le mode local même lorsqu'une connexion Cloud existe.",
-			"sth mcp install : écrit ./.mcp.json pour Claude Code et affiche la configuration à coller pour Codex (~/.codex/config.toml) et Gemini (~/.gemini/settings.json).",
-			"Après `sth login`, les agents utilisent aussi la bibliothèque de l'organisation active, avec les règles de rôle et de quota du control plane.",
-			"Pour Claude sur le web ou mobile, utilisez plutôt le connecteur distant : Réglages → Connecteurs → Ajouter un connecteur perso → https://<domaine>/api/mcp.",
+			"sth mcp starts the MCP stdio server (library_search, library_get, library_save, asset_search, asset_get). Without an account, it uses only local project data.",
+			"STH_MCP_LOCAL_ONLY=1 forces local mode even when a Cloud connection exists.",
+			"sth mcp install writes ./.mcp.json for Claude Code and shows the configuration to paste into Codex (~/.codex/config.toml) and Gemini (~/.gemini/settings.json).",
+			"After `sth login`, agents can also use the active organization's library under control-plane role and quota rules.",
+			"For Claude on the web or mobile, use the remote connector instead: Settings → Connectors → Add custom connector → https://<domain>/api/mcp.",
 		},
 		examples: []string{
 			"sth mcp install",
@@ -283,11 +287,11 @@ var commandCatalog = []commandSpec{
 	{
 		name:    "config",
 		usage:   "sth config <show|pull|push> [--dry-run]",
-		summary: "Synchronise la configuration partagée de l'organisation (Team)",
+		summary: "Synchronize shared organization configuration (Team)",
 		details: []string{
-			"show : affiche la configuration effective avec la provenance (org/local) de chaque champ.",
-			"pull : applique les champs gérés de l'org par-dessus le local et préserve les ressources locales. --dry-run prévisualise.",
-			"push : publie le sous-ensemble local comme base de l'org (requiert fleet_sync + rôle owner/admin).",
+			"show displays the effective configuration and each field's origin (organization or local).",
+			"pull applies organization-managed fields over local configuration while preserving local resources. --dry-run previews the result.",
+			"push publishes the local subset as the organization baseline (requires fleet_sync and an owner or admin role).",
 		},
 		examples: []string{
 			"sth config show",
@@ -306,8 +310,11 @@ type app struct {
 	client      *sthhttp.Client
 	interactive func() bool
 	verbose     sthlog.Verbose
+	verboseMode bool
 	progress    *installProgress
 	fanoutJSON  *fanoutJSONAccumulator
+
+	updateRefreshOnce sync.Once
 }
 
 func newApp(stdin io.Reader, stdout, stderr io.Writer, client *sthhttp.Client) *app {
@@ -336,19 +343,24 @@ func newApp(stdin io.Reader, stdout, stderr io.Writer, client *sthhttp.Client) *
 }
 
 func (a *app) isInteractiveSession() bool {
+	return a.isInteractiveOutput(a.stdout)
+}
+
+func (a *app) isInteractiveErrorSession() bool {
+	return a.isInteractiveOutput(a.stderr)
+}
+
+func (a *app) isInteractiveOutput(output io.Writer) bool {
 	if a.interactive != nil {
 		return a.interactive()
 	}
 
-	f, ok := a.stdin.(*os.File)
-	if !ok {
+	inputFile, inputIsFile := a.stdin.(*os.File)
+	outputFile, outputIsFile := output.(*os.File)
+	if !inputIsFile || !outputIsFile {
 		return false
 	}
-	stat, err := f.Stat()
-	if err != nil {
-		return false
-	}
-	return stat.Mode()&os.ModeCharDevice != 0
+	return term.IsTerminal(int(inputFile.Fd())) && term.IsTerminal(int(outputFile.Fd()))
 }
 
 func (a *app) nextStepGuidanceLines() []string {
@@ -372,8 +384,9 @@ func (a *app) run(args []string) error {
 	}
 
 	var (
-		err      error
-		showHelp bool
+		err             error
+		showHelp        bool
+		suggestionInput = args[0]
 	)
 
 	switch args[0] {
@@ -406,7 +419,7 @@ func (a *app) run(args []string) error {
 		}
 		if len(args) >= 2 && args[1] == "self" {
 			if len(args) != 2 {
-				err = fmt.Errorf("usage : sth update [self]")
+				err = fmt.Errorf("usage: sth update [self]")
 				break
 			}
 			err = a.runSelfUpdate()
@@ -443,14 +456,15 @@ func (a *app) run(args []string) error {
 				return nil
 			}
 			if _, ok := findCommandSpec(args[1]); !ok {
-				err = fmt.Errorf("commande inconnue pour help : %q", args[1])
+				err = fmt.Errorf("unknown command for help: %q", args[1])
 				showHelp = true
+				suggestionInput = args[1]
 				break
 			}
 			a.writeStdout(commandHelpText(args[1]))
 			return nil
 		default:
-			err = fmt.Errorf("usage : sth help [commande]")
+			err = fmt.Errorf("usage: sth help [command]")
 		}
 	case "version":
 		if len(args) >= 2 && isHelpFlag(args[1]) {
@@ -474,7 +488,7 @@ func (a *app) run(args []string) error {
 		err = a.runTelemetry(args[1:])
 	case "stockholm":
 		if len(args) != 1 {
-			err = fmt.Errorf("usage : sth stockholm")
+			err = fmt.Errorf("usage: sth stockholm")
 			break
 		}
 		err = a.runStockholm()
@@ -522,14 +536,15 @@ func (a *app) run(args []string) error {
 		a.writeStdout(helpText())
 		return nil
 	default:
-		err = fmt.Errorf("commande inconnue : %q", args[0])
+		err = fmt.Errorf("unknown command: %q", args[0])
 		showHelp = true
 	}
 
 	if err != nil {
-		lines := []string{fmt.Sprintf("Erreur : %v", err)}
+		lines := []string{fmt.Sprintf("Error: %v", err)}
 		if showHelp {
-			lines = append(lines, "", helpText())
+			lines = append(lines, commandSuggestions(suggestionInput)...)
+			lines = append(lines, "Run `sth help` to list available commands.")
 		}
 		a.writeStderr(lines...)
 		return err
@@ -620,22 +635,30 @@ func renderMessage(lines ...string) string {
 }
 
 func (a *app) writeStdout(lines ...string) {
+	message := renderMessage(lines...)
+	if a.progress.print(message) {
+		return
+	}
 	a.progress.stop()
-	fmt.Fprint(a.stdout, renderMessage(lines...))
+	fmt.Fprint(a.stdout, message)
 }
 
 func (a *app) writeStderr(lines ...string) {
+	message := renderMessage(lines...)
+	if a.progress.printError(message) {
+		return
+	}
 	a.progress.stop()
-	fmt.Fprint(a.stderr, renderMessage(lines...))
+	fmt.Fprint(a.stderr, message)
 }
 
 func helpText() string {
 	var builder strings.Builder
 	builder.WriteString("STH\n")
-	builder.WriteString("Sans argument, `sth` ouvre le menu guidé en TTY et affiche la prochaine étape utile hors TTY.\n\n")
-	builder.WriteString("Commandes visibles :\n")
+	builder.WriteString("Without arguments, `sth` opens the guided menu in a TTY and shows the next useful step outside a TTY.\n\n")
+	builder.WriteString("Available commands:\n")
 	builder.WriteString(commandListText())
-	builder.WriteString("\nExemples :\n")
+	builder.WriteString("\nExamples:\n")
 	for _, example := range usageExamples() {
 		builder.WriteString(fmt.Sprintf("  %s\n", example))
 	}
@@ -700,7 +723,7 @@ func commandHelpText(name string) string {
 		}
 	}
 	if len(spec.examples) > 0 {
-		builder.WriteString("\nExemples :\n")
+		builder.WriteString("\nExamples:\n")
 		for _, example := range spec.examples {
 			builder.WriteString(fmt.Sprintf("  %s\n", example))
 		}
@@ -784,9 +807,14 @@ func (a *app) applyGlobalFlags(args []string) []string {
 	if enabled {
 		v := sthlog.NewVerbose(a.stderr, true)
 		a.verbose = v
+		a.verboseMode = true
 		if a.client != nil {
 			a.client.SetVerbose(v)
 		}
 	}
 	return filtered
+}
+
+func (a *app) interactiveProgress() bool {
+	return !a.verboseMode && isWriterTTY(a.stdout)
 }

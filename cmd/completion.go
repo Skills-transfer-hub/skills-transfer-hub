@@ -11,7 +11,7 @@ import (
 // in completion (FR-025).
 func (a *app) runCompletion(args []string) error {
 	if len(args) != 1 {
-		return fmt.Errorf("usage : sth completion <bash|zsh|powershell>")
+		return fmt.Errorf("usage: sth completion <bash|zsh|powershell>")
 	}
 	shell := strings.ToLower(strings.TrimSpace(args[0]))
 	switch shell {
@@ -22,7 +22,7 @@ func (a *app) runCompletion(args []string) error {
 	case "powershell":
 		a.writeStdout(renderPowerShellCompletion(visibleCommands()))
 	default:
-		return fmt.Errorf("Unsupported shell: %s. Supported: bash, zsh, powershell.", shell)
+		return fmt.Errorf("unsupported shell: %s (supported: bash, zsh, powershell)", shell)
 	}
 	return nil
 }

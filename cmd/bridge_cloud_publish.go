@@ -65,7 +65,7 @@ func publishBridgeCloudPublication(
 		return cloud.Publication{}, bridgeCloudPublicationPlan{}, err
 	}
 	if plan.commit != expectedCommit || plan.manifestSHA256 != expectedManifestSHA256 {
-		return cloud.Publication{}, bridgeCloudPublicationPlan{}, fmt.Errorf("HEAD ou le manifest a changé depuis le preview ; relancez le preview")
+		return cloud.Publication{}, bridgeCloudPublicationPlan{}, fmt.Errorf("HEAD or the manifest changed since the preview; run the preview again")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
@@ -93,14 +93,14 @@ func buildBridgeCloudPublication(sourcePath, folderName, version string) (bridge
 		return bridgeCloudPublicationPlan{}, err
 	}
 	if !validBridgePublicationComponent(folderName) {
-		return bridgeCloudPublicationPlan{}, fmt.Errorf("folder_name doit être un identifiant lowercase sûr")
+		return bridgeCloudPublicationPlan{}, fmt.Errorf("folder_name must be a safe lowercase identifier")
 	}
 	if !validBridgePublicationVersion(version) {
-		return bridgeCloudPublicationPlan{}, fmt.Errorf("version invalide")
+		return bridgeCloudPublicationPlan{}, fmt.Errorf("invalid version")
 	}
 	slug := path.Base(sourcePath)
 	if !validBridgePublicationComponent(slug) {
-		return bridgeCloudPublicationPlan{}, fmt.Errorf("le dossier du skill doit être un slug lowercase sûr")
+		return bridgeCloudPublicationPlan{}, fmt.Errorf("the skill folder must be a safe lowercase slug")
 	}
 
 	workingDirectory, err := canonicalBridgeProjectRoot()
@@ -109,20 +109,20 @@ func buildBridgeCloudPublication(sourcePath, folderName, version string) (bridge
 	}
 	repositoryRootBytes, err := bridgeGitOutput(workingDirectory, 8*1024, "rev-parse", "--show-toplevel")
 	if err != nil {
-		return bridgeCloudPublicationPlan{}, fmt.Errorf("ce projet n’est pas un dépôt Git exploitable")
+		return bridgeCloudPublicationPlan{}, fmt.Errorf("this project is not a usable Git repository")
 	}
 	repositoryRoot := strings.TrimSpace(string(repositoryRootBytes))
 	canonicalRepositoryRoot, err := filepath.EvalSymlinks(repositoryRoot)
 	if err != nil || canonicalRepositoryRoot == "" {
-		return bridgeCloudPublicationPlan{}, fmt.Errorf("racine Git invalide")
+		return bridgeCloudPublicationPlan{}, fmt.Errorf("invalid Git root")
 	}
 	commitBytes, err := bridgeGitOutput(canonicalRepositoryRoot, 256, "rev-parse", "--verify", "HEAD^{commit}")
 	if err != nil {
-		return bridgeCloudPublicationPlan{}, fmt.Errorf("HEAD ne pointe pas vers un commit publiable")
+		return bridgeCloudPublicationPlan{}, fmt.Errorf("HEAD does not point to a publishable commit")
 	}
 	commit := strings.TrimSpace(string(commitBytes))
 	if !validBridgeGitOID(commit) {
-		return bridgeCloudPublicationPlan{}, fmt.Errorf("OID Git HEAD invalide")
+		return bridgeCloudPublicationPlan{}, fmt.Errorf("invalid Git HEAD OID")
 	}
 	ref := commit
 	if refBytes, refErr := bridgeGitOutput(canonicalRepositoryRoot, 1024, "symbolic-ref", "--quiet", "--short", "HEAD"); refErr == nil {
@@ -133,7 +133,7 @@ func buildBridgeCloudPublication(sourcePath, folderName, version string) (bridge
 	}
 	remoteBytes, err := bridgeGitOutput(canonicalRepositoryRoot, 4096, "config", "--get", "remote.origin.url")
 	if err != nil {
-		return bridgeCloudPublicationPlan{}, fmt.Errorf("remote Git origin manquant")
+		return bridgeCloudPublicationPlan{}, fmt.Errorf("missing Git origin remote")
 	}
 	remoteURL, err := normalizeBridgeGitRemote(strings.TrimSpace(string(remoteBytes)))
 	if err != nil {
@@ -146,7 +146,7 @@ func buildBridgeCloudPublication(sourcePath, folderName, version string) (bridge
 		"ls-tree", "-r", "-z", "-l", "--full-tree", commit, "--", ":(literal)"+sourcePath,
 	)
 	if err != nil {
-		return bridgeCloudPublicationPlan{}, fmt.Errorf("lecture de l’arbre Git HEAD échouée")
+		return bridgeCloudPublicationPlan{}, fmt.Errorf("failed to read the Git HEAD tree")
 	}
 	treeFiles, err := parseBridgeGitTree(sourcePath, treeBytes)
 	if err != nil {
@@ -159,7 +159,7 @@ func buildBridgeCloudPublication(sourcePath, folderName, version string) (bridge
 	for _, treeFile := range treeFiles {
 		content, err := bridgeGitOutput(canonicalRepositoryRoot, int(treeFile.size)+1, "cat-file", "blob", treeFile.objectID)
 		if err != nil || int64(len(content)) != treeFile.size {
-			return bridgeCloudPublicationPlan{}, fmt.Errorf("lecture du blob Git HEAD échouée pour %s", treeFile.logicalPath)
+			return bridgeCloudPublicationPlan{}, fmt.Errorf("failed to read the Git HEAD blob for %s", treeFile.logicalPath)
 		}
 		digest := sha256.Sum256(content)
 		publicationFiles = append(publicationFiles, cloud.PublicationFile{
@@ -173,7 +173,7 @@ func buildBridgeCloudPublication(sourcePath, folderName, version string) (bridge
 		}
 	}
 	if entrypointContent == nil {
-		return bridgeCloudPublicationPlan{}, fmt.Errorf("le dossier tracké à HEAD ne contient pas SKILL.md")
+		return bridgeCloudPublicationPlan{}, fmt.Errorf("the folder tracked at HEAD does not contain SKILL.md")
 	}
 
 	name, description := bridgePublicationMetadata(entrypointContent, slug)
@@ -205,10 +205,10 @@ func buildBridgeCloudPublication(sourcePath, folderName, version string) (bridge
 		"status", "--porcelain=v1", "-z", "--untracked-files=all", "--", ":(literal)"+sourcePath,
 	)
 	if statusErr != nil {
-		return bridgeCloudPublicationPlan{}, fmt.Errorf("vérification du worktree échouée")
+		return bridgeCloudPublicationPlan{}, fmt.Errorf("failed to inspect the worktree")
 	}
 	if dirty {
-		warnings = append(warnings, "Le worktree diffère de HEAD ; seuls les octets du commit affiché seront publiés.")
+		warnings = append(warnings, "The worktree differs from HEAD; only the bytes from the displayed commit will be published.")
 	}
 	return bridgeCloudPublicationPlan{
 		sourcePath: sourcePath, commit: commit, manifestSHA256: manifestSHA256,
@@ -218,19 +218,19 @@ func buildBridgeCloudPublication(sourcePath, folderName, version string) (bridge
 
 func normalizeBridgePublicationSourcePath(value string) (string, error) {
 	if value == "" || len(value) > 512 || strings.TrimSpace(value) != value || strings.Contains(value, "\\") || strings.Contains(value, ":") || strings.Contains(value, "//") || strings.HasPrefix(value, "/") {
-		return "", fmt.Errorf("source_path doit être un dossier relatif POSIX sûr")
+		return "", fmt.Errorf("source_path must be a safe relative POSIX folder")
 	}
 	clean := path.Clean(value)
 	if clean != value || clean == "." || clean == ".." || strings.HasPrefix(clean, "../") {
-		return "", fmt.Errorf("source_path doit être un dossier relatif POSIX sûr")
+		return "", fmt.Errorf("source_path must be a safe relative POSIX folder")
 	}
 	segments := strings.Split(clean, "/")
 	if len(segments) > 32 {
-		return "", fmt.Errorf("source_path dépasse 32 segments")
+		return "", fmt.Errorf("source_path exceeds 32 segments")
 	}
 	for _, segment := range segments {
 		if !validBridgePublicationSourceSegment(segment) {
-			return "", fmt.Errorf("source_path contient un segment non sûr")
+			return "", fmt.Errorf("source_path contains an unsafe segment")
 		}
 	}
 	return clean, nil
@@ -293,12 +293,12 @@ func validBridgeGitRef(value string) bool {
 
 func normalizeBridgeGitRemote(value string) (string, error) {
 	if value == "" || len(value) > 2048 {
-		return "", fmt.Errorf("remote Git origin invalide")
+		return "", fmt.Errorf("invalid Git origin remote")
 	}
 	if strings.Contains(value, "://") {
 		parsed, err := url.Parse(value)
 		if err != nil || parsed.Hostname() == "" || parsed.RawQuery != "" || parsed.Fragment != "" {
-			return "", fmt.Errorf("remote Git origin invalide")
+			return "", fmt.Errorf("invalid Git origin remote")
 		}
 		if parsed.Scheme == "https" && parsed.User == nil {
 			return value, nil
@@ -306,21 +306,21 @@ func normalizeBridgeGitRemote(value string) (string, error) {
 		if parsed.Scheme == "ssh" {
 			if parsed.User != nil {
 				if _, passwordSet := parsed.User.Password(); passwordSet {
-					return "", fmt.Errorf("remote Git origin avec credentials refusé")
+					return "", fmt.Errorf("Git origin remote with credentials rejected")
 				}
 			}
 			return value, nil
 		}
-		return "", fmt.Errorf("remote Git origin doit utiliser HTTPS ou SSH")
+		return "", fmt.Errorf("Git origin remote must use HTTPS or SSH")
 	}
 	at := strings.IndexByte(value, '@')
 	colon := strings.IndexByte(value, ':')
 	if at < 1 || colon <= at+1 || colon == len(value)-1 {
-		return "", fmt.Errorf("remote Git origin doit utiliser HTTPS ou SSH")
+		return "", fmt.Errorf("Git origin remote must use HTTPS or SSH")
 	}
 	user, host, repositoryPath := value[:at], value[at+1:colon], value[colon+1:]
 	if !validBridgeRemoteToken(user) || !validBridgeRemoteToken(host) || !validBridgeRemotePath(repositoryPath) {
-		return "", fmt.Errorf("remote Git origin SCP invalide")
+		return "", fmt.Errorf("invalid SCP-style Git origin remote")
 	}
 	normalized := url.URL{Scheme: "ssh", User: url.User(user), Host: host, Path: "/" + repositoryPath}
 	return normalized.String(), nil
@@ -366,33 +366,33 @@ func parseBridgeGitTree(sourceRoot string, encoded []byte) ([]bridgeGitTreeFile,
 		}
 		tab := bytes.IndexByte(record, '\t')
 		if tab < 0 {
-			return nil, fmt.Errorf("arbre Git HEAD malformé")
+			return nil, fmt.Errorf("malformed Git HEAD tree")
 		}
 		metadata := strings.Fields(string(record[:tab]))
 		if len(metadata) != 4 || (metadata[0] != "100644" && metadata[0] != "100755") || metadata[1] != "blob" || !validBridgeGitOID(metadata[2]) {
-			return nil, fmt.Errorf("symlink, submodule ou entrée Git non régulière refusé")
+			return nil, fmt.Errorf("symbolic link, submodule, or non-regular Git entry rejected")
 		}
 		size, err := strconv.ParseInt(metadata[3], 10, 64)
 		if err != nil || size < 0 || size > bridgePublicationMaxFileBytes || totalSize > bridgePublicationMaxBytes-size {
-			return nil, fmt.Errorf("limites de taille de publication dépassées")
+			return nil, fmt.Errorf("publication size limits exceeded")
 		}
 		totalSize += size
 		repositoryPath := string(record[tab+1:])
 		prefix := sourceRoot + "/"
 		if !utf8.ValidString(repositoryPath) || !strings.HasPrefix(repositoryPath, prefix) {
-			return nil, fmt.Errorf("chemin Git hors bundle refusé")
+			return nil, fmt.Errorf("Git path outside bundle rejected")
 		}
 		logicalPath := strings.TrimPrefix(repositoryPath, prefix)
 		if !validBridgePublicationLogicalPath(logicalPath) {
-			return nil, fmt.Errorf("chemin Git non sûr refusé")
+			return nil, fmt.Errorf("unsafe Git path rejected")
 		}
 		files = append(files, bridgeGitTreeFile{repositoryPath: repositoryPath, logicalPath: logicalPath, objectID: metadata[2], size: size})
 		if len(files) > bridgePublicationMaxFiles {
-			return nil, fmt.Errorf("la publication dépasse %d fichiers", bridgePublicationMaxFiles)
+			return nil, fmt.Errorf("publication exceeds %d files", bridgePublicationMaxFiles)
 		}
 	}
 	if len(files) == 0 {
-		return nil, fmt.Errorf("aucun fichier tracké à HEAD dans source_path")
+		return nil, fmt.Errorf("no file tracked at HEAD in source_path")
 	}
 	sort.Slice(files, func(i, j int) bool { return files[i].logicalPath < files[j].logicalPath })
 	return files, nil
@@ -486,7 +486,7 @@ func (buffer *bridgeBoundedBuffer) Write(content []byte) (int, error) {
 		if remaining > 0 {
 			_, _ = buffer.buffer.Write(content[:remaining])
 		}
-		return 0, fmt.Errorf("sortie Git trop volumineuse")
+		return 0, fmt.Errorf("Git output is too large")
 	}
 	return buffer.buffer.Write(content)
 }

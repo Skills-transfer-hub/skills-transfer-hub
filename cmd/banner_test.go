@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bytes"
+	"os"
 	"strings"
 	"testing"
 
@@ -40,7 +41,7 @@ func TestRenderBanner_HasExpectedTextElements(t *testing.T) {
 	for _, want := range []string{
 		"STH ",
 		"Skills Transfer Hub.",
-		"Astuce",
+		"Tip:",
 		"sth help",
 		".claude/skills",
 		"╭", "╮", "╰", "╯", // outer + inner box drawing chars
@@ -100,6 +101,17 @@ func TestPlayLaunchBanner_NonTTY_WritesFinalFrameOnly(t *testing.T) {
 	}
 }
 
+func TestIsWriterTTYRejectsNonTerminalCharacterDevice(t *testing.T) {
+	device, err := os.OpenFile(os.DevNull, os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatalf("OpenFile(%s): %v", os.DevNull, err)
+	}
+	defer device.Close()
+	if isWriterTTY(device) {
+		t.Fatalf("isWriterTTY(%s) = true", os.DevNull)
+	}
+}
+
 func TestDisplayCells_AsciiAndEmoji(t *testing.T) {
 	cases := []struct {
 		in   string
@@ -109,7 +121,7 @@ func TestDisplayCells_AsciiAndEmoji(t *testing.T) {
 		{"abc", 3},
 		{">/<", 3},
 		{"💧", 2},
-		{"⚠️", 2},  // ⚠ + variation selector (counted as 2 + 0)
+		{"⚠️", 2},
 		{"😶", 2},
 		{"╭─╮", 3}, // box drawing = 1 cell each
 		{"abc💧def", 8},

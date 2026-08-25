@@ -43,7 +43,7 @@ func RemoveResourceFromState(targetDir string, resourceName string) error {
 		}
 	}
 	if !found {
-		return fmt.Errorf("ressource %q introuvable dans l'état", resourceName)
+		return fmt.Errorf("resource %q not found in state", resourceName)
 	}
 
 	state.Entries = filtered

@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"sth/internal/fs"
+	"sth/internal/writer"
 )
 
 const bridgeTestAccessToken = "sth_at_abcdefghijklmnopqrstuvwxyzABCDEFGH012345678"
@@ -142,7 +143,7 @@ func TestBridgeCloudInstallFansOutAndTracksImmutableVersion(t *testing.T) {
 		}
 	}
 	claudeContent, _ := os.ReadFile(claudeSkill)
-	if !strings.Contains(string(claudeContent), "Skill géré par STH") {
+	if !strings.Contains(string(claudeContent), writer.ClaudeManagedHeader) {
 		t.Fatalf("Claude managed header missing: %q", claudeContent)
 	}
 	agentsContent, _ := os.ReadFile(agentsSkill)
@@ -253,7 +254,7 @@ func TestBridgeCloudInstallRejectsVersionChangedAfterPreview(t *testing.T) {
 		t.Fatal(install.err)
 	}
 	errorValue := decodeBridgeTestResponses(t, install.stdout)[0]["error"].(map[string]any)
-	if errorValue["code"] != float64(-32031) || !strings.Contains(errorValue["message"].(string), "a changé") {
+	if errorValue["code"] != float64(-32031) || !strings.Contains(errorValue["message"].(string), "changed") {
 		t.Fatalf("error = %v", errorValue)
 	}
 	for _, path := range []string{".claude", ".agents", ".sth"} {
@@ -272,7 +273,7 @@ func TestBridgeCloudHashFailureNeverMutatesProject(t *testing.T) {
 		t.Fatal(result.err)
 	}
 	errorValue := decodeBridgeTestResponses(t, result.stdout)[0]["error"].(map[string]any)
-	if !strings.Contains(errorValue["message"].(string), "taille") && !strings.Contains(errorValue["message"].(string), "SHA-256 invalide") {
+	if !strings.Contains(errorValue["message"].(string), "invalid HTTP size") && !strings.Contains(errorValue["message"].(string), "invalid SHA-256") {
 		t.Fatalf("error = %v", errorValue)
 	}
 	for _, path := range []string{".claude", ".agents", ".sth"} {

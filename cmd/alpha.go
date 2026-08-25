@@ -15,7 +15,7 @@ func (a *app) runAlpha(args []string) error {
 	case "request":
 		return a.runAlphaRequest(args[1:])
 	default:
-		return fmt.Errorf("sous-commande inconnue pour alpha : %q (essaie `sth alpha request`)", args[0])
+		return fmt.Errorf("unknown alpha subcommand: %q (try `sth alpha request`)", args[0])
 	}
 }
 
@@ -30,19 +30,19 @@ func (a *app) runAlphaRequest(args []string) error {
 
 	result, err := a.client.RequestAlphaAccess(ctx, fs.ProjectProfile{Provider: loginProviderName})
 	if err != nil {
-		return fmt.Errorf("demande d'accès impossible : %w (connecte-toi d'abord avec `sth login`)", err)
+		return fmt.Errorf("could not request access: %w (sign in first with `sth login`)", err)
 	}
 
 	switch result.Status {
 	case "already_active":
-		a.writeStdout(fmt.Sprintf("Tu as déjà accès aux options payantes (plan %s).", valueOrDefault(result.Plan, "pro")))
+		a.writeStdout(fmt.Sprintf("You already have access to paid features (%s plan).", valueOrDefault(result.Plan, "pro")))
 	case "pending":
 		a.writeStdout(
-			"Demande envoyée. Un admin STH va l'examiner depuis le dashboard.",
-			"Une fois approuvée, relance ta commande — les droits se rafraîchissent au prochain appel.",
+			"Request submitted. An STH administrator will review it in the dashboard.",
+			"After approval, run your command again — permissions refresh on the next request.",
 		)
 	default:
-		a.writeStdout("Demande enregistrée.")
+		a.writeStdout("Request recorded.")
 	}
 	return nil
 }

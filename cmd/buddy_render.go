@@ -17,19 +17,19 @@ type buddyView struct {
 func buddyViewFor(state fs.BuddyState) buddyView {
 	switch state {
 	case fs.BuddyAllGood:
-		return buddyView{emoji: "💧", face: ">/<", caption: "Tout est à jour."}
+		return buddyView{emoji: "💧", face: ">/<", caption: "Everything is up to date."}
 	case fs.BuddyUpdateAvailable:
-		return buddyView{emoji: "⚠️", face: "o.O", caption: "Mise à jour disponible."}
+		return buddyView{emoji: "⚠️", face: "o.O", caption: "Update available."}
 	case fs.BuddyNoConfig:
-		return buddyView{emoji: "😶", face: "._.", caption: "Pas de configuration projet trouvée."}
+		return buddyView{emoji: "😶", face: "._.", caption: "No project configuration found."}
 	case fs.BuddyError:
-		return buddyView{emoji: "❌", face: "x x", caption: "Une erreur est survenue."}
+		return buddyView{emoji: "❌", face: "x x", caption: "An error occurred."}
 	case fs.BuddyInstalling:
-		return buddyView{emoji: "⏳", face: ">_<", caption: "Installation en cours…"}
+		return buddyView{emoji: "⏳", face: ">_<", caption: "Installing…"}
 	case fs.BuddyDone:
-		return buddyView{emoji: "✅", face: "^.^", caption: "Opération terminée."}
+		return buddyView{emoji: "✅", face: "^.^", caption: "Operation finished."}
 	default:
-		return buddyView{emoji: "💧", face: ">/<", caption: "Tout est à jour."}
+		return buddyView{emoji: "💧", face: ">/<", caption: "Everything is up to date."}
 	}
 }
 

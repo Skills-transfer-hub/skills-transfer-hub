@@ -1,9 +1,9 @@
 package cmd
 
 import (
-	"bufio"
 	"fmt"
 	"sth/internal/fs"
+	"sth/internal/tui"
 	"strings"
 )
 
@@ -27,7 +27,7 @@ func (a *app) runRemove(args []string) error {
 		return err
 	}
 	if len(records) == 0 {
-		return fmt.Errorf("ressource %q introuvable", resourceName)
+		return fmt.Errorf("resource %q not found", resourceName)
 	}
 
 	if !skipConfirm {
@@ -40,19 +40,16 @@ func (a *app) runRemove(args []string) error {
 		}
 		if len(modified) > 0 {
 			if !a.isInteractiveSession() {
-				return fmt.Errorf("ressource %q modifiée localement ; utilisez --yes pour confirmer la suppression en mode non-interactif", resourceName)
+				return fmt.Errorf("resource %q has local modifications; use --yes to confirm removal in non-interactive mode", resourceName)
 			}
-			a.writeStdout("Warning: the following files have been locally modified:")
+			a.writeStdout("Locally modified files:")
 			for _, file := range modified {
 				a.writeStdout(fmt.Sprintf("  %s", file))
 			}
-			fmt.Fprint(a.stdout, "Remove anyway? [y/N] ")
-			scanner := bufio.NewScanner(a.stdin)
-			if scanner.Scan() {
-				answer := strings.TrimSpace(scanner.Text())
-				if answer != "y" && answer != "Y" {
-					return fmt.Errorf("suppression annulée par l'utilisateur")
-				}
+			session := tui.NewSession(a.stdin, a.stdout)
+			confirmed, confirmErr := tui.Confirm(session, tui.ConfirmConfig{Question: "Remove anyway?", DefaultYes: false})
+			if confirmErr != nil || !confirmed {
+				return fmt.Errorf("removal canceled by user")
 			}
 		}
 	}
@@ -65,7 +62,7 @@ func (a *app) runRemove(args []string) error {
 		_, failed := fs.DeleteManagedFiles(record)
 		for _, failedPath := range failed {
 			if strings.HasPrefix(failedPath, "(missing) ") {
-				a.writeStdout(fmt.Sprintf("warning: file not found, skipping: %s", strings.TrimPrefix(failedPath, "(missing) ")))
+				a.writeStdout(fmt.Sprintf("warning: missing file skipped: %s", strings.TrimPrefix(failedPath, "(missing) ")))
 			} else {
 				a.writeStderr(fmt.Sprintf("error: failed to delete: %s", failedPath))
 				hardFailures = append(hardFailures, failedPath)
@@ -74,7 +71,7 @@ func (a *app) runRemove(args []string) error {
 	}
 
 	if len(hardFailures) > 0 {
-		return fmt.Errorf("%d fichier(s) n'ont pas pu être supprimés — état non modifié", len(hardFailures))
+		return fmt.Errorf("%d file(s) could not be removed — state left unchanged", len(hardFailures))
 	}
 
 	if err := fs.RemoveResourceFromState(profile.TargetDir, resourceName); err != nil {

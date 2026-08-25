@@ -29,7 +29,7 @@ type Entitlements struct {
 // ErrUnauthorized signals an HTTP 401 from /v1/entitlements. The caller MUST
 // clear the keychain and surface a "run `sth login`" message — the key has
 // either been revoked, expired, or is unknown to the server.
-var ErrUnauthorized = errors.New("entitlements: clé refusée (HTTP 401)")
+var ErrUnauthorized = errors.New("entitlements: key rejected (HTTP 401)")
 
 // ErrNoKey is the alias of auth.ErrKeyNotFound surfaced from this package so
 // callers can switch on a single sentinel set. Returned when neither the
@@ -62,14 +62,14 @@ func FetchEntitlements(ctx context.Context, hc *stdhttp.Client) (Entitlements, e
 	url := sthhttp.CloudBaseURL() + "/v1/entitlements"
 	req, err := stdhttp.NewRequestWithContext(ctx, stdhttp.MethodGet, url, nil)
 	if err != nil {
-		return Entitlements{}, fmt.Errorf("entitlements: préparation requête : %w", err)
+		return Entitlements{}, fmt.Errorf("entitlements: failed to create request: %w", err)
 	}
 	req.Header.Set("Authorization", "Bearer "+key)
 	req.Header.Set("Accept", "application/json")
 
 	resp, err := hc.Do(req)
 	if err != nil {
-		return Entitlements{}, fmt.Errorf("entitlements: requête vers %s échouée : %w", url, err)
+		return Entitlements{}, fmt.Errorf("entitlements: request to %s failed: %w", url, err)
 	}
 	defer resp.Body.Close()
 
@@ -84,7 +84,7 @@ func FetchEntitlements(ctx context.Context, hc *stdhttp.Client) (Entitlements, e
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes))
 	if err != nil {
-		return Entitlements{}, fmt.Errorf("entitlements: lecture du corps : %w", err)
+		return Entitlements{}, fmt.Errorf("entitlements: failed to read response body: %w", err)
 	}
 	return DecodeEntitlements(body)
 }
@@ -99,11 +99,11 @@ func DecodeEntitlements(body []byte) (Entitlements, error) {
 		Capabilities []string `json:"capabilities"`
 	}
 	if err := json.Unmarshal(body, &raw); err != nil {
-		return Entitlements{}, fmt.Errorf("entitlements: JSON invalide : %w", err)
+		return Entitlements{}, fmt.Errorf("entitlements: invalid JSON: %w", err)
 	}
 	t, err := time.Parse(time.RFC3339, strings.TrimSpace(raw.ExpiresAt))
 	if err != nil {
-		return Entitlements{}, fmt.Errorf("entitlements: expires_at invalide (%q) : %w", raw.ExpiresAt, err)
+		return Entitlements{}, fmt.Errorf("entitlements: invalid expires_at (%q): %w", raw.ExpiresAt, err)
 	}
 	caps := raw.Capabilities
 	if caps == nil {

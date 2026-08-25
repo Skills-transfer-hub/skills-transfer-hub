@@ -41,7 +41,7 @@ func validateCopilotSkillConsumerMetadata(artifactName string, content []byte) e
 		return nameErr
 	}
 	if name != artifactName {
-		return fmt.Errorf("skill Copilot invalide : frontmatter name %q différent du dossier %q", name, artifactName)
+		return fmt.Errorf("invalid Copilot skill: frontmatter name %q differs from directory %q", name, artifactName)
 	}
 	description, descriptionErr := requiredSkillMetadataString(content, "Copilot", "description")
 	if descriptionErr != nil {
@@ -56,7 +56,7 @@ func validateGeminiSkillConsumerMetadata(artifactName string, content []byte) er
 		return nameErr
 	}
 	if name != artifactName {
-		return fmt.Errorf("skill Gemini invalide : frontmatter name %q différent du dossier %q", name, artifactName)
+		return fmt.Errorf("invalid Gemini skill: frontmatter name %q differs from directory %q", name, artifactName)
 	}
 	if nameErr := validateAgentSkillName("Gemini", name); nameErr != nil {
 		return nameErr
@@ -82,22 +82,22 @@ func validateAntigravitySkillConsumerMetadata(artifactName string, content []byt
 	name, present, valid := metadata.LookupString(content, "name")
 	if !valid {
 		if present {
-			return fmt.Errorf("skill Antigravity invalide : frontmatter name doit être une string")
+			return fmt.Errorf("invalid Antigravity skill: frontmatter name must be a string")
 		}
-		return fmt.Errorf("skill Antigravity invalide : frontmatter YAML invalide")
+		return fmt.Errorf("invalid Antigravity skill: invalid YAML frontmatter")
 	}
 	if present && strings.TrimSpace(name) == "" {
-		return fmt.Errorf("skill Antigravity invalide : frontmatter name doit être une string non vide lorsqu'il est présent")
+		return fmt.Errorf("invalid Antigravity skill: frontmatter name must be a non-empty string when present")
 	}
 	if present && name != artifactName {
-		return fmt.Errorf("skill Antigravity invalide : frontmatter name %q différent du dossier %q", name, artifactName)
+		return fmt.Errorf("invalid Antigravity skill: frontmatter name %q differs from directory %q", name, artifactName)
 	}
 	return nil
 }
 
 func validateAgentSkillName(consumerName, name string) error {
 	if !codexSkillNamePattern.MatchString(name) || strings.Contains(name, "--") {
-		return fmt.Errorf("skill %s invalide : name doit contenir 1 à 64 caractères parmi a-z, 0-9 et le tiret, sans tiret initial, final ou doublé", consumerName)
+		return fmt.Errorf("invalid %s skill: name must contain 1 to 64 characters from a-z, 0-9, and hyphens, with no leading, trailing, or consecutive hyphen", consumerName)
 	}
 	return nil
 }
@@ -105,7 +105,7 @@ func validateAgentSkillName(consumerName, name string) error {
 func validateAgentSkillDescription(consumerName, description string) error {
 	descriptionLength := utf8.RuneCountInString(description)
 	if descriptionLength > 1024 {
-		return fmt.Errorf("skill %s invalide : description contient %d caractères, maximum 1024", consumerName, descriptionLength)
+		return fmt.Errorf("invalid %s skill: description contains %d characters, maximum 1024", consumerName, descriptionLength)
 	}
 	return nil
 }
@@ -114,12 +114,12 @@ func requiredSkillMetadataString(content []byte, consumerName, key string) (stri
 	value, present, valid := metadata.LookupString(content, key)
 	if !valid {
 		if present {
-			return "", fmt.Errorf("skill %s invalide : frontmatter %s doit être une string", consumerName, key)
+			return "", fmt.Errorf("invalid %s skill: frontmatter %s must be a string", consumerName, key)
 		}
-		return "", fmt.Errorf("skill %s invalide : frontmatter YAML invalide", consumerName)
+		return "", fmt.Errorf("invalid %s skill: invalid YAML frontmatter", consumerName)
 	}
 	if !present || strings.TrimSpace(value) == "" {
-		return "", fmt.Errorf("skill %s invalide : frontmatter %s string requis", consumerName, key)
+		return "", fmt.Errorf("invalid %s skill: frontmatter %s must be a non-empty string", consumerName, key)
 	}
 	return value, nil
 }

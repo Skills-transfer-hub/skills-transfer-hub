@@ -64,7 +64,7 @@ func (a *app) installResource(dryRun, jsonOut, force bool, positional []string) 
 	}
 
 	if !dryRun && !jsonOut {
-		a.progress = newInstallProgress(a.stdout, a.stderr, isWriterTTY(a.stdout))
+		a.progress = newInstallProgress(a.stdout, a.stderr, a.interactiveProgress())
 		a.progress.start(installStepCount)
 		defer func() {
 			a.progress.stop()
@@ -77,7 +77,7 @@ func (a *app) installResource(dryRun, jsonOut, force bool, positional []string) 
 		defer func() { a.fanoutJSON = nil }()
 	}
 
-	a.progress.step("Récupération du catalogue…")
+	a.progress.step("Fetching catalog…")
 	var entries []fs.CatalogEntry
 	if err := a.withAuthRecovery(context.Background(), func() error {
 		var listErr error
@@ -113,12 +113,13 @@ func (a *app) installResource(dryRun, jsonOut, force bool, positional []string) 
 		}
 		a.writeStdout(payload)
 	}
+	a.progress.complete()
 	return nil
 }
 
 func (a *app) installLegacy(profile fs.ProjectProfile, entry fs.CatalogEntry, providerID string, dryRun, jsonOut, force bool) error {
 	if entry.ResourceType == "bundle" {
-		a.progress.step(fmt.Sprintf("Téléchargement de %s…", entry.Name))
+		a.progress.step(fmt.Sprintf("Downloading %s…", entry.Name))
 		bundleContents, bundleErr := a.downloadBundleContents(context.Background(), profile, entry)
 		if bundleErr != nil {
 			return bundleErr
@@ -134,12 +135,12 @@ func (a *app) installLegacy(profile fs.ProjectProfile, entry fs.CatalogEntry, pr
 			}
 			return a.renderFanoutDryRun(projectRoot, profile.TargetDir, entry.CatalogID, plannedFiles, nil, nil, jsonOut)
 		}
-		a.progress.step("Installation des fichiers…")
+		a.progress.step("Installing files…")
 		record, syncErr := fs.SyncManagedBundle(profile.TargetDir, entry, bundleContents)
 		if syncErr != nil {
 			return syncErr
 		}
-		a.progress.step("Finalisation…")
+		a.progress.step("Finalizing…")
 		if a.fanoutJSON != nil {
 			a.fanoutJSON.results = append(a.fanoutJSON.results, updateJSONResult{
 				ResourceName: entry.CatalogID,
@@ -148,15 +149,15 @@ func (a *app) installLegacy(profile fs.ProjectProfile, entry fs.CatalogEntry, pr
 			return nil
 		}
 		a.writeStdout(
-			fmt.Sprintf("Ressource '%s' installée dans %s.", entry.Name, record.InstalledPath),
+			fmt.Sprintf("Resource '%s' installed in %s.", entry.Name, record.InstalledPath),
 			fmt.Sprintf("Type: %s", entry.ResourceType),
-			fmt.Sprintf("Dossier: %s", entry.FolderName),
-			"Prochaine étape : utilisez `sth update` pour rafraîchir les ressources suivies.",
+			fmt.Sprintf("Folder: %s", entry.FolderName),
+			"Next step: use `sth update` to refresh tracked resources.",
 		)
 		return nil
 	}
 
-	a.progress.step(fmt.Sprintf("Téléchargement de %s…", entry.Name))
+	a.progress.step(fmt.Sprintf("Downloading %s…", entry.Name))
 
 	var resolvedVersionCh chan resolvedVersion
 	if !dryRun {
@@ -265,7 +266,7 @@ func (a *app) installLegacy(profile fs.ProjectProfile, entry fs.CatalogEntry, pr
 		return nil
 	}
 
-	a.progress.step("Installation des fichiers…")
+	a.progress.step("Installing files…")
 	record, err := fs.InstallCatalogEntry(profile.TargetDir, entry, content)
 	if err != nil {
 		return err
@@ -274,7 +275,7 @@ func (a *app) installLegacy(profile fs.ProjectProfile, entry fs.CatalogEntry, pr
 	if err != nil {
 		return err
 	}
-	a.progress.step("Finalisation…")
+	a.progress.step("Finalizing…")
 	if resolvedVersionCh != nil {
 		result := <-resolvedVersionCh
 		if result.err == nil && result.sha != "" {
@@ -294,10 +295,10 @@ func (a *app) installLegacy(profile fs.ProjectProfile, entry fs.CatalogEntry, pr
 		return nil
 	}
 	a.writeStdout(
-		fmt.Sprintf("Ressource '%s' installée dans %s.", entry.Name, record.InstalledPath),
+		fmt.Sprintf("Resource '%s' installed in %s.", entry.Name, record.InstalledPath),
 		fmt.Sprintf("Type: %s", entry.ResourceType),
-		fmt.Sprintf("Dossier: %s", entry.FolderName),
-		"Prochaine étape : utilisez `sth update` pour rafraîchir les ressources suivies.",
+		fmt.Sprintf("Folder: %s", entry.FolderName),
+		"Next step: use `sth update` to refresh tracked resources.",
 	)
 	return nil
 }

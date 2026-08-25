@@ -40,10 +40,10 @@ func (GeminiWriter) Plan(artifactKind, artifactName, _ string, sources []string)
 
 func (GeminiWriter) Write(request WriteRequest) (WriteResult, error) {
 	if strings.TrimSpace(request.InstalledPath) == "" {
-		return WriteResult{}, fmt.Errorf("installed_path doit être renseigné")
+		return WriteResult{}, fmt.Errorf("installed_path is required")
 	}
 	if err := os.MkdirAll(filepath.Dir(request.InstalledPath), 0o755); err != nil {
-		return WriteResult{}, fmt.Errorf("création du dossier %s échouée : %w", filepath.Dir(request.InstalledPath), err)
+		return WriteResult{}, fmt.Errorf("failed to create directory %s: %w", filepath.Dir(request.InstalledPath), err)
 	}
 
 	content, err := (GeminiWriter{}).Render(request)
@@ -51,7 +51,7 @@ func (GeminiWriter) Write(request WriteRequest) (WriteResult, error) {
 		return WriteResult{}, err
 	}
 	if err := os.WriteFile(request.InstalledPath, content, 0o644); err != nil {
-		return WriteResult{}, fmt.Errorf("écriture de %s échouée : %w", request.InstalledPath, err)
+		return WriteResult{}, fmt.Errorf("failed to write %s: %w", request.InstalledPath, err)
 	}
 
 	return WriteResult{
@@ -66,7 +66,7 @@ func (GeminiWriter) Render(request WriteRequest) ([]byte, error) {
 
 func RenderGeminiCommand(content []byte) ([]byte, error) {
 	if !utf8.Valid(content) {
-		return nil, fmt.Errorf("commande Gemini invalide : contenu non UTF-8")
+		return nil, fmt.Errorf("invalid Gemini command: content is not UTF-8")
 	}
 
 	description, prompt := geminiCommandParts(content)
@@ -93,7 +93,7 @@ func renderGeminiContent(request WriteRequest) ([]byte, error) {
 		}
 		rendered, err := RenderGeminiCommand(content)
 		if err != nil {
-			return nil, fmt.Errorf("rendu Gemini de %s échoué : %w", request.InstalledPath, err)
+			return nil, fmt.Errorf("failed to render Gemini file %s: %w", request.InstalledPath, err)
 		}
 		if request.AddManagedHeader {
 			return append([]byte(geminiManagedTOMLMarker), rendered...), nil

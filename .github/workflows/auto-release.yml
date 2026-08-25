@@ -1,9 +1,16 @@
 name: Auto Release
 
 on:
-  push:
-    branches:
-      - main
+  workflow_call:
+    inputs:
+      release_sha:
+        required: true
+        type: string
+    secrets:
+      RELEASE_PAT:
+        required: true
+      RELEASE_SSH_SIGNING_KEY:
+        required: true
 
 permissions:
   contents: write
@@ -14,24 +21,67 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  release-eligibility:
+    name: Verify tested main head
+    if: >-
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      RELEASE_SHA: ${{ inputs.release_sha }}
+    outputs:
+      current: ${{ steps.main-head.outputs.current }}
+    steps:
+      - name: Compare with current main head
+        id: main-head
+        uses: actions/github-script@v8
+        env:
+          RELEASE_SHA: ${{ env.RELEASE_SHA }}
+        with:
+          script: |
+            const branch = await github.rest.repos.getBranch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              branch: 'main',
+            });
+            const currentSha = branch.data.commit.sha;
+            const isCurrent = currentSha === process.env.RELEASE_SHA;
+            core.setOutput('current', String(isCurrent));
+            if (!isCurrent) {
+              await core.summary
+                .addRaw(`Skipping stale successful CI commit ${process.env.RELEASE_SHA}; current main is ${currentSha}.`)
+                .write();
+            }
+
   create-release:
     name: Create release after merge
+    needs: release-eligibility
+    if: >-
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main' &&
+      needs.release-eligibility.outputs.current == 'true'
     runs-on: ubuntu-latest
+    env:
+      RELEASE_SIGNING_FINGERPRINT: SHA256:Y/USCQxn6KoP3GBU6Kr/3/POw4pqWgi/kukMAq1vwI0
+      RELEASE_SHA: ${{ inputs.release_sha }}
 
     steps:
       - name: Check out merged commit
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
-          ref: ${{ github.sha }}
+          ref: ${{ env.RELEASE_SHA }}
 
       - name: Fetch tags
         run: git fetch --force --tags origin
 
       - name: Resolve merged pull request metadata
         id: pr
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         env:
+          RELEASE_SHA: ${{ env.RELEASE_SHA }}
           RELEASE_BODY_PATH: ${{ runner.temp }}/release-body.md
         with:
           script: |
@@ -56,7 +106,7 @@ jobs:
               const pulls = await github.rest.repos.listPullRequestsAssociatedWithCommit({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
-                commit_sha: context.sha,
+                commit_sha: process.env.RELEASE_SHA,
               });
               mergedPullRequest = pulls.data.find((pullRequest) =>
                 pullRequest.base.ref === 'main' && pullRequest.merged_at,
@@ -102,17 +152,27 @@ jobs:
               core.setOutput('bodyPath', process.env.RELEASE_BODY_PATH);
             }
 
-      - name: Detect existing tag on merged commit
+      - name: Detect existing release state on merged commit
         id: existing
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MERGE_SHA: ${{ env.RELEASE_SHA }}
         run: |
-          tag="$(git tag --points-at "${{ github.sha }}" | head -n 1)"
+          tag="$(git tag --points-at "$MERGE_SHA" | grep -E '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-rc\.[1-9][0-9]*)?$' | sort -V | tail -n 1 || true)"
+          release_exists=false
+          if [[ -n "$tag" ]] && gh release view "$tag" -R Skills-transfer-hub/skills-transfer-hub >/dev/null 2>&1; then
+            release_exists=true
+          fi
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "release=$release_exists" >> "$GITHUB_OUTPUT"
 
       - name: Compute next stable version tag
         id: next
         if: steps.pr.outputs.found == 'true' && steps.existing.outputs.tag == ''
         shell: bash
+        env:
+          PRERELEASE: ${{ steps.pr.outputs.prerelease }}
         run: |
           latest="$(git tag --list 'v*' | awk '/^v[0-9]+\.[0-9]+\.[0-9]+$/ { print }' | sort -V | tail -n 1)"
           if [[ -z "$latest" ]]; then
@@ -123,7 +183,7 @@ jobs:
             stable_base="v${major}.${minor}.$((patch + 1))"
           fi
 
-          prerelease='${{ steps.pr.outputs.prerelease }}'
+          prerelease="$PRERELEASE"
           if [[ "$prerelease" == 'true' ]]; then
             latest_rc="$(git tag --list "${stable_base}-rc.*" | awk '/-rc\.[0-9]+$/ { print }' | sort -V | tail -n 1)"
             if [[ -z "$latest_rc" ]]; then
@@ -141,7 +201,40 @@ jobs:
           echo "tag=$next" >> "$GITHUB_OUTPUT"
           echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
           echo "make_latest=$make_latest" >> "$GITHUB_OUTPUT"
-          echo "Preparing release $next from PR #${{ steps.pr.outputs.number }} (labels: ${{ steps.pr.outputs.labels }})." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Resolve release metadata
+        id: release
+        if: steps.pr.outputs.found == 'true' && steps.existing.outputs.release != 'true'
+        shell: bash
+        env:
+          EXISTING_TAG: ${{ steps.existing.outputs.tag }}
+          NEXT_MAKE_LATEST: ${{ steps.next.outputs.make_latest }}
+          NEXT_PRERELEASE: ${{ steps.next.outputs.prerelease }}
+          NEXT_TAG: ${{ steps.next.outputs.tag }}
+          PR_LABELS: ${{ steps.pr.outputs.labels }}
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
+        run: |
+          release_tag="$EXISTING_TAG"
+          prerelease="$NEXT_PRERELEASE"
+          make_latest="$NEXT_MAKE_LATEST"
+          if [[ -z "$release_tag" ]]; then
+            release_tag="$NEXT_TAG"
+          else
+            prerelease=false
+            make_latest=true
+            if [[ "$release_tag" == *-rc.* ]]; then
+              prerelease=true
+              make_latest=false
+            fi
+          fi
+          if [[ ! "$release_tag" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-rc\.[1-9][0-9]*)?$ ]]; then
+            echo "Invalid release tag: $release_tag" >&2
+            exit 1
+          fi
+          echo "tag=$release_tag" >> "$GITHUB_OUTPUT"
+          echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
+          echo "make_latest=$make_latest" >> "$GITHUB_OUTPUT"
+          printf 'Preparing release %s from PR #%s (labels: %s).\n' "$release_tag" "$PR_NUMBER" "$PR_LABELS" >> "$GITHUB_STEP_SUMMARY"
 
       # action-gh-release creates a lightweight (unsigned) tag when the tag
       # doesn't exist yet. To get the green "Verified" badge on the release we
@@ -173,24 +266,46 @@ jobs:
       - name: Create and push signed tag
         if: steps.pr.outputs.found == 'true' && steps.existing.outputs.tag == ''
         shell: bash
+        env:
+          MERGE_SHA: ${{ env.RELEASE_SHA }}
+          RELEASE_TAG: ${{ steps.next.outputs.tag }}
         run: |
-          git tag -s "${{ steps.next.outputs.tag }}" -m "Release ${{ steps.next.outputs.tag }}" "${{ github.sha }}"
-          git push origin "refs/tags/${{ steps.next.outputs.tag }}"
+          if [[ ! "$RELEASE_TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-rc\.[1-9][0-9]*)?$ ]]; then
+            echo "Invalid release tag: $RELEASE_TAG" >&2
+            exit 1
+          fi
+          git tag -s "$RELEASE_TAG" -m "Release $RELEASE_TAG" "$MERGE_SHA"
+          tag_object="$RUNNER_TEMP/sth-release-tag-object"
+          tag_payload="$RUNNER_TEMP/sth-release-tag-payload"
+          tag_signature="$RUNNER_TEMP/sth-release-tag-signature"
+          git cat-file tag "refs/tags/$RELEASE_TAG" > "$tag_object"
+          sed -n '/^-----BEGIN SSH SIGNATURE-----$/,$p' "$tag_object" > "$tag_signature"
+          sed '/^-----BEGIN SSH SIGNATURE-----$/,$d' "$tag_object" > "$tag_payload"
+          if ! verification="$(ssh-keygen -Y check-novalidate -n git -s "$tag_signature" < "$tag_payload" 2>&1)"; then
+            printf '%s\n' "$verification" >&2
+            exit 1
+          fi
+          if [[ "$verification" != *"$RELEASE_SIGNING_FINGERPRINT"* ]]; then
+            echo "Release tag was not signed by the pinned release key." >&2
+            exit 1
+          fi
+          git push origin "refs/tags/$RELEASE_TAG"
+          git config --local --unset-all http.https://github.com/.extraheader || true
 
       - name: Create GitHub release
-        if: steps.pr.outputs.found == 'true' && steps.existing.outputs.tag == ''
+        if: steps.pr.outputs.found == 'true' && steps.existing.outputs.release != 'true'
         uses: softprops/action-gh-release@v2
         with:
           # GITHUB_TOKEN-published releases do NOT trigger downstream workflows
           # (release.published event is suppressed). RELEASE_PAT runs as a real
           # user identity, so release.yml fires automatically on each release.
           token: ${{ secrets.RELEASE_PAT }}
-          tag_name: ${{ steps.next.outputs.tag }}
+          tag_name: ${{ steps.release.outputs.tag }}
           # Alpha period: the title is prefixed; the tag itself stays semver.
-          name: Alpha ${{ steps.next.outputs.tag }}
-          target_commitish: ${{ github.sha }}
-          prerelease: ${{ steps.next.outputs.prerelease }}
-          make_latest: ${{ steps.next.outputs.make_latest }}
+          name: Alpha ${{ steps.release.outputs.tag }}
+          target_commitish: ${{ env.RELEASE_SHA }}
+          prerelease: ${{ steps.release.outputs.prerelease }}
+          make_latest: ${{ steps.release.outputs.make_latest }}
           # body_path holds the curated "Release notes" section extracted from
           # the PR — the only thing published. We do NOT set generate_release_notes:
           # it would append GitHub's auto PR list and a private compare link, both
@@ -198,13 +313,17 @@ jobs:
           body_path: ${{ steps.pr.outputs.bodyPath }}
 
       - name: Skip if merged commit is already released
-        if: steps.existing.outputs.tag != ''
+        if: steps.existing.outputs.release == 'true'
         shell: bash
+        env:
+          EXISTING_TAG: ${{ steps.existing.outputs.tag }}
         run: |
-          echo "Merged commit already has tag ${{ steps.existing.outputs.tag }}." >> "$GITHUB_STEP_SUMMARY"
+          printf 'Merged commit already has tag %s.\n' "$EXISTING_TAG" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Skip if push is not from a merged pull request
         if: steps.pr.outputs.found != 'true'
         shell: bash
+        env:
+          MERGE_SHA: ${{ env.RELEASE_SHA }}
         run: |
-          echo "No merged pull request associated with commit ${{ github.sha }}; skipping automatic release." >> "$GITHUB_STEP_SUMMARY"
+          printf 'No merged pull request associated with commit %s; skipping automatic release.\n' "$MERGE_SHA" >> "$GITHUB_STEP_SUMMARY"

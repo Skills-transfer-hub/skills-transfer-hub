@@ -1,18 +1,15 @@
 package cmd
 
 import (
-	"bufio"
 	"context"
 	"fmt"
-	"os"
 	"strings"
 	"time"
 
 	"sth/internal/auth"
 	"sth/internal/cloud"
 	"sth/internal/fs"
-
-	"golang.org/x/term"
+	"sth/internal/tui"
 )
 
 const (
@@ -31,41 +28,42 @@ func (a *app) runLogin(args []string) error {
 		return nil
 	}
 	if len(args) > 1 {
-		return fmt.Errorf("usage : sth login [<api-key>]")
+		return fmt.Errorf("usage: sth login [<api-key>]")
 	}
 
 	// Surface the mode transition up front when the user was running in
 	// anonymous mode — they should know `sth login` is what flips them to
 	// connected so their dashboard becomes populated.
 	if fs.TelemetryModeActive() == fs.TelemetryAnonymous {
-		a.writeStdout("Tu es actuellement en mode anonyme. `sth login` va passer en mode connecté.")
+		a.writeStdout("You are currently in anonymous mode. `sth login` will switch to connected mode.")
 	}
 
 	var key string
 	if len(args) == 1 {
 		key = strings.TrimSpace(args[0])
+		a.writeStderr("Warning: a key passed as an argument may remain in your shell history. Prefer `sth login` without an argument so the input is hidden.")
 	} else {
-		k, err := a.promptAPIKey(nil)
+		promptedKey, err := a.promptAPIKey()
 		if err != nil {
 			return err
 		}
-		key = k
+		key = promptedKey
 	}
 	if key == "" {
-		return fmt.Errorf("clé vide")
+		return fmt.Errorf("empty key")
 	}
 	if !strings.HasPrefix(key, "lsk_live_") {
-		return fmt.Errorf("clé invalide : doit commencer par lsk_live_")
+		return fmt.Errorf("invalid key: must start with lsk_live_")
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), accessCheckTimeout)
 	defer cancel()
 	resp, err := a.client.AccessCheck(ctx, key)
 	if err != nil {
-		return fmt.Errorf("vérification de la clé échouée : %w", err)
+		return fmt.Errorf("key verification failed: %w", err)
 	}
 	if !resp.OK {
-		return fmt.Errorf("clé refusée par le serveur")
+		return fmt.Errorf("key rejected by the server")
 	}
 
 	if err := auth.SaveAPIKey(key); err != nil {
@@ -77,24 +75,24 @@ func (a *app) runLogin(args []string) error {
 	// NOT fail the login (the key is already persisted and access-check
 	// has already succeeded above).
 	if primeErr := proGateMarkEntitled(ctx); primeErr != nil {
-		a.writeStderr(fmt.Sprintf("Avertissement : cache entitlements non amorcé : %v", primeErr))
+		a.writeStderr(fmt.Sprintf("Warning: entitlements cache was not primed: %v", primeErr))
 	}
 
 	if err := ensureCloudProviderEntry(); err != nil {
 		// Non-fatal: keychain is set, user can still call commands. Warn only.
-		a.writeStderr(fmt.Sprintf("Avertissement : configuration projet non écrite : %v", err))
+		a.writeStderr(fmt.Sprintf("Warning: project configuration was not written: %v", err))
 	}
 
 	// Auto-promote to connected mode: a successful login is a strong opt-in
 	// signal. If the user was anonymous they now get their dashboard; if they
 	// were off and still ran `sth login` they probably want telemetry on.
 	if _, modeErr := fs.SetTelemetryMode(fs.TelemetryConnected, valueOrDefault(version, "dev")); modeErr != nil {
-		a.writeStderr(fmt.Sprintf("Avertissement : mode télémétrie non basculé : %v", modeErr))
+		a.writeStderr(fmt.Sprintf("Warning: telemetry mode was not switched: %v", modeErr))
 	}
 
 	a.writeStdout(
-		fmt.Sprintf("Connecté à %s (plan %s, expire le %s).", resp.Org.Name, resp.Plan, resp.ExpiresAt),
-		"Clé stockée dans le keychain de l'OS.",
+		fmt.Sprintf("Connected to %s (plan %s, expires on %s).", resp.Org.Name, resp.Plan, resp.ExpiresAt),
+		"Key stored in the OS keychain.",
 	)
 	if notice := licenseExpiryWarning(); notice != "" {
 		a.writeStderr(notice)
@@ -114,7 +112,7 @@ func (a *app) hintMultipleOrgs() {
 		return
 	}
 	a.writeStdout(fmt.Sprintf(
-		"Tu appartiens à %d organisations. Utilise `sth org use <nom|id>` pour choisir l'organisation active.",
+		"You belong to %d organizations. Use `sth org use <name|id>` to choose the active organization.",
 		len(orgs),
 	))
 }
@@ -122,52 +120,29 @@ func (a *app) hintMultipleOrgs() {
 // runLogout deletes the keychain entry. Idempotent.
 func (a *app) runLogout(args []string) error {
 	if len(args) > 0 && isHelpFlag(args[0]) {
-		a.writeStdout("Usage : sth logout — supprime la clé STH Cloud du keychain.")
+		a.writeStdout("Usage: sth logout — remove the STH Cloud key from the keychain.")
 		return nil
 	}
 	if len(args) > 0 {
-		return fmt.Errorf("usage : sth logout")
+		return fmt.Errorf("usage: sth logout")
 	}
 	if err := auth.DeleteAPIKey(); err != nil {
 		return err
 	}
-	a.writeStdout("Déconnecté. Clé supprimée du keychain.")
+	a.writeStdout("Logged out. Key removed from the keychain.")
 	return nil
 }
 
-// promptAPIKey reads the key from stdin. When stdin is a terminal we use
-// term.ReadPassword so the key isn't echoed (no shell history, no shoulder
-// surfing). Non-TTY stdin (CI, tests, piping) falls back to a line reader.
-//
-// Pass an already-buffered *bufio.Reader (from the enclosing wizard) so the
-// fallback path shares one buffer with the rest of the wizard and lines
-// stay in order. Pass nil to let promptAPIKey allocate its own reader (the
-// historical behavior for the stand-alone `sth login` command).
-func (a *app) promptAPIKey(reader *bufio.Reader) (string, error) {
-	a.writeStdout("Colle ta clé STH Cloud (lsk_live_…) puis Entrée :")
-
-	if f, ok := a.stdin.(*os.File); ok {
-		fd := int(f.Fd())
-		if term.IsTerminal(fd) {
-			b, err := term.ReadPassword(fd)
-			// ReadPassword swallows the trailing newline echo; emit one so the
-			// next line of output isn't glued to the prompt.
-			a.writeStdout("")
-			if err != nil {
-				return "", fmt.Errorf("lecture clé échouée : %w", err)
-			}
-			return strings.TrimSpace(string(b)), nil
-		}
-	}
-
-	if reader == nil {
-		reader = bufio.NewReader(a.stdin)
-	}
-	line, err := reader.ReadString('\n')
+func (a *app) promptAPIKey() (string, error) {
+	baseSession := tui.NewSession(a.stdin, a.stdout)
+	defer baseSession.Close()
+	secretSession, closeSecretSession := a.secureSecretSession(baseSession)
+	defer closeSecretSession()
+	key, err := tui.Secret(secretSession, tui.SecretConfig{Label: "Paste your STH Cloud key (lsk_live_…)"})
 	if err != nil {
-		return "", fmt.Errorf("lecture clé échouée : %w", err)
+		return "", fmt.Errorf("failed to read key: %w", err)
 	}
-	return strings.TrimSpace(line), nil
+	return strings.TrimSpace(key), nil
 }
 
 // findCloudProviderProfile returns the sth-cloud provider profile from the
@@ -176,12 +151,12 @@ func (a *app) promptAPIKey(reader *bufio.Reader) (string, error) {
 // runTelemetryOutput (cmd/telemetry.go) — both need the same lookup with the
 // same field selection.
 func findCloudProviderProfile(cfg fs.ProjectConfigV2) (fs.ProjectProfile, bool) {
-	for _, p := range cfg.Providers {
-		if strings.EqualFold(p.Provider, loginProviderName) {
+	for _, provider := range cfg.Providers {
+		if strings.EqualFold(provider.Provider, loginProviderName) {
 			return fs.ProjectProfile{
-				Provider:    p.Provider,
-				TargetDir:   p.TargetDir,
-				CatalogPath: p.CatalogPath,
+				Provider:    provider.Provider,
+				TargetDir:   provider.TargetDir,
+				CatalogPath: provider.CatalogPath,
 			}, true
 		}
 	}
@@ -195,8 +170,8 @@ func ensureCloudProviderEntry() error {
 	if err != nil {
 		return err
 	}
-	for _, p := range cfg.Providers {
-		if strings.EqualFold(p.Provider, loginProviderName) {
+	for _, provider := range cfg.Providers {
+		if strings.EqualFold(provider.Provider, loginProviderName) {
 			return nil
 		}
 	}
@@ -211,13 +186,13 @@ func ensureCloudProviderEntry() error {
 
 func loginHelpText() string {
 	return strings.Join([]string{
-		"Usage : sth login [<api-key>]",
+		"Usage: sth login [<api-key>]",
 		"",
-		"Authentifie le CLI auprès de STH Cloud.",
-		"Si aucune clé n'est passée en argument, elle est demandée interactivement (saisie masquée en TTY).",
-		"La clé est validée puis stockée dans le keychain de l'OS.",
+		"Authenticate the CLI with STH Cloud.",
+		"When no key is passed as an argument, the CLI prompts for it interactively and hides it in a TTY.",
+		"The key is validated and then stored in the OS keychain.",
 		"",
-		"La variable STH_CLOUD_API_KEY peut servir de fallback en l'absence de keychain (CI).",
-		"Pour basculer le CLI sur un backend de dev, exporte STH_CLOUD_BASE_URL.",
+		"STH_CLOUD_API_KEY can be used as a fallback when no keychain is available, such as in CI.",
+		"To point the CLI at a development backend, export STH_CLOUD_BASE_URL.",
 	}, "\n")
 }

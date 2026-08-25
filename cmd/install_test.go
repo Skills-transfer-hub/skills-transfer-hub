@@ -7,9 +7,10 @@ import (
 	"strings"
 	"testing"
 
-	"sth/internal/fs"
 	stdhttp "net/http"
 	"net/http/httptest"
+	"sth/internal/fs"
+	"sth/internal/writer"
 )
 
 func TestRun_installCreatesTargetFilesAndState(t *testing.T) {
@@ -40,7 +41,7 @@ func TestRun_installCreatesTargetFilesAndState(t *testing.T) {
 	if result.err != nil {
 		t.Fatalf("Run() error = %v\nstderr=%s", result.err, result.stderr)
 	}
-	if !strings.Contains(result.stdout, "Ressource 'alpha' installée") {
+	if !strings.Contains(result.stdout, "Resource 'alpha' installed") {
 		t.Fatalf("stdout %q does not contain install confirmation", result.stdout)
 	}
 
@@ -49,7 +50,7 @@ func TestRun_installCreatesTargetFilesAndState(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadFile(%s): %v", skillPath, err)
 	}
-	if !strings.HasPrefix(string(data), "> ⚠️ ATTENTION : Skill géré par STH. Ne pas modifier manuellement.\n\n") {
+	if !strings.HasPrefix(string(data), writer.ClaudeManagedHeader) {
 		t.Fatalf("skill file %q does not contain managed header", data)
 	}
 
@@ -99,7 +100,7 @@ func TestRun_installRejectsAmbiguousResourceName(t *testing.T) {
 	if result.err == nil {
 		t.Fatal("Run() error = nil, want error")
 	}
-	if !strings.Contains(result.stderr, "ambiguë") {
+	if !strings.Contains(result.stderr, "ambiguous") {
 		t.Fatalf("stderr %q does not contain ambiguous-resource details", result.stderr)
 	}
 }

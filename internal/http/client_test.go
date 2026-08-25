@@ -92,7 +92,7 @@ func TestParseCatalogEntries_rejectsMissingTable(t *testing.T) {
 	if err == nil {
 		t.Fatal("parseCatalogEntries() error = nil, want error")
 	}
-	if !strings.Contains(err.Error(), "table catalogue introuvable") {
+	if !strings.Contains(err.Error(), "catalog table not found") {
 		t.Fatalf("error %q does not contain missing-table detail", err)
 	}
 }
@@ -105,21 +105,21 @@ func TestExtractReleaseHighlights(t *testing.T) {
 		expected []string
 	}{
 		{
-			name: "first three bullets only",
-			body: "## What changed\n\n- First bullet\n- Second bullet\n- Third bullet\n- Fourth bullet\n",
-			max:  3,
+			name:     "first three bullets only",
+			body:     "## What changed\n\n- First bullet\n- Second bullet\n- Third bullet\n- Fourth bullet\n",
+			max:      3,
 			expected: []string{"First bullet", "Second bullet", "Third bullet"},
 		},
 		{
-			name: "skips full changelog section",
-			body: "## Highlights\n\n- New telemetry command\n\n## Full Changelog\n\n- feat(x): noise\n- fix(y): more noise\n",
-			max:  3,
+			name:     "skips full changelog section",
+			body:     "## Highlights\n\n- New telemetry command\n\n## Full Changelog\n\n- feat(x): noise\n- fix(y): more noise\n",
+			max:      3,
 			expected: []string{"New telemetry command"},
 		},
 		{
-			name: "ignores headings and empty lines",
-			body: "# Title\n\n## Sub\n\nSome prose paragraph.\n\n* Star bullet works too\n",
-			max:  3,
+			name:     "ignores headings and empty lines",
+			body:     "# Title\n\n## Sub\n\nSome prose paragraph.\n\n* Star bullet works too\n",
+			max:      3,
 			expected: []string{"Star bullet works too"},
 		},
 		{
@@ -172,7 +172,9 @@ func TestClient_CheckForStableUpdate_attachesHighlightsAndReleaseNotesURL(t *tes
     "body": "## What changed\n\n- 3-tier telemetry consent\n- Copilot writer\n- MultiStackScanner\n\n## Full Changelog\n\n- feat(x): noise",
     "assets": [
       {"name": "sth-windows-amd64.zip", "browser_download_url": "` + serverURL + `/asset"},
-      {"name": "SHA256SUMS", "browser_download_url": "` + serverURL + `/checksum"}
+      {"name": "SHA256SUMS", "browser_download_url": "` + serverURL + `/checksum"},
+      {"name": "SHA256SUMS.sig", "browser_download_url": "` + serverURL + `/signature"},
+      {"name": "sth-code-engine.json", "browser_download_url": "` + serverURL + `/manifest"}
     ]
   }
 ]`))
@@ -195,6 +197,9 @@ func TestClient_CheckForStableUpdate_attachesHighlightsAndReleaseNotesURL(t *tes
 	}
 	if release.ReleaseNotesURL != "https://example.invalid/releases/v2.1.0" {
 		t.Errorf("release.ReleaseNotesURL = %q, want https://example.invalid/releases/v2.1.0", release.ReleaseNotesURL)
+	}
+	if !strings.Contains(release.ManifestURL, "/manifest") {
+		t.Fatalf("release.ManifestURL = %q, want /manifest", release.ManifestURL)
 	}
 	wantHighlights := []string{"3-tier telemetry consent", "Copilot writer", "MultiStackScanner"}
 	if len(release.Highlights) != len(wantHighlights) {
@@ -227,7 +232,9 @@ func TestClient_CheckForStableUpdate_selectsLatestStableRelease(t *testing.T) {
     "prerelease": false,
     "assets": [
       {"name": "sth-windows-amd64.zip", "browser_download_url": "` + serverURL + `/asset"},
-      {"name": "SHA256SUMS", "browser_download_url": "` + serverURL + `/checksum"}
+      {"name": "SHA256SUMS", "browser_download_url": "` + serverURL + `/checksum"},
+      {"name": "SHA256SUMS.sig", "browser_download_url": "` + serverURL + `/signature"},
+      {"name": "sth-code-engine.json", "browser_download_url": "` + serverURL + `/manifest"}
     ]
   }
 ]`))
@@ -289,6 +296,27 @@ func TestClient_CheckForStableUpdate_ignoresPrereleaseOnlyFeed(t *testing.T) {
 	}
 	if release != nil {
 		t.Fatalf("CheckForStableUpdate() = %+v, want nil when only prereleases exist", release)
+	}
+}
+
+func TestIsNewerStableVersionRejectsDowngradesAndMalformedTags(t *testing.T) {
+	testCases := []struct {
+		current   string
+		candidate string
+		expected  bool
+	}{
+		{current: "v1.2.3", candidate: "v1.2.4", expected: true},
+		{current: "v1.2.3", candidate: "v2.0.0", expected: true},
+		{current: "v1.2.3", candidate: "v1.2.3", expected: false},
+		{current: "v2.0.0", candidate: "v1.9.9", expected: false},
+		{current: "v1.2.3", candidate: "v9.9.9-rollback", expected: false},
+		{current: "dev", candidate: "v1.0.0", expected: true},
+	}
+	for _, testCase := range testCases {
+		actual := isNewerStableVersion(testCase.current, testCase.candidate)
+		if actual != testCase.expected {
+			t.Fatalf("isNewerStableVersion(%q, %q) = %v, want %v", testCase.current, testCase.candidate, actual, testCase.expected)
+		}
 	}
 }
 

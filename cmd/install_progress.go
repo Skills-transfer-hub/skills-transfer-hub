@@ -4,134 +4,126 @@ import (
 	"fmt"
 	"io"
 	"strings"
-	"sync"
-	"time"
+
+	"sth/internal/tui"
 )
 
-var installLoaderFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
-
-const (
-	installLoaderInterval = 120 * time.Millisecond
-	installStepCount      = 4
-)
+const installStepCount = 4
 
 type installProgress struct {
-	stdout io.Writer
-	stderr io.Writer
-	tty    bool
-
-	mutex    sync.Mutex
-	total    int
-	current  int
-	label    string
-	frameIdx int
-
-	frameHeight int
-	ticker      *time.Ticker
-	done        chan struct{}
-	finished    sync.WaitGroup
-	stopOnce    sync.Once
+	inner         *tui.Progress
+	stdout        io.Writer
+	stderr        io.Writer
+	tty           bool
+	total         int
+	current       int
+	label         string
+	started       bool
+	suspended     bool
+	pendingErrors []string
 }
 
 func newInstallProgress(stdout, stderr io.Writer, tty bool) *installProgress {
-	return &installProgress{stdout: stdout, stderr: stderr, tty: tty}
+	return &installProgress{inner: tui.NewProgress(stdout, stderr, tty), stdout: stdout, stderr: stderr, tty: tty}
 }
 
-func (p *installProgress) start(total int) {
-	if p == nil {
+func (progress *installProgress) start(total int) {
+	if progress == nil || progress.inner == nil {
 		return
 	}
-	p.mutex.Lock()
-	p.total = total
-	frame := p.renderFrame()
-	p.mutex.Unlock()
-	if !p.tty {
+	progress.total = total
+	progress.started = true
+	progress.inner.Start(total)
+}
+
+func (progress *installProgress) step(label string) {
+	if progress == nil || progress.inner == nil {
 		return
 	}
-	fmt.Fprint(p.stdout, ansiHideCursor)
-	p.frameHeight = strings.Count(frame, "\n")
-	fmt.Fprint(p.stdout, frame)
-	p.ticker = time.NewTicker(installLoaderInterval)
-	p.done = make(chan struct{})
-	p.finished.Add(1)
-	go p.animate()
+	progress.current++
+	progress.label = label
+	progress.inner.Step(label)
 }
 
-func (p *installProgress) step(label string) {
-	if p == nil {
+func (progress *installProgress) note(label string) {
+	if progress == nil || progress.inner == nil {
 		return
 	}
-	p.mutex.Lock()
-	p.current++
-	p.label = label
-	current := p.current
-	total := p.total
-	p.mutex.Unlock()
-	if !p.tty {
-		fmt.Fprintf(p.stderr, "→ [%d/%d] %s\n", current, total, label)
-	}
+	progress.label = label
+	progress.inner.Note(label)
 }
 
-func (p *installProgress) note(label string) {
-	if p == nil {
+func (progress *installProgress) print(message string) bool {
+	if progress == nil || progress.inner == nil {
+		return false
+	}
+	return progress.inner.Print(message)
+}
+
+func (progress *installProgress) printError(message string) bool {
+	if progress == nil || progress.inner == nil || !progress.started || progress.suspended || !progress.inner.Interactive() {
+		return false
+	}
+	progress.pendingErrors = append(progress.pendingErrors, message)
+	progress.inner.Note(strings.TrimSuffix(message, "\n"))
+	return true
+}
+
+func (progress *installProgress) suspend() {
+	if progress == nil || progress.inner == nil || !progress.started || !progress.inner.Interactive() || progress.suspended {
 		return
 	}
-	p.mutex.Lock()
-	p.label = label
-	p.mutex.Unlock()
-	if !p.tty {
-		fmt.Fprintf(p.stderr, "→ %s\n", label)
-	}
+	progress.inner.Stop()
+	progress.flushErrors()
+	progress.suspended = true
 }
 
-func (p *installProgress) stop() {
-	if p == nil || !p.tty {
+func (progress *installProgress) resume() {
+	if progress == nil || !progress.suspended {
 		return
 	}
-	p.stopOnce.Do(func() {
-		close(p.done)
-		p.ticker.Stop()
-		p.finished.Wait()
-		fmt.Fprintf(p.stdout, "\x1b[%dA\r%s", p.frameHeight, ansiClearToEnd)
-		fmt.Fprint(p.stdout, ansiShowCursor)
-	})
+	progress.inner = tui.NewProgress(progress.stdout, progress.stderr, progress.tty)
+	progress.inner.Start(progress.total)
+	for i := 0; i < progress.current; i++ {
+		progress.inner.Step(progress.label)
+	}
+	progress.suspended = false
 }
 
-func (p *installProgress) animate() {
-	defer p.finished.Done()
-	for {
-		select {
-		case <-p.done:
-			return
-		case <-p.ticker.C:
-			p.mutex.Lock()
-			p.frameIdx = (p.frameIdx + 1) % len(installLoaderFrames)
-			frame := p.renderFrame()
-			p.mutex.Unlock()
-			fmt.Fprintf(p.stdout, "\x1b[%dA\r", p.frameHeight)
-			fmt.Fprint(p.stdout, frame)
-		}
+func (progress *installProgress) stop() {
+	if progress == nil || progress.inner == nil {
+		return
 	}
+	if !progress.started {
+		progress.flushErrors()
+		return
+	}
+	if !progress.suspended {
+		progress.inner.Stop()
+	}
+	progress.flushErrors()
 }
 
-func (p *installProgress) renderFrame() string {
-	loader := installLoaderFrames[p.frameIdx]
-	status := p.label
-	if p.total > 0 {
-		status = fmt.Sprintf("%s   (étape %d sur %d)", p.label, p.current, p.total)
+func (progress *installProgress) complete() {
+	if progress == nil || progress.inner == nil {
+		return
 	}
-	lines := []string{
-		"    " + loader,
-		"  ╭─────╮",
-		"  │ O O │",
-		"  ╰─────╯",
-		"  " + status,
+	if !progress.started {
+		progress.flushErrors()
+		return
 	}
-	var builder strings.Builder
-	for _, line := range lines {
-		builder.WriteString(line)
-		builder.WriteString(ansiClearToEnd)
-		builder.WriteString("\n")
+	if !progress.suspended {
+		progress.inner.Complete()
 	}
-	return builder.String()
+	progress.flushErrors()
+}
+
+func (progress *installProgress) flushErrors() {
+	if progress == nil || len(progress.pendingErrors) == 0 {
+		return
+	}
+	for _, message := range progress.pendingErrors {
+		fmt.Fprint(progress.stderr, message)
+	}
+	progress.pendingErrors = nil
 }

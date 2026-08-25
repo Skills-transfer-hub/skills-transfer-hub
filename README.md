@@ -116,7 +116,10 @@ STH est publié sur GitHub Releases avec les archives suivantes :
 - `sth-linux-amd64.tar.gz`
 - `sth-darwin-amd64.tar.gz`
 - `sth-darwin-arm64.tar.gz`
+- `sth-engine-{linux-amd64,darwin-amd64,darwin-arm64,windows-amd64.exe}`
+- `sth-code-engine.json`
 - `SHA256SUMS`
+- `SHA256SUMS.sig`
 
 Chaque build stable embarque aussi les métadonnées de release nécessaires à `sth update self`.
 
@@ -157,47 +160,54 @@ sth.exe version
 
 ## Pipeline de release
 
-Le packaging est orchestré par GoReleaser + un workflow Chocolatey dédié. À chaque PR mergée sur `main` :
+Le packaging est orchestré par GoReleaser + un workflow Chocolatey dédié. Après un push sur `main` dont le CI réussit et dont le SHA est toujours la tête de `main` :
 
-1. `auto-release.yml` calcule le prochain tag stable (`vX.Y.Z`) ou pré-release (`vX.Y.Z-rc.N` si la PR a le label `prerelease`) et crée la GitHub Release. Authentifié via `RELEASE_PAT` (un PAT — pas le `GITHUB_TOKEN` par défaut — sinon l'event `release.published` ne déclencherait pas les workflows en aval).
+1. `auto-release.yml`, déclenché par la fin du workflow `CI`, vérifie le `head_sha` validé, calcule le prochain tag stable (`vX.Y.Z`) ou pré-release (`vX.Y.Z-rc.N` si la PR a le label `prerelease`) et crée la GitHub Release. Un résultat CI devenu obsolète est ignoré. La release est authentifiée via `RELEASE_PAT` (pas le `GITHUB_TOKEN` par défaut, sinon l'événement `release.published` ne déclencherait pas le workflow en aval).
 2. `release.yml` (Linux) lance `goreleaser release --clean` qui :
    - construit les binaires (`linux-amd64`, `darwin-amd64`, `darwin-arm64`, `windows-amd64`)
-   - exécute le contrat consommateur `sth-code-bridge-v1` sur le binaire exact
+   - exécute le contrat consommateur `sth-code-bridge-v1`, chargé depuis la révision immuable `1435656322b212376e70e105873de364f905c9a4` de `sth-code-private-archive`, sur le binaire candidat
    - attache les archives CLI, les binaires moteur bruts et `sth-code-engine.json` à la release publique sur `Skills-transfer-hub/sth-releases`
    - inclut le manifeste moteur et tous les binaires dans `SHA256SUMS`, puis signe ce manifeste en Ed25519
    - pousse `Formula/sth.rb` sur `Skills-transfer-hub/homebrew-sth`
    - pousse `bucket/sth.json` sur `Skills-transfer-hub/scoop-sth`
    - ouvre une PR sur `microsoft/winget-pkgs` depuis `Skills-transfer-hub/winget-pkgs`
-3. `publish-chocolatey.yml` (Windows, en parallèle) attend les assets Windows + `SHA256SUMS` sur `sth-releases` (max 5 min de poll), rend le nuspec depuis `packaging/chocolatey/`, puis `choco pack` + `choco push` natifs vers `chocolatey.org`. Découplé de `release.yml` pour ne pas être affecté par une erreur tardive de GoReleaser (création de PR winget par exemple).
+3. Après le succès complet de `release.yml` et seulement pour un tag stable, le workflow réutilisable `publish-chocolatey.yml` (Windows) vérifie le manifeste signé, rend le nuspec depuis `packaging/chocolatey/`, puis exécute `choco pack` et `choco push` vers `chocolatey.org`. Son lancement manuel exige un tag stable exact et checkout ce tag.
 
-### Secrets requis (GitHub → Settings → Secrets and variables → Actions)
+Les relances manuelles de `release.yml` exigent elles aussi un tag stable ou RC signé exact ; le checkout est fait depuis le commit immuable de ce tag, jamais depuis la tête courante de `main`. Les tags antérieurs à l'introduction du manifeste moteur signé ne sont pas rebuildables par ce chemin. La publication est sérialisée, mais la file `concurrency` GitHub n'est pas FIFO : si un run en attente est remplacé, relancer explicitement `release.yml` avec son tag.
+
+### Secrets requis
+
+Sur l'organisation GitHub Free actuelle avec ce dépôt privé, les Environments ne sont pas configurables. Les secrets de publication ci-dessous vivent donc comme secrets Actions du dépôt ; les appels vers les workflows réutilisables transmettent uniquement les secrets dont ils ont besoin. `STH_CODE_READ_TOKEN`, en lecture seule, n'est utilisé que sur les pushes, jamais dans les jobs de pull request.
+
+Après un passage à une offre permettant les Environments sur les dépôts privés, créer un Environment `release`, le limiter à `main` et aux tags de release, migrer les secrets de publication, puis rattacher les jobs Auto Release, Release et Chocolatey à cet Environment.
 
 | Secret | Usage | Type / Permissions |
 |---|---|---|
 | `RELEASE_PAT` | `auto-release.yml` crée la release sur `skills-transfer-hub` ET GoReleaser la publie cross-repo sur `sth-releases` | Fine-grained PAT `Contents: R/W` sur `skills-transfer-hub` + `sth-releases` |
-| `STH_CODE_READ_TOKEN` | Le CI et la release chargent le contrat consommateur officiel | Fine-grained PAT `Contents: R` sur `sth-code-private-archive` |
+| `RELEASE_SSH_SIGNING_KEY` | Création du tag Git signé dans `auto-release.yml` | Clé privée SSH enregistrée comme signing key sur GitHub |
+| `STH_CODE_READ_TOKEN` | Le CI et la release chargent le contrat consommateur officiel depuis la révision épinglée de `sth-code-private-archive` | Fine-grained PAT `Contents: R` limité à `sth-code-private-archive` |
 | `HOMEBREW_TAP_TOKEN` | Push Formula sur `homebrew-sth` | Fine-grained PAT `Contents: R/W` sur `homebrew-sth` |
 | `SCOOP_BUCKET_TOKEN` | Push manifest sur `scoop-sth` | Fine-grained PAT `Contents: R/W` sur `scoop-sth` |
 | `WINGET_TOKEN` | Push branche `sth-X.Y.Z` sur le fork + créer PR cross-fork vers `microsoft/winget-pkgs` | **PAT classique** avec scope `public_repo` |
 | `CHOCOLATEY_API_KEY` | `choco push` vers `push.chocolatey.org` | API key Chocolatey |
+| `STH_RELEASE_SIGNING_KEY` | Signature Ed25519 détachée de `SHA256SUMS` | Clé privée Ed25519 encodée en base64 |
 
-Un seul PAT fine-grained avec accès à `skills-transfer-hub` + `sth-releases` + `homebrew-sth` + `scoop-sth` suffit pour `RELEASE_PAT` + `HOMEBREW_TAP_TOKEN` + `SCOOP_BUCKET_TOKEN` (tous la même valeur).
+Conserver des tokens distincts et limités à chaque dépôt réduit l'exposition : `RELEASE_PAT` n'a pas besoin d'accès en écriture aux dépôts Homebrew ou Scoop, qui utilisent leurs secrets dédiés.
 
-Le contrat `sth-code-bridge-v1` est lu depuis `sth-code-private-archive` sur le commit immuable déclaré par `STH_CODE_CONTRACT_REF` dans les workflows. Toute évolution du contrat impose donc une mise à jour explicite de cette référence et une nouvelle validation du binaire exact.
+Le fingerprint SSH de la clé de tag release est épinglé dans les workflows (`SHA256:Y/USCQxn6KoP3GBU6Kr/3/POw4pqWgi/kukMAq1vwI0`). Une rotation de `RELEASE_SSH_SIGNING_KEY` doit mettre à jour ce fingerprint dans les trois workflows dans la même PR.
 
 ⚠️ **`WINGET_TOKEN` doit être un PAT classique** (pas fine-grained). Les fine-grained PATs avec "Only select repositories" ne peuvent pas créer de PR cross-fork vers `microsoft/winget-pkgs` (qui n'est pas dans la liste, et ne peut pas y être ajouté puisque vous ne possédez pas ce repo). Le PAT classique avec scope `public_repo` permet à GitHub de créer une PR depuis votre fork vers n'importe quel repo public upstream. Alternative : un fine-grained PAT en mode "All public repositories" avec `Pull requests: Write` + `Contents: Write` (le `Contents: Write` est requis pour pousser la branche `sth-X.Y.Z` sur le fork avant l'ouverture de PR).
 
 ### Smoke test local avant tag
 
-```powershell
-# Pré-requis : scoop install goreleaser (ou choco install goreleaser)
-$env:HOMEBREW_TAP_TOKEN="dummy"
-$env:SCOOP_BUCKET_TOKEN="dummy"
-$env:CHOCOLATEY_API_KEY="dummy"
-$env:WINGET_TOKEN="dummy"
-goreleaser check
-goreleaser release --snapshot --clean --skip=publish,chocolatey
-# Vérifier dist/ : 4 archives sth-{os}-{arch}.{tar.gz|zip} + SHA256SUMS, layout interne sth-{os}-{arch}/sth(.exe)
+```bash
+# Pré-requis : GoReleaser v2, jq, zip et un shell POSIX
+key_output="$(go run ./tools/release-sign -genkey)"
+export STH_RELEASE_SIGNING_KEY="$(printf '%s\n' "$key_output" | sed -n 's/^STH_RELEASE_SIGNING_KEY=//p')"
+export STH_RELEASE_SIGNING_PUBKEY="$(printf '%s\n' "$key_output" | sed -n 's/^releaseSigningPublicKeyBase64=//p')"
+goreleaser release --snapshot --clean
+snapshot_version="$(jq -r '.engine_version' .release/sth-code-engine.json)"
+sh scripts/verify-release-assets.sh dist "$snapshot_version"
 ```
 
 ### Première soumission Winget (manuelle, une fois)
@@ -223,7 +233,7 @@ sth
 
 STH détecte l'état du projet courant et propose l'action prioritaire suivante. Dans un contexte non interactif, la même commande affiche uniquement un résumé de l'état projet et la prochaine action recommandée sans ouvrir de prompt.
 
-Si les métadonnées de release sont embarquées dans le binaire, le démarrage interactif vérifie aussi la dernière version stable disponible, puis met ce résultat en cache pendant 24 heures dans un cache machine-local. Quand une stable est disponible, le menu ajoute l'action `update-self`.
+Si les métadonnées de release sont embarquées dans le binaire, le démarrage interactif vérifie aussi la dernière version stable disponible, puis met ce résultat en cache pendant 72 heures dans un cache machine-local. Une erreur réseau est retentée après une heure. Quand une stable est disponible, le menu ajoute l'action `update-self`.
 
 ### 1. Configurer le projet courant
 
@@ -431,7 +441,7 @@ STH suit les ressources installées dans `<target_dir>/sth-state.json` :
 STH peut aussi créer un cache machine-local pour les checks automatiques de mise à jour stable dans `os.UserCacheDir()/sth/update-check.json`.
 
 - le cache est relu uniquement par le démarrage interactif
-- sa durée de vie est de 24 heures
+- sa durée de vie est de 72 heures pour un résultat valide et d'une heure pour une erreur
 - `sth update self` ignore cette fraîcheur et force un check stable immédiat
 - ce fichier ne contient aucun secret et n'est jamais écrit dans `.sth/project.json`
 

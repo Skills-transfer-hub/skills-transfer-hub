@@ -27,20 +27,20 @@ type bridgeCloudResolvedSkill struct {
 func resolveBridgeCloudSkill(ctx context.Context, assetID, expectedVersionID string) (bridgeCloudResolvedSkill, error) {
 	assetID = strings.TrimSpace(assetID)
 	if assetID == "" {
-		return bridgeCloudResolvedSkill{}, fmt.Errorf("asset_id requis")
+		return bridgeCloudResolvedSkill{}, fmt.Errorf("asset_id is required")
 	}
 	asset, err := cloud.GetAsset(ctx, nil, assetID)
 	if err != nil {
 		return bridgeCloudResolvedSkill{}, err
 	}
 	if asset.Family != "package" || asset.Kind != "skill" {
-		return bridgeCloudResolvedSkill{}, fmt.Errorf("seuls les packages de type skill sont installables")
+		return bridgeCloudResolvedSkill{}, fmt.Errorf("only skill packages can be installed")
 	}
 	if asset.LatestVersionID == "" {
-		return bridgeCloudResolvedSkill{}, fmt.Errorf("ce skill ne possède aucune version publiée")
+		return bridgeCloudResolvedSkill{}, fmt.Errorf("this skill has no published version")
 	}
 	if expected := strings.TrimSpace(expectedVersionID); expected != "" && asset.LatestVersionID != expected {
-		return bridgeCloudResolvedSkill{}, fmt.Errorf("la version publiée a changé depuis le preview ; relancez le preview")
+		return bridgeCloudResolvedSkill{}, fmt.Errorf("the published version changed since the preview; run the preview again")
 	}
 
 	manifest, err := cloud.GetResourceVersionManifest(ctx, nil, asset.ID, asset.LatestVersionID)
@@ -74,18 +74,18 @@ func resolveBridgeCloudSkill(ctx context.Context, assetID, expectedVersionID str
 func bridgeCloudSkillSlug(asset cloud.AssetSummary, manifest cloud.ResourceVersionManifest) (string, error) {
 	parts := strings.Split(asset.ID, "::")
 	if len(parts) != 3 || parts[0] != "skill" || !validBridgeCloudIDSegment(parts[1]) || !validBridgeCloudIDSegment(parts[2]) {
-		return "", fmt.Errorf("identifiant de package skill invalide")
+		return "", fmt.Errorf("invalid skill package identifier")
 	}
 	root := parts[1] + "/" + parts[2]
 	if manifest.Kind != "skill" || manifest.Entrypoint != "SKILL.md" {
-		return "", fmt.Errorf("entrypoint du package skill incohérent")
+		return "", fmt.Errorf("inconsistent skill package entrypoint")
 	}
 	if asset.SourcePath != "" && asset.SourcePath != root+"/"+manifest.Entrypoint {
-		return "", fmt.Errorf("source_path du package skill incohérent")
+		return "", fmt.Errorf("inconsistent skill package source_path")
 	}
 	for _, file := range manifest.Files {
 		if strings.HasPrefix(file.Path, root+"/") {
-			return "", fmt.Errorf("les chemins du manifest doivent être relatifs au bundle")
+			return "", fmt.Errorf("manifest paths must be relative to the bundle")
 		}
 	}
 	return parts[2], nil
@@ -123,7 +123,7 @@ func bridgeCloudTargetKinds() ([]string, error) {
 	}
 	kinds := enabledTargetKinds(config)
 	if len(kinds) == 0 {
-		return nil, fmt.Errorf("aucune cible agent activée dans .sth/project.json")
+		return nil, fmt.Errorf("no agent target enabled in .sth/project.json")
 	}
 	return kinds, nil
 }
@@ -139,12 +139,12 @@ func planBridgeCloudSkill(resolved bridgeCloudResolvedSkill, force bool) ([]fs.M
 	}
 	placement := writer.PlanSkillPlacement(kinds)
 	if len(placement.Folders) == 0 {
-		return nil, nil, nil, nil, fmt.Errorf("aucune destination compatible pour ce skill")
+		return nil, nil, nil, nil, fmt.Errorf("no compatible destination for this skill")
 	}
 	fetch := func(source string) ([]byte, error) {
 		content, ok := resolved.contents[source]
 		if !ok {
-			return nil, fmt.Errorf("fichier du bundle absent : %s", source)
+			return nil, fmt.Errorf("missing bundle file: %s", source)
 		}
 		return content, nil
 	}
@@ -155,7 +155,7 @@ func planBridgeCloudSkill(resolved bridgeCloudResolvedSkill, force bool) ([]fs.M
 	for _, folder := range placement.Folders {
 		target, ok := writer.WriterForSkillsFolder(folder)
 		if !ok {
-			return nil, nil, nil, nil, fmt.Errorf("writer de skill indisponible pour %s", folder)
+			return nil, nil, nil, nil, fmt.Errorf("skill writer unavailable for %s", folder)
 		}
 		result, err := writer.MaterializeArtifact(projectRoot, target, "skill", resolved.slug, "", resolved.sources, fetch, true, false)
 		if err != nil {
@@ -184,7 +184,7 @@ func planBridgeCloudSkill(resolved bridgeCloudResolvedSkill, force bool) ([]fs.M
 	if found {
 		for _, file := range previous.ManagedFiles {
 			if err := verifyBridgeManagedPath(projectRoot, file.Path); err != nil {
-				return nil, nil, nil, nil, fmt.Errorf("état local invalide : %w", err)
+				return nil, nil, nil, nil, fmt.Errorf("invalid local state: %w", err)
 			}
 			selfOwned[file.Path] = struct{}{}
 		}
@@ -195,7 +195,7 @@ func planBridgeCloudSkill(resolved bridgeCloudResolvedSkill, force bool) ([]fs.M
 			if !force {
 				return nil, nil, nil, nil, conflict
 			}
-			warnings = append(warnings, fmt.Sprintf("L’ownership de %s sera transféré depuis %s.", file.Path, conflict.ExistingOwner))
+			warnings = append(warnings, fmt.Sprintf("Ownership of %s will be transferred from %s.", file.Path, conflict.ExistingOwner))
 		}
 		if _, owned := selfOwned[file.Path]; owned {
 			continue
@@ -203,11 +203,11 @@ func planBridgeCloudSkill(resolved bridgeCloudResolvedSkill, force bool) ([]fs.M
 		content, readErr := os.ReadFile(filepath.Join(projectRoot, filepath.FromSlash(file.Path)))
 		if readErr == nil && fs.ComputeSHA256(content) != file.SHA256 {
 			if !force {
-				return nil, nil, nil, nil, fmt.Errorf("le fichier non géré %s existe déjà ; relancez le preview avec force", file.Path)
+				return nil, nil, nil, nil, fmt.Errorf("unmanaged file %s already exists; run the preview again with force", file.Path)
 			}
-			warnings = append(warnings, fmt.Sprintf("Le fichier non géré %s sera remplacé.", file.Path))
+			warnings = append(warnings, fmt.Sprintf("Unmanaged file %s will be replaced.", file.Path))
 		} else if readErr != nil && !os.IsNotExist(readErr) {
-			return nil, nil, nil, nil, fmt.Errorf("lecture de %s échouée : %w", file.Path, readErr)
+			return nil, nil, nil, nil, fmt.Errorf("failed to read %s: %w", file.Path, readErr)
 		}
 	}
 	changes, err := bridgeCloudDryRunChanges(projectRoot, resolved.asset.ID, previous, found, managedFiles)
@@ -261,10 +261,10 @@ func acquireBridgeCloudStateLock() (func(), error) {
 	}
 	stateDirectory := filepath.Join(projectRoot, filepath.FromSlash(bridgeCloudStateDirectory))
 	if err := os.MkdirAll(stateDirectory, 0o700); err != nil {
-		return nil, fmt.Errorf("création de l’état local STH Code échouée : %w", err)
+		return nil, fmt.Errorf("failed to create local STH Code state: %w", err)
 	}
 	if err := os.Chmod(stateDirectory, 0o700); err != nil {
-		return nil, fmt.Errorf("protection de l’état local STH Code échouée : %w", err)
+		return nil, fmt.Errorf("failed to protect local STH Code state: %w", err)
 	}
 	return fs.AcquireStateLock(stateDirectory)
 }
@@ -285,7 +285,7 @@ func applyBridgeCloudSkill(resolved bridgeCloudResolvedSkill, managedFiles []fs.
 	selfOwned := make(map[string]struct{}, len(previous.ManagedFiles))
 	for _, file := range previous.ManagedFiles {
 		if err := verifyBridgeManagedPath(projectRoot, file.Path); err != nil {
-			return fmt.Errorf("état local invalide : %w", err)
+			return fmt.Errorf("invalid local state: %w", err)
 		}
 		selfOwned[file.Path] = struct{}{}
 	}
@@ -301,10 +301,10 @@ func applyBridgeCloudSkill(resolved bridgeCloudResolvedSkill, managedFiles []fs.
 		}
 		content, readErr := os.ReadFile(filepath.Join(projectRoot, filepath.FromSlash(file.Path)))
 		if readErr == nil && fs.ComputeSHA256(content) != file.SHA256 && !force {
-			return fmt.Errorf("le fichier non géré %s existe déjà ; relancez le preview avec force", file.Path)
+			return fmt.Errorf("unmanaged file %s already exists; run the preview again with force", file.Path)
 		}
 		if readErr != nil && !os.IsNotExist(readErr) {
-			return fmt.Errorf("lecture de %s échouée : %w", file.Path, readErr)
+			return fmt.Errorf("failed to read %s: %w", file.Path, readErr)
 		}
 	}
 	paths := make([]string, 0, len(managedFiles)+len(previous.ManagedFiles)+1)
@@ -314,7 +314,7 @@ func applyBridgeCloudSkill(resolved bridgeCloudResolvedSkill, managedFiles []fs.
 	if found {
 		for _, file := range previous.ManagedFiles {
 			if err := verifyBridgeManagedPath(projectRoot, file.Path); err != nil {
-				return fmt.Errorf("état local invalide : %w", err)
+				return fmt.Errorf("invalid local state: %w", err)
 			}
 			paths = append(paths, filepath.Join(projectRoot, filepath.FromSlash(file.Path)))
 		}
@@ -343,14 +343,14 @@ func applyBridgeCloudSkill(resolved bridgeCloudResolvedSkill, managedFiles []fs.
 	fetch := func(source string) ([]byte, error) {
 		content, ok := resolved.contents[source]
 		if !ok {
-			return nil, fmt.Errorf("fichier du bundle absent : %s", source)
+			return nil, fmt.Errorf("missing bundle file: %s", source)
 		}
 		return content, nil
 	}
 	for _, folder := range folders {
 		target, ok := writer.WriterForSkillsFolder(folder)
 		if !ok {
-			return fmt.Errorf("writer de skill indisponible pour %s", folder)
+			return fmt.Errorf("skill writer unavailable for %s", folder)
 		}
 		if _, err := writer.MaterializeArtifact(projectRoot, target, "skill", resolved.slug, "", resolved.sources, fetch, true, true); err != nil {
 			return err
@@ -366,7 +366,7 @@ func applyBridgeCloudSkill(resolved bridgeCloudResolvedSkill, managedFiles []fs.
 				continue
 			}
 			if err := os.Remove(filepath.Join(projectRoot, filepath.FromSlash(file.Path))); err != nil && !os.IsNotExist(err) {
-				return fmt.Errorf("suppression de %s échouée : %w", file.Path, err)
+				return fmt.Errorf("failed to remove %s: %w", file.Path, err)
 			}
 		}
 	}
@@ -385,10 +385,10 @@ func applyBridgeCloudSkill(resolved bridgeCloudResolvedSkill, managedFiles []fs.
 	upsertBridgeCloudRecord(&state, record)
 	stateDirectory := filepath.Join(projectRoot, filepath.FromSlash(bridgeCloudStateDirectory))
 	if err := os.MkdirAll(stateDirectory, 0o700); err != nil {
-		return fmt.Errorf("création de l’état local STH Code échouée : %w", err)
+		return fmt.Errorf("failed to create local STH Code state: %w", err)
 	}
 	if err := os.Chmod(stateDirectory, 0o700); err != nil {
-		return fmt.Errorf("protection de l’état local STH Code échouée : %w", err)
+		return fmt.Errorf("failed to protect local STH Code state: %w", err)
 	}
 	if err := fs.WriteInstalledStateV2(bridgeCloudStateDirectory, state); err != nil {
 		return err
@@ -452,7 +452,7 @@ func removeBridgeCloudResource(resourceRef string) (bool, error) {
 	paths := make([]string, 0, len(record.ManagedFiles)+1)
 	for _, file := range record.ManagedFiles {
 		if err := verifyBridgeManagedPath(projectRoot, file.Path); err != nil {
-			return false, fmt.Errorf("état local invalide : %w", err)
+			return false, fmt.Errorf("invalid local state: %w", err)
 		}
 		paths = append(paths, filepath.Join(projectRoot, filepath.FromSlash(file.Path)))
 	}
@@ -472,7 +472,7 @@ func removeBridgeCloudResource(resourceRef string) (bool, error) {
 	for _, file := range record.ManagedFiles {
 		path := filepath.Join(projectRoot, filepath.FromSlash(file.Path))
 		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
-			return false, fmt.Errorf("suppression de %s échouée : %w", file.Path, err)
+			return false, fmt.Errorf("failed to remove %s: %w", file.Path, err)
 		}
 	}
 	state.Entries = append(state.Entries[:recordIndex], state.Entries[recordIndex+1:]...)
@@ -501,7 +501,7 @@ func bridgeCloudRemovalRecord(state fs.InstalledResourceStateV2, resourceRef str
 		}
 	}
 	if len(matchingIndexes) > 1 {
-		return 0, false, fmt.Errorf("plusieurs ressources Cloud correspondent à %q ; utilisez leur resource_ref", resourceRef)
+		return 0, false, fmt.Errorf("multiple Cloud resources match %q; use their resource_ref", resourceRef)
 	}
 	if len(matchingIndexes) == 0 {
 		return 0, false, nil
@@ -572,11 +572,11 @@ func canonicalBridgeProjectRoot() (string, error) {
 
 func verifyBridgeManagedPath(projectRoot, relativePath string) error {
 	if filepath.IsAbs(relativePath) {
-		return fmt.Errorf("chemin de matérialisation absolu refusé")
+		return fmt.Errorf("absolute materialization path rejected")
 	}
 	clean := filepath.Clean(filepath.FromSlash(relativePath))
 	if clean == "." || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
-		return fmt.Errorf("chemin de matérialisation hors projet refusé")
+		return fmt.Errorf("materialization path outside project rejected")
 	}
 	current := projectRoot
 	parts := strings.Split(clean, string(filepath.Separator))
@@ -590,7 +590,7 @@ func verifyBridgeManagedPath(projectRoot, relativePath string) error {
 			return err
 		}
 		if info.Mode()&os.ModeSymlink != 0 {
-			return fmt.Errorf("lien symbolique refusé dans %s", relativePath)
+			return fmt.Errorf("symbolic link rejected in %s", relativePath)
 		}
 	}
 	return nil
@@ -611,7 +611,7 @@ func snapshotBridgeFiles(projectRoot string, paths []string) ([]bridgeFileSnapsh
 		path := filepath.Clean(value)
 		for directory := filepath.Dir(path); directory != projectRoot; directory = filepath.Dir(directory) {
 			if directory == "." || directory == string(filepath.Separator) || !strings.HasPrefix(directory, projectRoot+string(filepath.Separator)) {
-				return nil, nil, fmt.Errorf("dossier de rollback hors projet refusé")
+				return nil, nil, fmt.Errorf("rollback folder outside project rejected")
 			}
 			info, err := os.Lstat(directory)
 			if os.IsNotExist(err) {
@@ -622,7 +622,7 @@ func snapshotBridgeFiles(projectRoot string, paths []string) ([]bridgeFileSnapsh
 				return nil, nil, err
 			}
 			if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
-				return nil, nil, fmt.Errorf("dossier non sûr refusé : %s", directory)
+				return nil, nil, fmt.Errorf("unsafe folder rejected: %s", directory)
 			}
 		}
 		if _, duplicate := seen[path]; duplicate {
@@ -638,7 +638,7 @@ func snapshotBridgeFiles(projectRoot string, paths []string) ([]bridgeFileSnapsh
 			return nil, nil, err
 		}
 		if !info.Mode().IsRegular() {
-			return nil, nil, fmt.Errorf("fichier non régulier refusé : %s", path)
+			return nil, nil, fmt.Errorf("non-regular file rejected: %s", path)
 		}
 		content, err := os.ReadFile(path)
 		if err != nil {

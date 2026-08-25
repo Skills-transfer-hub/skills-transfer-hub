@@ -10,12 +10,12 @@ import (
 )
 
 var (
-	version            = "dev"
-	commit             = "unknown"
-	buildDate          = "unknown"
-	target             = runtime.GOOS + "/" + runtime.GOARCH
-	releaseAPIURL      = ""
-	releaseAssetName   = ""
+	version             = "dev"
+	commit              = "unknown"
+	buildDate           = "unknown"
+	target              = runtime.GOOS + "/" + runtime.GOARCH
+	releaseAPIURL       = ""
+	releaseAssetName    = ""
 	releaseChecksumName = "SHA256SUMS"
 )
 

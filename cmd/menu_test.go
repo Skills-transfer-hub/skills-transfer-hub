@@ -1,22 +1,100 @@
 package cmd
 
 import (
-	"bufio"
 	"bytes"
+	"errors"
 	stdhttp "net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
+
+	"github.com/charmbracelet/bubbletea"
 
 	"sth/internal/fs"
 	sthhttp "sth/internal/http"
+	"sth/internal/tui"
 )
 
 func assertStartupState(t *testing.T, got, want string) {
 	t.Helper()
 	assertContains(t, got, want)
+}
+
+func TestExecuteGuidedMenuAction_quitSignalsExit(t *testing.T) {
+	application := newApp(nil, nil, nil, nil)
+	session := tui.NewSession(strings.NewReader(""), &bytes.Buffer{})
+
+	err := application.executeGuidedMenuAction(session, "quit")
+	if !errors.Is(err, errMenuQuit) {
+		t.Fatalf("quit doit signaler la sortie, obtenu : %v", err)
+	}
+}
+
+func TestGuidedMenuModelSelectionQuitsBeforeActionExecution(t *testing.T) {
+	state := guidedStartupState{
+		PrimaryAction:    "init",
+		AvailableActions: []string{"init", "help", "quit"},
+	}
+	model := guidedMenuModel{
+		state: state,
+		list:  tui.NewSelectModel(guidedSelectConfig(state)),
+	}
+
+	navigatedModel, navigationCommand := model.Update(tea.KeyMsg{Type: tea.KeyDown})
+	if navigationCommand != nil {
+		t.Fatal("navigation should not quit the menu")
+	}
+	selectedModel, selectionCommand := navigatedModel.(guidedMenuModel).Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if selectionCommand == nil {
+		t.Fatal("selection should release the menu program")
+	}
+	if _, ok := selectionCommand().(tea.QuitMsg); !ok {
+		t.Fatalf("selection command type = %T, want tea.QuitMsg", selectionCommand())
+	}
+	result := selectedModel.(guidedMenuModel)
+	if result.selectedAction != "help" {
+		t.Fatalf("selected action = %q, want help", result.selectedAction)
+	}
+}
+
+func TestGuidedMenuModelQQuitsImmediately(t *testing.T) {
+	state := guidedStartupState{
+		PrimaryAction:    "init",
+		AvailableActions: []string{"init", "help", "quit"},
+	}
+	model := guidedMenuModel{
+		state: state,
+		list:  tui.NewSelectModel(guidedSelectConfig(state)),
+	}
+
+	finalModel, command := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("q")})
+	if command == nil {
+		t.Fatal("q should quit the menu immediately")
+	}
+	if _, ok := command().(tea.QuitMsg); !ok {
+		t.Fatalf("q command type = %T, want tea.QuitMsg", command())
+	}
+	result := finalModel.(guidedMenuModel)
+	if result.selectedAction != "quit" {
+		t.Fatalf("selected action = %q, want quit", result.selectedAction)
+	}
+}
+
+func TestGuidedMenuOptions_carryFrenchLabelsAndSlugAliases(t *testing.T) {
+	state := guidedStartupState{
+		AvailableActions: []string{"list", "quit"},
+	}
+	options := guidedMenuOptions(state)
+	if options[0].Label != "List catalog resources" {
+		t.Fatalf("list label = %q", options[0].Label)
+	}
+	if len(options[1].Aliases) != 1 || options[1].Aliases[0] != "quit" {
+		t.Fatalf("alias quit = %v", options[1].Aliases)
+	}
 }
 
 func TestLoadGuidedStartupState_unconfiguredProject(t *testing.T) {
@@ -73,7 +151,7 @@ func TestLoadGuidedStartupState_configuredReadyProject(t *testing.T) {
 	if state.PrimaryAction != "list" {
 		t.Fatalf("state.PrimaryAction = %q, want list", state.PrimaryAction)
 	}
-	assertStartupState(t, state.Detail, "Provider configuré : github")
+	assertStartupState(t, state.Detail, "Configured provider: github")
 }
 
 func TestLoadGuidedStartupState_invalidProjectProfile(t *testing.T) {
@@ -116,10 +194,9 @@ func TestRenderGuidedMenu_unconfiguredProject(t *testing.T) {
 		Detail:           "Configuration projet absente.",
 	})
 	menu := renderMessage(lines...)
-	assertStartupState(t, menu, "Menu guidé STH")
-	assertStartupState(t, menu, "État du projet : non configuré")
-	assertStartupState(t, menu, "1. init (recommandé)")
-	assertStartupState(t, menu, "3. quit")
+	assertStartupState(t, menu, "STH guided menu")
+	assertStartupState(t, menu, "Project state: not configured")
+	assertNotContains(t, menu, "1. init")
 }
 
 func TestRenderGuidedMenu_configuredInvalidProject(t *testing.T) {
@@ -131,9 +208,8 @@ func TestRenderGuidedMenu_configuredInvalidProject(t *testing.T) {
 		Detail:           "profil projet malformé",
 	})
 	menu := renderMessage(lines...)
-	assertStartupState(t, menu, "État du projet : configuration invalide")
+	assertStartupState(t, menu, "Project state: invalid configuration")
 	assertStartupState(t, menu, "profil projet malformé")
-	assertStartupState(t, menu, "1. init (recommandé)")
 }
 
 func TestRenderGuidedMenu_configuredReadyProject(t *testing.T) {
@@ -145,11 +221,8 @@ func TestRenderGuidedMenu_configuredReadyProject(t *testing.T) {
 		Detail:           "Provider configuré : github",
 	})
 	menu := renderMessage(lines...)
-	assertStartupState(t, menu, "État du projet : prêt")
-	assertStartupState(t, menu, "1. list (recommandé)")
-	assertStartupState(t, menu, "4. show-config")
-	assertStartupState(t, menu, "5. provider-guide")
-	assertStartupState(t, menu, "8. quit")
+	assertStartupState(t, menu, "Project state: ready")
+	assertStartupState(t, menu, "Provider configuré : github")
 }
 
 func TestPromptGuidedMenuAction_acceptsTwoDigitSelection(t *testing.T) {
@@ -170,9 +243,10 @@ func TestPromptGuidedMenuAction_acceptsTwoDigitSelection(t *testing.T) {
 	}
 
 	var stdout bytes.Buffer
-	a := newApp(strings.NewReader("10\n"), &stdout, nil, nil)
+	session := tui.NewSession(strings.NewReader("10\n"), &stdout)
+	application := newApp(nil, nil, nil, nil)
 
-	action, err := promptGuidedMenuAction(bufio.NewReader(strings.NewReader("10\n")), a, state)
+	action, err := application.promptGuidedMenuAction(session, state)
 	if err != nil {
 		t.Fatalf("promptGuidedMenuAction() error = %v", err)
 	}
@@ -211,7 +285,7 @@ func TestRunGuidedMenu_configuredReadyShowsProviderGuidance(t *testing.T) {
 		t.Fatalf("runGuidedMenu() error = %v\nstdout=%s\nstderr=%s", err, stdout.String(), stderr.String())
 	}
 	assertStartupState(t, stdout.String(), "https://github.com/settings/personal-access-tokens/new")
-	if count := strings.Count(stdout.String(), "Menu guidé STH"); count < 2 {
+	if count := strings.Count(stdout.String(), "What do you want to do?"); count < 2 {
 		t.Fatalf("guided menu should have been rendered twice, got %d occurrences in %q", count, stdout.String())
 	}
 	assertEmpty(t, stderr.String())
@@ -229,15 +303,15 @@ func TestRunGuidedMenu_releaseMetadataNeverBlocksLocalUse(t *testing.T) {
 	})
 
 	assetName := defaultReleaseAssetName()
-	releaseRequests := 0
+	var releaseRequests atomic.Int64
 	serverURL := ""
 	server := httptest.NewServer(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		switch r.URL.Path {
 		case "/releases":
-			releaseRequests++
+			releaseRequests.Add(1)
 			_, _ = w.Write([]byte(`[
   {"tag_name":"v2.0.0-beta.1","prerelease":true,"assets":[{"name":"` + assetName + `","browser_download_url":"` + serverURL + `/beta"}]},
-  {"tag_name":"v1.2.0","prerelease":false,"assets":[{"name":"` + assetName + `","browser_download_url":"` + serverURL + `/asset"},{"name":"SHA256SUMS","browser_download_url":"` + serverURL + `/checksum"}]}
+  {"tag_name":"v1.2.0","prerelease":false,"assets":[{"name":"` + assetName + `","browser_download_url":"` + serverURL + `/asset"},{"name":"SHA256SUMS","browser_download_url":"` + serverURL + `/checksum"},{"name":"SHA256SUMS.sig","browser_download_url":"` + serverURL + `/signature"},{"name":"sth-code-engine.json","browser_download_url":"` + serverURL + `/manifest"}]}
 ]`))
 		default:
 			stdhttp.NotFound(w, r)
@@ -272,9 +346,22 @@ func TestRunGuidedMenu_releaseMetadataNeverBlocksLocalUse(t *testing.T) {
 		t.Fatalf("first Run() error = %v, want local menu to remain usable\nstdout=%s\nstderr=%s", first.err, first.stdout, first.stderr)
 	}
 	assertNotContains(t, first.stderr, "obsolète")
-	assertContains(t, first.stdout, "Menu guidé STH")
-	if releaseRequests != 1 {
-		t.Fatalf("releaseRequests after first run = %d, want 1", releaseRequests)
+	assertContains(t, first.stdout, "STH guided menu")
+
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		cachedState, cacheErr := fs.ReadUpdateCheckState()
+		if cacheErr == nil && cachedState != nil && cachedState.LatestStableVersion == "v1.2.0" {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if requestCount := releaseRequests.Load(); requestCount != 1 {
+		t.Fatalf("releaseRequests after first run = %d, want 1 (background refresh)", requestCount)
+	}
+	cachedState, cacheErr := fs.ReadUpdateCheckState()
+	if cacheErr != nil || cachedState == nil || cachedState.LatestStableVersion != "v1.2.0" {
+		t.Fatalf("background refresh cache = %+v, error = %v", cachedState, cacheErr)
 	}
 
 	second := runCLIWithOptions(t, options)
@@ -282,8 +369,8 @@ func TestRunGuidedMenu_releaseMetadataNeverBlocksLocalUse(t *testing.T) {
 		t.Fatalf("second Run() error = %v, want cached offer to remain non-blocking\nstdout=%s\nstderr=%s", second.err, second.stdout, second.stderr)
 	}
 	assertNotContains(t, second.stderr, "obsolète")
-	assertContains(t, second.stdout, "Menu guidé STH")
-	if releaseRequests != 1 {
-		t.Fatalf("releaseRequests after second run = %d, want cache reuse without new network call", releaseRequests)
+	assertContains(t, second.stdout, "STH guided menu")
+	if requestCount := releaseRequests.Load(); requestCount != 1 {
+		t.Fatalf("releaseRequests after second run = %d, want cache reuse without new network call", requestCount)
 	}
 }

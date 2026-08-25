@@ -97,11 +97,11 @@ func ValidateSkillConsumer(projectRoot string, target Target, artifactName strin
 	placement := PlanSkillPlacement([]string{target.Kind()})
 	skillsFolder, exists := placement.ReadsFrom[target.Kind()]
 	if !exists {
-		return fmt.Errorf("hub de skills introuvable pour %s", target.Kind())
+		return fmt.Errorf("skill hub not found for %s", target.Kind())
 	}
 	absoluteProjectRoot, err := filepath.Abs(projectRoot)
 	if err != nil {
-		return fmt.Errorf("résolution de la racine projet échouée : %w", err)
+		return fmt.Errorf("failed to resolve project root: %w", err)
 	}
 	destinationRoot := filepath.Join(absoluteProjectRoot, filepath.FromSlash(skillsFolder), artifactName)
 	entrypointPath := filepath.Join(destinationRoot, "SKILL.md")
@@ -133,14 +133,14 @@ func ValidateSkillConsumer(projectRoot string, target Target, artifactName strin
 		}
 	}
 	if !entrypointValidated {
-		return fmt.Errorf("skill %s invalide : SKILL.md introuvable", artifactName)
+		return fmt.Errorf("invalid skill %s: SKILL.md not found", artifactName)
 	}
 	return nil
 }
 
 func validateArtifactName(artifactName string) error {
 	if strings.TrimSpace(artifactName) == "" || artifactName == "." || artifactName == ".." || strings.ContainsAny(artifactName, "/\\") || strings.ContainsRune(artifactName, '\x00') || filepath.IsAbs(artifactName) || filepath.VolumeName(artifactName) != "" {
-		return fmt.Errorf("nom d'artifact invalide : %s", artifactName)
+		return fmt.Errorf("invalid artifact name: %s", artifactName)
 	}
 	return nil
 }
@@ -148,11 +148,11 @@ func validateArtifactName(artifactName string) error {
 func resolveArtifactDestinationRoots(projectRoot string, target Target, artifactKind, artifactName, lang string) ([]string, error) {
 	rootPlan := target.Plan(artifactKind, artifactName, lang, []string{"SKILL.md"})
 	if rootPlan.Skipped || len(rootPlan.Files) == 0 {
-		return nil, fmt.Errorf("racine de destination introuvable pour %s/%s", target.Kind(), artifactKind)
+		return nil, fmt.Errorf("destination root not found for %s/%s", target.Kind(), artifactKind)
 	}
 	absoluteProjectRoot, err := filepath.Abs(projectRoot)
 	if err != nil {
-		return nil, fmt.Errorf("résolution de la racine projet échouée : %w", err)
+		return nil, fmt.Errorf("failed to resolve project root: %w", err)
 	}
 	destinationRoots := make([]string, 0, len(rootPlan.Files))
 	seenRoots := make(map[string]struct{}, len(rootPlan.Files))
@@ -163,7 +163,7 @@ func resolveArtifactDestinationRoots(projectRoot string, target Target, artifact
 		}
 		destinationRoot := filepath.Dir(filepath.Join(absoluteProjectRoot, cleanRelativePath))
 		if !pathIsWithin(absoluteProjectRoot, destinationRoot) {
-			return nil, fmt.Errorf("racine de destination hors projet : %s", plannedFile.RelativePath)
+			return nil, fmt.Errorf("destination root outside project: %s", plannedFile.RelativePath)
 		}
 		rootKey := filepath.Clean(destinationRoot)
 		if _, exists := seenRoots[rootKey]; exists {
@@ -182,7 +182,7 @@ func resolveInstalledPathWithinRoots(projectRoot string, destinationRoots []stri
 	}
 	absoluteProjectRoot, err := filepath.Abs(projectRoot)
 	if err != nil {
-		return "", fmt.Errorf("résolution de la racine projet échouée : %w", err)
+		return "", fmt.Errorf("failed to resolve project root: %w", err)
 	}
 	installedPath := filepath.Join(absoluteProjectRoot, cleanRelativePath)
 	for _, destinationRoot := range destinationRoots {
@@ -190,7 +190,7 @@ func resolveInstalledPathWithinRoots(projectRoot string, destinationRoots []stri
 			return resolveInstalledPath(projectRoot, destinationRoot, relativePath)
 		}
 	}
-	return "", fmt.Errorf("chemin de destination hors racines du writer : %s", relativePath)
+	return "", fmt.Errorf("destination path outside writer roots: %s", relativePath)
 }
 
 func resolveInstalledPath(projectRoot, destinationRoot, relativePath string) (string, error) {
@@ -200,14 +200,14 @@ func resolveInstalledPath(projectRoot, destinationRoot, relativePath string) (st
 	}
 	absoluteProjectRoot, err := filepath.Abs(projectRoot)
 	if err != nil {
-		return "", fmt.Errorf("résolution de la racine projet échouée : %w", err)
+		return "", fmt.Errorf("failed to resolve project root: %w", err)
 	}
 	installedPath := filepath.Join(absoluteProjectRoot, cleanRelativePath)
 	if !pathIsWithin(absoluteProjectRoot, installedPath) {
-		return "", fmt.Errorf("chemin de destination hors projet : %s", relativePath)
+		return "", fmt.Errorf("destination path outside project: %s", relativePath)
 	}
 	if !pathIsWithin(destinationRoot, installedPath) {
-		return "", fmt.Errorf("chemin de destination hors racine du writer : %s", relativePath)
+		return "", fmt.Errorf("destination path outside writer root: %s", relativePath)
 	}
 	if pathErr := validateResolvedDestination(absoluteProjectRoot, destinationRoot, installedPath); pathErr != nil {
 		return "", pathErr
@@ -219,7 +219,7 @@ func cleanRelativeDestinationPath(relativePath string) (string, error) {
 	portableRelativePath := strings.ReplaceAll(relativePath, "\\", "/")
 	cleanRelativePath := filepath.Clean(filepath.FromSlash(portableRelativePath))
 	if relativePath == "" || strings.ContainsRune(relativePath, '\x00') || filepath.IsAbs(cleanRelativePath) || cleanRelativePath == ".." || strings.HasPrefix(cleanRelativePath, ".."+string(filepath.Separator)) {
-		return "", fmt.Errorf("chemin de destination invalide : %s", relativePath)
+		return "", fmt.Errorf("invalid destination path: %s", relativePath)
 	}
 	return cleanRelativePath, nil
 }
@@ -227,21 +227,21 @@ func cleanRelativeDestinationPath(relativePath string) (string, error) {
 func validateResolvedDestination(projectRoot, destinationRoot, installedPath string) error {
 	resolvedProjectRoot, err := resolveExistingSymlinks(projectRoot)
 	if err != nil {
-		return fmt.Errorf("résolution de la racine projet échouée : %w", err)
+		return fmt.Errorf("failed to resolve project root: %w", err)
 	}
 	resolvedDestinationRoot, err := resolveExistingSymlinks(destinationRoot)
 	if err != nil {
-		return fmt.Errorf("résolution de la racine du writer échouée : %w", err)
+		return fmt.Errorf("failed to resolve writer root: %w", err)
 	}
 	if !pathIsWithin(resolvedProjectRoot, resolvedDestinationRoot) {
-		return fmt.Errorf("racine du writer redirigée hors projet : %s", destinationRoot)
+		return fmt.Errorf("writer root redirects outside project: %s", destinationRoot)
 	}
 	resolvedInstalledPath, err := resolveExistingSymlinks(installedPath)
 	if err != nil {
-		return fmt.Errorf("résolution de la destination échouée : %w", err)
+		return fmt.Errorf("failed to resolve destination: %w", err)
 	}
 	if !pathIsWithin(resolvedDestinationRoot, resolvedInstalledPath) {
-		return fmt.Errorf("destination redirigée hors racine du writer : %s", installedPath)
+		return fmt.Errorf("destination redirects outside writer root: %s", installedPath)
 	}
 	return nil
 }

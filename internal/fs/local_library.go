@@ -62,10 +62,10 @@ func ReadLocalLibrary(projectRoot string) ([]LocalLibraryItem, error) {
 		return nil, err
 	}
 	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
-		return nil, errors.New("la bibliothèque locale doit être un fichier régulier")
+		return nil, errors.New("local library must be a regular file")
 	}
 	if info.Size() > localLibraryMaxBytes {
-		return nil, errors.New("la bibliothèque locale dépasse 8 Mio")
+		return nil, errors.New("local library exceeds 8 MiB")
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -75,14 +75,14 @@ func ReadLocalLibrary(projectRoot string) ([]LocalLibraryItem, error) {
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&document); err != nil || document.Version != 1 {
-		return nil, errors.New("la bibliothèque locale est invalide")
+		return nil, errors.New("local library is invalid")
 	}
 	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
-		return nil, errors.New("la bibliothèque locale est invalide")
+		return nil, errors.New("local library is invalid")
 	}
 	for itemIndex, item := range document.Items {
 		if err := validateLocalLibraryItem(item); err != nil {
-			return nil, fmt.Errorf("la bibliothèque locale contient un item invalide à l'index %d: %w", itemIndex, err)
+			return nil, fmt.Errorf("local library contains an invalid item at index %d: %w", itemIndex, err)
 		}
 	}
 	return append([]LocalLibraryItem(nil), document.Items...), nil
@@ -97,22 +97,22 @@ func SaveLocalLibraryItem(projectRoot string, input LocalLibrarySaveInput) (Loca
 		kind = "prompt"
 	}
 	if kind != "prompt" && kind != "artifact" {
-		return LocalLibraryItem{}, errors.New("le type local doit être prompt ou artifact")
+		return LocalLibraryItem{}, errors.New("local type must be prompt or artifact")
 	}
 	title := strings.TrimSpace(input.Title)
 	body := strings.TrimSpace(input.Body)
 	if title == "" || len(title) > 200 {
-		return LocalLibraryItem{}, errors.New("le titre local est invalide")
+		return LocalLibraryItem{}, errors.New("local title is invalid")
 	}
 	if body == "" || len([]byte(body)) > localLibraryMaxBody {
-		return LocalLibraryItem{}, errors.New("le contenu local est vide ou dépasse 1 Mio")
+		return LocalLibraryItem{}, errors.New("local content is empty or exceeds 1 MiB")
 	}
 	tags := make([]string, 0, len(input.Tags))
 	seenTags := map[string]struct{}{}
 	for _, rawTag := range input.Tags {
 		tag := strings.TrimSpace(rawTag)
 		if tag == "" || len(tag) > 64 {
-			return LocalLibraryItem{}, errors.New("un tag local est invalide")
+			return LocalLibraryItem{}, errors.New("a local tag is invalid")
 		}
 		if _, exists := seenTags[tag]; exists {
 			continue
@@ -121,7 +121,7 @@ func SaveLocalLibraryItem(projectRoot string, input LocalLibrarySaveInput) (Loca
 		tags = append(tags, tag)
 	}
 	if len(tags) > 20 {
-		return LocalLibraryItem{}, errors.New("la capture locale contient trop de tags")
+		return LocalLibraryItem{}, errors.New("local capture contains too many tags")
 	}
 
 	directory, err := localCodeStateDirectory(projectRoot, true)
@@ -155,7 +155,7 @@ func SaveLocalLibraryItem(projectRoot string, input LocalLibrarySaveInput) (Loca
 	}
 	data = append(data, '\n')
 	if len(data) > localLibraryMaxBytes {
-		return LocalLibraryItem{}, errors.New("la bibliothèque locale dépasserait 8 Mio")
+		return LocalLibraryItem{}, errors.New("local library would exceed 8 MiB")
 	}
 	if err := atomicWriteFile(filepath.Join(directory, "library.json"), data, 0o600); err != nil {
 		return LocalLibraryItem{}, err
@@ -186,7 +186,7 @@ func localCodeStateDirectory(projectRoot string, create bool) (string, error) {
 			return "", statErr
 		}
 		if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
-			return "", fmt.Errorf("le chemin d'état local %s n'est pas un dossier sûr", current)
+			return "", fmt.Errorf("local state path %s is not a safe directory", current)
 		}
 		if create {
 			_ = os.Chmod(current, 0o700)
@@ -197,10 +197,10 @@ func localCodeStateDirectory(projectRoot string, create bool) (string, error) {
 
 func validateLocalLibraryItem(item LocalLibraryItem) error {
 	if strings.TrimSpace(item.ID) == "" || (item.Kind != "prompt" && item.Kind != "artifact") {
-		return errors.New("item local invalide")
+		return errors.New("invalid local item")
 	}
 	if strings.TrimSpace(item.Title) == "" || strings.TrimSpace(item.Body) == "" {
-		return errors.New("item local incomplet")
+		return errors.New("incomplete local item")
 	}
 	return nil
 }

@@ -25,7 +25,7 @@ func TestRunAlphaRequest_PendingPrintsConfirmation(t *testing.T) {
 	if err := application.runAlphaRequest(nil); err != nil {
 		t.Fatalf("runAlphaRequest: %v", err)
 	}
-	if !strings.Contains(stdout.String(), "Demande envoyée") {
+	if !strings.Contains(stdout.String(), "Request submitted") {
 		t.Fatalf("expected confirmation, got %q", stdout.String())
 	}
 }
@@ -44,7 +44,7 @@ func TestRunAlphaRequest_AlreadyActive(t *testing.T) {
 	if err := application.runAlphaRequest(nil); err != nil {
 		t.Fatalf("runAlphaRequest: %v", err)
 	}
-	if !strings.Contains(stdout.String(), "déjà accès") {
+	if !strings.Contains(stdout.String(), "already have access") {
 		t.Fatalf("expected already-active message, got %q", stdout.String())
 	}
 }
@@ -54,5 +54,7 @@ func TestRunAlpha_UnknownSubcommand(t *testing.T) {
 	application := newApp(nil, &stdout, io.Discard, nil)
 	if err := application.runAlpha([]string{"bogus"}); err == nil {
 		t.Fatal("expected error for unknown alpha subcommand")
+	} else if !strings.Contains(err.Error(), "unknown alpha subcommand") {
+		t.Fatalf("unexpected unknown-subcommand error: %v", err)
 	}
 }

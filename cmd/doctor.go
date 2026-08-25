@@ -30,7 +30,7 @@ type doctorCheck struct {
 // skipped checks do not.
 func (a *app) runDoctor(args []string) error {
 	if len(args) > 0 {
-		return fmt.Errorf("usage : sth doctor")
+		return fmt.Errorf("usage: sth doctor")
 	}
 
 	cfg, cfgErr := fs.ReadProjectConfigV2()
@@ -65,7 +65,7 @@ func (a *app) runDoctor(args []string) error {
 	}
 
 	if failures > 0 {
-		return fmt.Errorf("%d vérification(s) en échec", failures)
+		return fmt.Errorf("%d check(s) failed", failures)
 	}
 	a.writeStdout("All checks passed.")
 	return nil

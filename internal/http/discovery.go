@@ -4,9 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	neturl "net/url"
 	"sth/internal/fs"
 	"sth/internal/scanner"
-	neturl "net/url"
 	"strings"
 )
 
@@ -121,7 +121,7 @@ func artifactsToCatalogEntries(artifacts []scanner.Artifact) []fs.CatalogEntry {
 			Name:         art.Name,
 			FolderName:   art.Category,
 			SourcePath:   art.Entrypoint,
-			Description:  "Découvert via la structure du dépôt",
+			Description:  "Discovered from the repository structure",
 			ArtifactKind: string(art.Kind),
 			Lang:         art.Lang,
 			AppliesTo:    art.AppliesTo,
@@ -180,7 +180,7 @@ func (c *Client) ListRepositoryTree(ctx context.Context, profile fs.ProjectProfi
 	case "bitbucket":
 		return c.listBitbucketTree(ctx, profile, headers)
 	default:
-		return nil, fmt.Errorf("provider non pris en charge : %s", profile.Provider)
+		return nil, fmt.Errorf("unsupported provider: %s", profile.Provider)
 	}
 }
 
@@ -194,7 +194,7 @@ func (c *Client) listGitHubTree(ctx context.Context, profile fs.ProjectProfile, 
 
 	var response githubTreeResponse
 	if err := json.Unmarshal(data, &response); err != nil {
-		return nil, fmt.Errorf("réponse GitHub tree invalide : %w", err)
+		return nil, fmt.Errorf("invalid GitHub tree response: %w", err)
 	}
 
 	entries := make([]repositoryTreeEntry, 0, len(response.Tree))
@@ -221,7 +221,7 @@ func (c *Client) listGitLabTree(ctx context.Context, profile fs.ProjectProfile, 
 
 		var response []gitLabTreeEntry
 		if err := json.Unmarshal(data, &response); err != nil {
-			return nil, fmt.Errorf("réponse GitLab tree invalide : %w", err)
+			return nil, fmt.Errorf("invalid GitLab tree response: %w", err)
 		}
 
 		for _, item := range response {
@@ -239,7 +239,7 @@ func (c *Client) listGitLabTree(ctx context.Context, profile fs.ProjectProfile, 
 func (c *Client) listAzureDevOpsTree(ctx context.Context, profile fs.ProjectProfile, headers credentialHeaders) ([]repositoryTreeEntry, error) {
 	parts := strings.Split(strings.TrimSpace(profile.RepositoryID), "/")
 	if len(parts) != 3 {
-		return nil, fmt.Errorf("repository_id Azure DevOps invalide : %q", profile.RepositoryID)
+		return nil, fmt.Errorf("invalid Azure DevOps repository_id: %q", profile.RepositoryID)
 	}
 
 	baseURL := strings.TrimRight(getEnvOrDefault("STH_AZURE_DEVOPS_BASE_URL", "https://dev.azure.com"), "/")
@@ -251,7 +251,7 @@ func (c *Client) listAzureDevOpsTree(ctx context.Context, profile fs.ProjectProf
 
 	var response azureTreeResponse
 	if err := json.Unmarshal(data, &response); err != nil {
-		return nil, fmt.Errorf("réponse Azure DevOps tree invalide : %w", err)
+		return nil, fmt.Errorf("invalid Azure DevOps tree response: %w", err)
 	}
 
 	entries := make([]repositoryTreeEntry, 0, len(response.Value))
@@ -275,7 +275,7 @@ func (c *Client) listBitbucketTree(ctx context.Context, profile fs.ProjectProfil
 
 		var response bitbucketTreeResponse
 		if err := json.Unmarshal(data, &response); err != nil {
-			return nil, fmt.Errorf("réponse Bitbucket tree invalide : %w", err)
+			return nil, fmt.Errorf("invalid Bitbucket tree response: %w", err)
 		}
 
 		for _, item := range response.Values {

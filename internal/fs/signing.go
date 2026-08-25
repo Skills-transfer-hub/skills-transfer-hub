@@ -29,17 +29,21 @@ func decodeReleaseSigningPublicKey(encoded string) ed25519.PublicKey {
 func verifyChecksumSignature(checksumManifest, encodedSignature []byte) error {
 	publicKey := releaseSigningPublicKey()
 	if publicKey == nil {
-		return errors.New("clé publique de signature de release non configurée")
+		return errors.New("release signing public key is not configured")
 	}
 	signature, err := base64.StdEncoding.DecodeString(strings.TrimSpace(string(encodedSignature)))
 	if err != nil {
-		return fmt.Errorf("signature du manifeste de checksums illisible : %w", err)
+		return fmt.Errorf("unable to decode checksum manifest signature: %w", err)
 	}
 	if len(signature) != ed25519.SignatureSize {
-		return errors.New("taille de signature du manifeste de checksums invalide")
+		return errors.New("invalid checksum manifest signature size")
 	}
 	if !ed25519.Verify(publicKey, checksumManifest, signature) {
-		return errors.New("signature du manifeste de checksums invalide")
+		return errors.New("invalid checksum manifest signature")
 	}
 	return nil
+}
+
+func VerifyChecksumSignature(checksumManifest, encodedSignature []byte) error {
+	return verifyChecksumSignature(checksumManifest, encodedSignature)
 }

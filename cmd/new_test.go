@@ -74,9 +74,9 @@ func TestNew_RejectsInvalidRefs(t *testing.T) {
 		expectedMessage string
 	}{
 		{[]string{"code-review"}, "Invalid format: use <category>/<name>"},
-		{[]string{"prompts/bad name"}, "segment invalide"},
-		{nil, "usage : sth new"},
-		{[]string{"a/b", "c/d"}, "usage : sth new"},
+		{[]string{"prompts/bad name"}, "invalid segment"},
+		{nil, "usage: sth new"},
+		{[]string{"a/b", "c/d"}, "usage: sth new"},
 	}
 
 	for _, testCase := range cases {

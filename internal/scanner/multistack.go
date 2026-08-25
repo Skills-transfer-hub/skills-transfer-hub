@@ -127,7 +127,7 @@ func (MultiStackScanner) Scan(tree []TreeEntry) ([]Artifact, error) {
 	}
 
 	if len(artifacts) == 0 {
-		return nil, fmt.Errorf("aucun artefact détecté dans l'arborescence du dépôt")
+		return nil, fmt.Errorf("no artifact found in the repository tree")
 	}
 
 	// Total ordering on (Kind, Category, Name) — sort.Slice suffices.

@@ -149,7 +149,7 @@ func TestCodexNativeSkillUsesOnlyTopLevelDescription(t *testing.T) {
 
 	invalidSource := []byte("---\nname: review\nmetadata:\n  description: hidden\n---\nReview the change.\n")
 	_, err := (CodexWriter{}).Render(WriteRequest{InstalledPath: installedPath, Content: invalidSource, ArtifactKind: "skill"})
-	if err == nil || !strings.Contains(err.Error(), "frontmatter name et description requis") {
+	if err == nil || !strings.Contains(err.Error(), "frontmatter name and description are required") {
 		t.Fatalf("invalid native skill error = %v", err)
 	}
 }
