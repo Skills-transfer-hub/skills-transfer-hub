@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"encoding/json"
 	stdhttp "net/http"
 	"net/http/httptest"
 	"strings"
@@ -257,5 +258,42 @@ func TestInstallResolvesVersionForNonGithubProvider(t *testing.T) {
 	}
 	if state.Entries[0].ResolvedVersion != "g1t1ab00000000000" {
 		t.Fatalf("resolved_version = %q, want the GitLab commit id", state.Entries[0].ResolvedVersion)
+	}
+}
+
+func TestStatusGroupsOneLinePerResource(t *testing.T) {
+	newMultiProviderServer(t)
+	projectDir := t.TempDir()
+	config := multiProviderConfig()
+	config.Targets = []fs.TargetEntry{fanoutTarget("claude", ".claude"), fanoutTarget("codex", ".codex")}
+	writeProjectConfigV2ForTest(t, projectDir, config)
+
+	installResult := runCLI(t, projectDir, t.TempDir(), "install", "internal:shared")
+	if installResult.err != nil {
+		t.Fatalf("install error = %v\nstderr=%s", installResult.err, installResult.stderr)
+	}
+	if entries := readStateV2(t, projectDir).Entries; len(entries) != 2 {
+		t.Fatalf("state entries = %d, want one per target", len(entries))
+	}
+
+	statusResult := runCLI(t, projectDir, t.TempDir(), "status")
+	if statusResult.err != nil {
+		t.Fatalf("status error = %v\nstderr=%s", statusResult.err, statusResult.stderr)
+	}
+	occurrences := strings.Count(statusResult.stdout, "agent::agents::shared")
+	if occurrences != 1 {
+		t.Fatalf("status printed the resource %d times, want once:\n%s", occurrences, statusResult.stdout)
+	}
+
+	listResult := runCLI(t, projectDir, t.TempDir(), "list", "--json")
+	if listResult.err != nil {
+		t.Fatalf("list --json error = %v", listResult.err)
+	}
+	var entries []listJSONEntry
+	if err := json.Unmarshal([]byte(strings.TrimSpace(listResult.stdout)), &entries); err != nil {
+		t.Fatalf("list --json output is not valid JSON: %v\n%s", err, listResult.stdout)
+	}
+	if len(entries) != 1 || entries[0].ProviderID != "internal" {
+		t.Fatalf("list --json = %+v, want a single grouped entry from internal", entries)
 	}
 }

@@ -98,7 +98,7 @@ func (a *app) runListJSON() error {
 	}
 
 	projectRoot, _ := filepath.Abs(".")
-	results := fs.ComputeAllStatuses(state, cfg, nil, projectRoot)
+	results := fs.GroupStatusesByResource(fs.ComputeAllStatuses(state, cfg, nil, projectRoot))
 
 	out := make([]listJSONEntry, 0, len(results))
 	for _, r := range results {

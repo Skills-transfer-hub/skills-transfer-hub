@@ -66,7 +66,7 @@ func (a *app) runStatusInner(jsonOut bool) error {
 	}
 
 	projectRoot, _ := filepath.Abs(".")
-	results := fs.ComputeAllStatuses(state, config, latestByPath, projectRoot)
+	results := fs.GroupStatusesByResource(fs.ComputeAllStatuses(state, config, latestByPath, projectRoot))
 
 	if jsonOut {
 		data, marshalErr := json.MarshalIndent(results, "", "  ")

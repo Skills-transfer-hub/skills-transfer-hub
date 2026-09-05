@@ -72,6 +72,68 @@ func ComputeAllStatuses(state InstalledResourceStateV2, config ProjectConfigV2, 
 	return results
 }
 
+func statusSeverity(status ResourceStatus) int {
+	switch status {
+	case ResourceStatusModifiedLocally:
+		return 3
+	case ResourceStatusUnknownBaseline:
+		return 2
+	case ResourceStatusOutdated:
+		return 1
+	default:
+		return 0
+	}
+}
+
+func GroupStatusesByResource(results []StatusResult) []StatusResult {
+	grouped := make([]StatusResult, 0, len(results))
+	indexes := make(map[string]int, len(results))
+	for _, result := range results {
+		key := result.ResourceName + "\x00" + result.ProviderID
+		existingIndex, exists := indexes[key]
+		if !exists {
+			indexes[key] = len(grouped)
+			grouped = append(grouped, result)
+			continue
+		}
+		merged := grouped[existingIndex]
+		if statusSeverity(result.Status) > statusSeverity(merged.Status) {
+			merged.Status = result.Status
+		}
+		if merged.InstalledVersion == "" {
+			merged.InstalledVersion = result.InstalledVersion
+		}
+		if merged.LatestVersion == "" {
+			merged.LatestVersion = result.LatestVersion
+		}
+		if !merged.Pinned && result.Pinned {
+			merged.Pinned = true
+			merged.PinnedVersion = result.PinnedVersion
+		}
+		merged.ModifiedFiles = appendUniqueFiles(merged.ModifiedFiles, result.ModifiedFiles)
+		grouped[existingIndex] = merged
+	}
+	return grouped
+}
+
+func appendUniqueFiles(existing, incoming []string) []string {
+	if len(incoming) == 0 {
+		return existing
+	}
+	seen := make(map[string]struct{}, len(existing)+len(incoming))
+	for _, file := range existing {
+		seen[file] = struct{}{}
+	}
+	for _, file := range incoming {
+		if _, exists := seen[file]; exists {
+			continue
+		}
+		seen[file] = struct{}{}
+		existing = append(existing, file)
+	}
+	return existing
+}
+
 func ComputeResourceStatus(record InstalledResourceRecordV2, latestVersion string) (ResourceStatus, []string) {
 	if len(record.ManagedFiles) == 0 && len(record.ManagedRegions) == 0 {
 		return ResourceStatusUnknownBaseline, nil
