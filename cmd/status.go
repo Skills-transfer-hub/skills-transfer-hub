@@ -32,19 +32,12 @@ func (a *app) runStatusInner(jsonOut bool) error {
 		return err
 	}
 
-	targetDir := ""
-	if len(config.Providers) > 0 {
-		targetDir = config.Providers[0].TargetDir
-	}
-	if targetDir == "" {
-		profile, profileErr := fs.ReadProjectProfile()
-		if profileErr != nil {
-			return profileErr
-		}
-		targetDir = profile.TargetDir
+	stateDirs, dirsErr := projectStateDirs(config)
+	if dirsErr != nil {
+		return dirsErr
 	}
 
-	state, err := fs.ReadInstalledStateV2(targetDir)
+	state, err := fs.ReadInstalledStateAcrossDirs(stateDirs)
 	if err != nil {
 		return err
 	}
@@ -105,6 +98,17 @@ func (a *app) runStatusInner(jsonOut bool) error {
 	}
 
 	return nil
+}
+
+func projectStateDirs(config fs.ProjectConfigV2) ([]string, error) {
+	if len(config.Providers) > 0 {
+		return fs.StateTargetDirs(config), nil
+	}
+	profile, err := fs.ReadProjectProfile()
+	if err != nil {
+		return nil, err
+	}
+	return []string{profile.TargetDir}, nil
 }
 
 func isProviderConfigError(err error) bool {

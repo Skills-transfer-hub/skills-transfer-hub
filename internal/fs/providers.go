@@ -237,3 +237,23 @@ func singleProviderCandidates(candidates []CatalogEntry) bool {
 	}
 	return true
 }
+
+func ReadInstalledStateAcrossDirs(targetDirs []string) (InstalledResourceStateV2, error) {
+	merged := InstalledResourceStateV2{SchemaVersion: 2, Entries: []InstalledResourceRecordV2{}}
+	seen := make(map[string]struct{})
+	for _, targetDir := range targetDirs {
+		state, err := ReadInstalledStateV2(targetDir)
+		if err != nil {
+			return InstalledResourceStateV2{}, err
+		}
+		for _, record := range state.Entries {
+			key := record.ResourceName + "\x00" + record.TargetID
+			if _, exists := seen[key]; exists {
+				continue
+			}
+			seen[key] = struct{}{}
+			merged.Entries = append(merged.Entries, record)
+		}
+	}
+	return merged, nil
+}

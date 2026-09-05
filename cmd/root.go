@@ -770,6 +770,32 @@ func resourceFromArgs(args []string) string {
 
 // parseFlags strips bool flags from args and returns the remainder as positional.
 // knownFlags examples: "--dry-run", "--yes", "--force", "--json"
+func parseValueFlag(args []string, name string) (string, []string, error) {
+	value := ""
+	rest := make([]string, 0, len(args))
+	for index := 0; index < len(args); index++ {
+		argument := args[index]
+		if argument == name {
+			if index+1 >= len(args) {
+				return "", nil, fmt.Errorf("%s requires a value", name)
+			}
+			value = args[index+1]
+			index++
+			continue
+		}
+		if strings.HasPrefix(argument, name+"=") {
+			value = strings.TrimPrefix(argument, name+"=")
+			if strings.TrimSpace(value) == "" {
+				return "", nil, fmt.Errorf("%s requires a value", name)
+			}
+			continue
+		}
+		rest = append(rest, argument)
+	}
+	value = strings.TrimSpace(value)
+	return value, rest, nil
+}
+
 func parseFlags(args []string, knownFlags ...string) (flags map[string]bool, positional []string) {
 	flags = make(map[string]bool)
 	for _, arg := range args {

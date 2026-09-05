@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	"sth/internal/fs"
@@ -17,32 +18,39 @@ type resolvedVersion struct {
 }
 
 func (a *app) runInstall(args []string) error {
-	flags, positional := parseFlags(args, "--dry-run", "--json", "--force")
+	providerFlag, remaining, flagErr := parseValueFlag(args, "--provider")
+	flags, positional := parseFlags(remaining, "--dry-run", "--json", "--force")
 	dryRun := flags["--dry-run"]
 	jsonOut := flags["--json"]
 	force := flags["--force"]
+	if flagErr != nil {
+		if jsonOut {
+			emitJSONError(a.stdout, flagErr, 1)
+		}
+		return flagErr
+	}
 
-	err := a.installResource(dryRun, jsonOut, force, positional)
+	err := a.installResource(dryRun, jsonOut, force, providerFlag, positional)
 	if err != nil && jsonOut {
 		emitJSONError(a.stdout, err, 1)
 	}
 	return err
 }
 
-func (a *app) installResource(dryRun, jsonOut, force bool, positional []string) error {
+func (a *app) installResource(dryRun, jsonOut, force bool, providerFlag string, positional []string) error {
 	if len(positional) != 1 {
-		return fmt.Errorf("usage: sth install <resource-ref> [--dry-run] [--force]")
+		return fmt.Errorf("usage: sth install <resource-ref> [--provider <id>] [--dry-run] [--force]")
 	}
 	resourceRef := positional[0]
 
-	var profile *fs.ProjectProfile
+	var primaryProfile *fs.ProjectProfile
 	var release func()
 	var err error
 	if dryRun {
-		profile, err = a.prepareStateReadAccess()
+		primaryProfile, err = a.prepareStateReadAccess()
 		release = func() {}
 	} else {
-		profile, release, err = a.prepareStateAccess()
+		primaryProfile, release, err = a.prepareStateAccess()
 	}
 	if err != nil {
 		return err
@@ -58,9 +66,10 @@ func (a *app) installResource(dryRun, jsonOut, force bool, positional []string) 
 	if err != nil {
 		return err
 	}
-	providerID := "default"
-	if len(cfg.Providers) > 0 {
-		providerID = cfg.Providers[0].ID
+	if providerFlag != "" {
+		if _, found := fs.ProviderByID(cfg, providerFlag); !found && len(cfg.Providers) > 0 {
+			return fmt.Errorf("unknown provider: %q (configured: %s)", providerFlag, strings.Join(fs.ProviderIDs(cfg), ", "))
+		}
 	}
 
 	if !dryRun && !jsonOut {
@@ -78,18 +87,27 @@ func (a *app) installResource(dryRun, jsonOut, force bool, positional []string) 
 	}
 
 	a.progress.step("Fetching catalog…")
-	var entries []fs.CatalogEntry
-	if err := a.withAuthRecovery(context.Background(), func() error {
-		var listErr error
-		entries, listErr = a.client.ListCatalog(context.Background(), *profile)
-		return listErr
-	}); err != nil {
-		return err
-	}
-
-	entry, err := fs.ResolveCatalogEntry(entries, resourceRef)
+	catalog, err := a.aggregateCatalog(context.Background(), cfg)
 	if err != nil {
 		return err
+	}
+	a.reportProviderFailures(catalog.failures)
+
+	entry, err := a.resolveCatalogEntry(catalog, resourceRef, providerFlag)
+	if err != nil {
+		return err
+	}
+	providerID := fs.CatalogEntryProviderID(entry)
+	sourceProfile, err := a.sourceProfile(cfg, providerID)
+	if err != nil {
+		return err
+	}
+	if !dryRun {
+		providerRelease, lockErr := a.prepareProviderStateAccess(sourceProfile.TargetDir, primaryProfile.TargetDir)
+		if lockErr != nil {
+			return lockErr
+		}
+		defer providerRelease()
 	}
 
 	if len(cfg.Targets) > 0 {
@@ -97,11 +115,11 @@ func (a *app) installResource(dryRun, jsonOut, force bool, positional []string) 
 		if !dryRun {
 			resolvedVersion = a.resolveCommitForEntry(context.Background(), cfg, providerID, entry, make(map[string]string))
 		}
-		if fanoutErr := a.installFanout(*profile, cfg, entry, providerID, resolvedVersion, dryRun, jsonOut, force); fanoutErr != nil {
+		if fanoutErr := a.installFanout(sourceProfile, sourceProfile.TargetDir, cfg, entry, providerID, resolvedVersion, dryRun, jsonOut, force); fanoutErr != nil {
 			return fanoutErr
 		}
 	} else {
-		if legacyErr := a.installLegacy(*profile, entry, providerID, dryRun, jsonOut, force); legacyErr != nil {
+		if legacyErr := a.installLegacy(sourceProfile, entry, providerID, dryRun, jsonOut, force); legacyErr != nil {
 			return legacyErr
 		}
 	}
