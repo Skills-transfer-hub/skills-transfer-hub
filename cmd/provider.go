@@ -46,13 +46,7 @@ func (a *app) runProviderList() error {
 		if providerID == defaultProviderID {
 			marker = "*"
 		}
-		descriptor := provider.Provider
-		if strings.TrimSpace(provider.RepositoryID) != "" {
-			descriptor = fmt.Sprintf("%s %s", descriptor, provider.RepositoryID)
-		}
-		if strings.TrimSpace(provider.CatalogRef) != "" {
-			descriptor = fmt.Sprintf("%s@%s", descriptor, provider.CatalogRef)
-		}
+		descriptor := providerDescriptor(provider)
 		health := "ok"
 		if _, profileErr := fs.ProviderProfile(cfg, providerID); profileErr != nil {
 			health = "misconfigured"
@@ -62,6 +56,29 @@ func (a *app) runProviderList() error {
 	lines = append(lines, "", "* default source, used for resources installed before their origin was tracked.")
 	a.writeStdout(lines...)
 	return nil
+}
+
+func providerDescriptor(provider fs.ProviderEntry) string {
+	descriptor := provider.Provider
+	if strings.TrimSpace(provider.RepositoryID) != "" {
+		descriptor = fmt.Sprintf("%s %s", descriptor, provider.RepositoryID)
+	}
+	if strings.TrimSpace(provider.CatalogRef) != "" {
+		descriptor = fmt.Sprintf("%s@%s", descriptor, provider.CatalogRef)
+	}
+	return descriptor
+}
+
+func providerAddedLines(cfg fs.ProjectConfigV2, entry fs.ProviderEntry) []string {
+	headline := fmt.Sprintf("✓ Source '%s' added: %s", entry.ID, providerDescriptor(entry))
+	if providerDescriptor(entry) == entry.ID {
+		headline = fmt.Sprintf("✓ Source '%s' added and attached to this project.", entry.ID)
+	}
+	lines := []string{headline}
+	if len(cfg.Providers) > 1 {
+		lines = append(lines, fmt.Sprintf("  %d sources are now configured — `sth provider list` shows them all.", len(cfg.Providers)))
+	}
+	return lines
 }
 
 func (a *app) installedCountByProvider(cfg fs.ProjectConfigV2) map[string]int {
@@ -197,10 +214,12 @@ func (a *app) runProviderAdd(args []string) error {
 	if writeErr != nil {
 		return writeErr
 	}
-	a.writeStdout(
-		fmt.Sprintf("Provider '%s' added (%s).", entry.ID, path),
+	lines := providerAddedLines(cfg, entry)
+	lines = append(lines,
+		fmt.Sprintf("  Saved: %s", path),
 		fmt.Sprintf("Next step: `sth list` to browse its catalog, `sth install %s:<resource>` to install from it.", entry.ID),
 	)
+	a.writeStdout(lines...)
 	return nil
 }
 

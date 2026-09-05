@@ -44,7 +44,8 @@ func TestProviderAddValidatesAndPersists(t *testing.T) {
 	if result.err != nil {
 		t.Fatalf("provider add error = %v\nstderr=%s", result.err, result.stderr)
 	}
-	assertContains(t, result.stdout, "Provider 'gitlab' added")
+	assertContains(t, result.stdout, "✓ Source 'gitlab' added: gitlab group/skills@main")
+	assertContains(t, result.stdout, "3 sources are now configured")
 
 	config := readProjectConfigForTest(t, projectDir)
 	added, found := fs.ProviderByID(config, "gitlab")

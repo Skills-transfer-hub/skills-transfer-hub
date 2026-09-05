@@ -78,9 +78,10 @@ func (a *app) runLogin(args []string) error {
 		a.writeStderr(fmt.Sprintf("Warning: entitlements cache was not primed: %v", primeErr))
 	}
 
-	if err := ensureCloudProviderEntry(); err != nil {
+	attachment, attachErr := ensureCloudProviderEntry()
+	if attachErr != nil {
 		// Non-fatal: keychain is set, user can still call commands. Warn only.
-		a.writeStderr(fmt.Sprintf("Warning: project configuration was not written: %v", err))
+		a.writeStderr(fmt.Sprintf("Warning: project configuration was not written: %v", attachErr))
 	}
 
 	// Auto-promote to connected mode: a successful login is a strong opt-in
@@ -90,10 +91,11 @@ func (a *app) runLogin(args []string) error {
 		a.writeStderr(fmt.Sprintf("Warning: telemetry mode was not switched: %v", modeErr))
 	}
 
-	a.writeStdout(
+	loginLines := []string{
 		fmt.Sprintf("Connected to %s (plan %s, expires on %s).", resp.Org.Name, resp.Plan, resp.ExpiresAt),
 		"Key stored in the OS keychain.",
-	)
+	}
+	a.writeStdout(append(loginLines, attachment.announcement()...)...)
 	if notice := licenseExpiryWarning(); notice != "" {
 		a.writeStderr(notice)
 	}
@@ -163,25 +165,44 @@ func findCloudProviderProfile(cfg fs.ProjectConfigV2) (fs.ProjectProfile, bool) 
 	return fs.ProjectProfile{}, false
 }
 
-// ensureCloudProviderEntry guarantees .sth/project.json has a sth-cloud
-// provider entry. Idempotent: if one already exists, we leave it alone.
-func ensureCloudProviderEntry() error {
+type cloudProviderAttachment struct {
+	config fs.ProjectConfigV2
+	entry  fs.ProviderEntry
+	added  bool
+}
+
+func (attachment cloudProviderAttachment) announcement() []string {
+	if !attachment.added {
+		return nil
+	}
+	return providerAddedLines(attachment.config, attachment.entry)
+}
+
+func ensureCloudProviderEntry() (cloudProviderAttachment, error) {
 	cfg, err := fs.ReadProjectConfigV2()
 	if err != nil {
-		return err
+		return cloudProviderAttachment{}, err
 	}
 	for _, provider := range cfg.Providers {
 		if strings.EqualFold(provider.Provider, loginProviderName) {
-			return nil
+			return cloudProviderAttachment{config: cfg, entry: provider}, nil
 		}
 	}
-	cfg.Providers = append(cfg.Providers, fs.ProviderEntry{
-		ID:        loginDefaultProvID,
+
+	entryID := loginDefaultProvID
+	for suffix := 2; aliasIsDuplicate(entryID, cfg); suffix++ {
+		entryID = fmt.Sprintf("%s-%d", loginDefaultProvID, suffix)
+	}
+	entry := fs.ProviderEntry{
+		ID:        entryID,
 		Provider:  loginProviderName,
 		TargetDir: ".claude/skills",
-	})
-	_, err = fs.WriteProjectConfigV2(cfg)
-	return err
+	}
+	cfg.Providers = append(cfg.Providers, entry)
+	if _, writeErr := fs.WriteProjectConfigV2(cfg); writeErr != nil {
+		return cloudProviderAttachment{}, writeErr
+	}
+	return cloudProviderAttachment{config: cfg, entry: entry, added: true}, nil
 }
 
 func loginHelpText() string {

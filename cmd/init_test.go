@@ -441,6 +441,8 @@ func TestRunInit_ExistingV2_AppendsSecondProviderWithAliasPrompt(t *testing.T) {
 		t.Fatalf("Run() error = %v\nstdout=%s\nstderr=%s", result.err, result.stdout, result.stderr)
 	}
 	assertContains(t, result.stdout, "Give it a short alias")
+	assertContains(t, result.stdout, "✓ Source 'second' added: github org/second@main")
+	assertContains(t, result.stdout, "2 sources are now configured")
 
 	configPath := filepath.Join(projectDir, ".sth", "project.json")
 	data, err := os.ReadFile(configPath)

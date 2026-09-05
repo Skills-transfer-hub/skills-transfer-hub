@@ -134,8 +134,8 @@ func TestCloudLogin_KeyPresentProviderMissing_AttachesSilently(t *testing.T) {
 	if mode != fs.TelemetryConnected {
 		t.Errorf("mode = %q, want connected (silent attach)", mode)
 	}
-	if !strings.Contains(stdout.String(), "now attached") {
-		t.Errorf("expected silent attach confirmation, got:\n%s", stdout.String())
+	if !strings.Contains(stdout.String(), "Source 'sth-cloud' added") {
+		t.Errorf("expected the attach confirmation to name the source, got:\n%s", stdout.String())
 	}
 	// Confirm project.json now carries the sth-cloud provider.
 	cfg, err := fs.ReadProjectConfigV2()
