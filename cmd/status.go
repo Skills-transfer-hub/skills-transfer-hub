@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"strings"
+
 	"sth/internal/fs"
 	sthhttp "sth/internal/http"
 )
@@ -32,19 +34,12 @@ func (a *app) runStatusInner(jsonOut bool) error {
 		return err
 	}
 
-	targetDir := ""
-	if len(config.Providers) > 0 {
-		targetDir = config.Providers[0].TargetDir
-	}
-	if targetDir == "" {
-		profile, profileErr := fs.ReadProjectProfile()
-		if profileErr != nil {
-			return profileErr
-		}
-		targetDir = profile.TargetDir
+	stateDirs, dirsErr := projectStateDirs(config)
+	if dirsErr != nil {
+		return dirsErr
 	}
 
-	state, err := fs.ReadInstalledStateV2(targetDir)
+	state, err := fs.ReadInstalledStateAcrossDirs(stateDirs)
 	if err != nil {
 		return err
 	}
@@ -71,7 +66,7 @@ func (a *app) runStatusInner(jsonOut bool) error {
 	}
 
 	projectRoot, _ := filepath.Abs(".")
-	results := fs.ComputeAllStatuses(state, config, latestByPath, projectRoot)
+	results := fs.GroupStatusesByResource(fs.ComputeAllStatuses(state, config, latestByPath, projectRoot))
 
 	if jsonOut {
 		data, marshalErr := json.MarshalIndent(results, "", "  ")
@@ -82,8 +77,12 @@ func (a *app) runStatusInner(jsonOut bool) error {
 		return nil
 	}
 
+	showProvider := len(config.Providers) > 1
 	for _, result := range results {
 		line := fmt.Sprintf("%-30s  %s", result.ResourceName, result.Status)
+		if showProvider {
+			line = fmt.Sprintf("%-30s  %-16s  %s", result.ResourceName, statusProviderLabel(config, result), result.Status)
+		}
 		if result.Status == fs.ResourceStatusOutdated && !result.Pinned {
 			line += fmt.Sprintf("  installed: %.8s  available: %.8s", result.InstalledVersion, result.LatestVersion)
 		}
@@ -105,6 +104,24 @@ func (a *app) runStatusInner(jsonOut bool) error {
 	}
 
 	return nil
+}
+
+func statusProviderLabel(config fs.ProjectConfigV2, result fs.StatusResult) string {
+	if strings.TrimSpace(result.ProviderID) != "" {
+		return result.ProviderID
+	}
+	return fs.DefaultProviderID(config)
+}
+
+func projectStateDirs(config fs.ProjectConfigV2) ([]string, error) {
+	if len(config.Providers) > 0 {
+		return fs.StateTargetDirs(config), nil
+	}
+	profile, err := fs.ReadProjectProfile()
+	if err != nil {
+		return nil, err
+	}
+	return []string{profile.TargetDir}, nil
 }
 
 func isProviderConfigError(err error) bool {

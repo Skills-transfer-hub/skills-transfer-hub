@@ -68,18 +68,37 @@ var commandCatalog = []commandSpec{
 	},
 	{
 		name:    "install",
-		usage:   "sth install <resource-ref> [--dry-run] [--force]",
+		usage:   "sth install <resource-ref> [--provider <id>] [--dry-run] [--force]",
 		summary: "Install a remote catalog resource or compatible bundle in the current project",
 		details: []string{
 			"Accepts a standard catalog name or a canonical category/folder bundle reference.",
 			"For a bundle discovered by scanning, STH synchronizes every file in the source directory and tracks its manifest in sth-state.json.",
+			"With several providers configured, qualify the source with --provider <id> or the provider:folder/name form; STH asks in a TTY when a name exists in several catalogs.",
 		},
 		examples: []string{
 			"sth install react/form-wizard",
 			"sth install skills/analyse-risque",
+			"sth install internal:skills/analyse-risque",
+			"sth install skills/analyse-risque --provider internal",
 			"sth install skills/analyse-risque --dry-run",
 		},
-		flags: []string{"--dry-run", "--force", "--json"},
+		flags: []string{"--dry-run", "--force", "--json", "--provider"},
+	},
+	{
+		name:    "provider",
+		usage:   "sth provider <list|add|remove>",
+		summary: "Inspect and manage the catalog sources of the current project",
+		details: []string{
+			"`list` shows every configured source, its health and how many resources it owns. The default source is marked with *.",
+			"`add <id> --type <github|gitlab|azure-devops|bitbucket|sth-cloud> --repo <repository>` appends a source and validates its access (--skip-check bypasses the check).",
+			"`remove <id>` drops a source; it refuses to leave installed resources orphaned unless --force is passed.",
+		},
+		examples: []string{
+			"sth provider list",
+			"sth provider add internal --type gitlab --repo group/skills",
+			"sth provider remove internal",
+		},
+		flags: []string{"--type", "--repo", "--ref", "--catalog", "--target-dir", "--private", "--skip-check", "--force"},
 	},
 	{
 		name:    "update",
@@ -522,6 +541,12 @@ func (a *app) run(args []string) error {
 			return nil
 		}
 		err = a.runAlpha(args[1:])
+	case "provider", "providers":
+		if len(args) >= 2 && isHelpFlag(args[1]) {
+			a.writeStdout(commandHelpText("provider"))
+			return nil
+		}
+		err = a.runProvider(args[1:])
 	case "org":
 		err = a.runOrg(args[1:])
 	case "mcp":
@@ -770,6 +795,32 @@ func resourceFromArgs(args []string) string {
 
 // parseFlags strips bool flags from args and returns the remainder as positional.
 // knownFlags examples: "--dry-run", "--yes", "--force", "--json"
+func parseValueFlag(args []string, name string) (string, []string, error) {
+	value := ""
+	rest := make([]string, 0, len(args))
+	for index := 0; index < len(args); index++ {
+		argument := args[index]
+		if argument == name {
+			if index+1 >= len(args) {
+				return "", nil, fmt.Errorf("%s requires a value", name)
+			}
+			value = args[index+1]
+			index++
+			continue
+		}
+		if strings.HasPrefix(argument, name+"=") {
+			value = strings.TrimPrefix(argument, name+"=")
+			if strings.TrimSpace(value) == "" {
+				return "", nil, fmt.Errorf("%s requires a value", name)
+			}
+			continue
+		}
+		rest = append(rest, argument)
+	}
+	value = strings.TrimSpace(value)
+	return value, rest, nil
+}
+
 func parseFlags(args []string, knownFlags ...string) (flags map[string]bool, positional []string) {
 	flags = make(map[string]bool)
 	for _, arg := range args {

@@ -316,8 +316,8 @@ func assertSynchronizedStatus(t *testing.T, output string, testCase artifactSync
 	if err := json.Unmarshal([]byte(output), &statuses); err != nil {
 		t.Fatalf("status output is not valid JSON: %v\n%s", err, output)
 	}
-	if len(statuses) != len(testCase.expectedByTarget) {
-		t.Fatalf("status entries = %d, want %d: %+v", len(statuses), len(testCase.expectedByTarget), statuses)
+	if len(statuses) != 1 {
+		t.Fatalf("status entries = %d, want 1 grouped entry for the %d targets: %+v", len(statuses), len(testCase.expectedByTarget), statuses)
 	}
 	expectedResourceName := fs.CatalogID(testCase.artifactKind, testCase.folderName, testCase.artifactName)
 	for _, status := range statuses {

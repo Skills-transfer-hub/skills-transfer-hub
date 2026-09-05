@@ -29,27 +29,29 @@ func (a *app) runListWithArgs(args []string) error {
 		return a.runListJSON()
 	}
 
-	profile, err := fs.ReadProjectProfile()
+	cfg, err := fs.ReadProjectConfigV2ReadOnly()
 	if err != nil {
 		return err
 	}
 
-	var entries []fs.CatalogEntry
-	if err := a.withAuthRecovery(context.Background(), func() error {
-		var listErr error
-		entries, listErr = a.client.ListCatalog(context.Background(), *profile)
-		return listErr
-	}); err != nil {
+	catalog, err := a.aggregateCatalog(context.Background(), cfg)
+	if err != nil {
 		return err
 	}
-	if len(entries) == 0 {
+	a.reportProviderFailures(catalog.failures)
+
+	if len(catalog.entries) == 0 {
 		a.writeStdout("No resources available in the remote catalog.")
 		return nil
 	}
 
-	lines := []string{fmt.Sprintf("%d resource(s) available:", len(entries))}
-	for _, entry := range entries {
+	showProvider := len(fs.UsableProviders(cfg)) > 1
+	lines := []string{fmt.Sprintf("%d resource(s) available:", len(catalog.entries))}
+	for _, entry := range catalog.entries {
 		line := fmt.Sprintf("- [%s] %s", entry.ResourceType, catalogDisplayRef(entry))
+		if showProvider {
+			line = fmt.Sprintf("%s [%s]", line, fs.CatalogEntryProviderID(entry))
+		}
 		if entry.ResourceType != "bundle" {
 			line = fmt.Sprintf("%s (folder: %s)", line, entry.FolderName)
 		}
@@ -83,24 +85,20 @@ func (a *app) runListJSON() error {
 		return nil
 	}
 
-	targetDir := cfg.Providers[0].TargetDir
-	if targetDir == "" {
-		profile, profileErr := fs.ReadProjectProfile()
-		if profileErr != nil {
-			emitJSONError(a.stdout, profileErr, 1)
-			return profileErr
-		}
-		targetDir = profile.TargetDir
+	stateDirs, dirsErr := projectStateDirs(cfg)
+	if dirsErr != nil {
+		emitJSONError(a.stdout, dirsErr, 1)
+		return dirsErr
 	}
 
-	state, err := fs.ReadInstalledStateV2(targetDir)
+	state, err := fs.ReadInstalledStateAcrossDirs(stateDirs)
 	if err != nil {
 		emitJSONError(a.stdout, err, 1)
 		return err
 	}
 
 	projectRoot, _ := filepath.Abs(".")
-	results := fs.ComputeAllStatuses(state, cfg, nil, projectRoot)
+	results := fs.GroupStatusesByResource(fs.ComputeAllStatuses(state, cfg, nil, projectRoot))
 
 	out := make([]listJSONEntry, 0, len(results))
 	for _, r := range results {

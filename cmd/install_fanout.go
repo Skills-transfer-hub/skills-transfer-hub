@@ -13,7 +13,7 @@ import (
 	"sth/internal/writer"
 )
 
-func (a *app) installFanout(profile fs.ProjectProfile, cfg fs.ProjectConfigV2, entry fs.CatalogEntry, providerID, resolvedVersion string, dryRun, jsonOut, force bool) error {
+func (a *app) installFanout(profile fs.ProjectProfile, stateDir string, cfg fs.ProjectConfigV2, entry fs.CatalogEntry, providerID, resolvedVersion string, dryRun, jsonOut, force bool) error {
 	if validationErr := validateFanoutTargetRoots(cfg); validationErr != nil {
 		return validationErr
 	}
@@ -23,9 +23,9 @@ func (a *app) installFanout(profile fs.ProjectProfile, cfg fs.ProjectConfigV2, e
 	}
 
 	if artifactKindOf(entry) == "skill" {
-		return a.installSkillFanout(profile, entry, providerID, resolvedVersion, projectRoot, enabledTargetKinds(cfg), dryRun, jsonOut, force)
+		return a.installSkillFanout(profile, stateDir, entry, providerID, resolvedVersion, projectRoot, enabledTargetKinds(cfg), dryRun, jsonOut, force)
 	}
-	return a.installArtifactFanout(profile, cfg, entry, providerID, resolvedVersion, projectRoot, artifactKindOf(entry), dryRun, jsonOut, force)
+	return a.installArtifactFanout(profile, stateDir, cfg, entry, providerID, resolvedVersion, projectRoot, artifactKindOf(entry), dryRun, jsonOut, force)
 }
 
 func artifactKindOf(entry fs.CatalogEntry) string {
@@ -83,7 +83,7 @@ func enabledTargetKinds(cfg fs.ProjectConfigV2) []string {
 	return kinds
 }
 
-func (a *app) installSkillFanout(profile fs.ProjectProfile, entry fs.CatalogEntry, providerID, resolvedVersion, projectRoot string, kinds []string, dryRun, jsonOut, force bool) error {
+func (a *app) installSkillFanout(profile fs.ProjectProfile, stateDir string, entry fs.CatalogEntry, providerID, resolvedVersion, projectRoot string, kinds []string, dryRun, jsonOut, force bool) error {
 	a.progress.step(fmt.Sprintf("Downloading %s…", entry.Name))
 	sources, fetch, err := a.resolveSkillSources(profile, entry)
 	if err != nil {
@@ -123,7 +123,7 @@ func (a *app) installSkillFanout(profile fs.ProjectProfile, entry fs.CatalogEntr
 		return fmt.Errorf("no skill destination for the selected targets")
 	}
 
-	state, stateErr := fs.ReadInstalledStateV2(profile.TargetDir)
+	state, stateErr := fs.ReadInstalledStateV2(stateDir)
 	if stateErr != nil {
 		return stateErr
 	}
@@ -135,11 +135,11 @@ func (a *app) installSkillFanout(profile fs.ProjectProfile, entry fs.CatalogEntr
 		}
 	}
 	if dryRun {
-		return a.renderFanoutDryRun(projectRoot, profile.TargetDir, entry.CatalogID, plannedFiles, nil, nil, jsonOut)
+		return a.renderFanoutDryRun(projectRoot, stateDir, entry.CatalogID, plannedFiles, nil, nil, jsonOut)
 	}
 
 	previous, _ := fanoutInstalledRecord(state, entry.CatalogID, "")
-	transactionPaths := fanoutTransactionPaths(profile.TargetDir, plannedFiles, previous.ManagedFiles)
+	transactionPaths := fanoutTransactionPaths(stateDir, plannedFiles, previous.ManagedFiles)
 	transaction, transactionErr := newFanoutFileTransaction(projectRoot, transactionPaths)
 	if transactionErr != nil {
 		return transactionErr
@@ -181,10 +181,10 @@ func (a *app) installSkillFanout(profile fs.ProjectProfile, entry fs.CatalogEntr
 		return transaction.rollback(removeErr)
 	}
 	upsertFanoutRecord(&state, record)
-	if ensureErr := fs.EnsureTargetDir(profile.TargetDir); ensureErr != nil {
+	if ensureErr := fs.EnsureTargetDir(stateDir); ensureErr != nil {
 		return transaction.rollback(ensureErr)
 	}
-	if writeErr := fs.WriteInstalledStateV2(profile.TargetDir, state); writeErr != nil {
+	if writeErr := fs.WriteInstalledStateV2(stateDir, state); writeErr != nil {
 		return transaction.rollback(writeErr)
 	}
 	a.writeFanoutOwnershipMessages(ownershipMessages, jsonOut)
@@ -610,7 +610,7 @@ func (a *app) writeFanoutOwnershipMessages(messages []string, jsonOut bool) {
 	a.writeStdout(messages...)
 }
 
-func (a *app) installArtifactFanout(profile fs.ProjectProfile, cfg fs.ProjectConfigV2, entry fs.CatalogEntry, providerID, resolvedVersion, projectRoot, kind string, dryRun, jsonOut, force bool) error {
+func (a *app) installArtifactFanout(profile fs.ProjectProfile, stateDir string, cfg fs.ProjectConfigV2, entry fs.CatalogEntry, providerID, resolvedVersion, projectRoot, kind string, dryRun, jsonOut, force bool) error {
 	sources := []string{entry.SourcePath}
 	eligiblePlans := make([]fanoutTargetPlan, 0)
 	for _, target := range fs.EffectiveTargets(cfg) {
@@ -670,7 +670,7 @@ func (a *app) installArtifactFanout(profile fs.ProjectProfile, cfg fs.ProjectCon
 		return fmt.Errorf("no compatible target for artifact %s (%s)", entry.Name, kind)
 	}
 
-	state, stateErr := fs.ReadInstalledStateV2(profile.TargetDir)
+	state, stateErr := fs.ReadInstalledStateV2(stateDir)
 	if stateErr != nil {
 		return stateErr
 	}
@@ -692,7 +692,7 @@ func (a *app) installArtifactFanout(profile fs.ProjectProfile, cfg fs.ProjectCon
 				return regionErr
 			}
 		}
-		return a.renderFanoutDryRun(projectRoot, profile.TargetDir, entry.CatalogID, plannedFiles, derivedCurrentFiles, derivedIncomingFiles, jsonOut)
+		return a.renderFanoutDryRun(projectRoot, stateDir, entry.CatalogID, plannedFiles, derivedCurrentFiles, derivedIncomingFiles, jsonOut)
 	}
 
 	previousRecords := make(map[string]fs.InstalledResourceRecordV2, len(plans))
@@ -702,7 +702,7 @@ func (a *app) installArtifactFanout(profile fs.ProjectProfile, cfg fs.ProjectCon
 		previousRecords[plan.target.ID] = previous
 		previousFiles = append(previousFiles, previous.ManagedFiles...)
 	}
-	transactionPaths := fanoutTransactionPaths(profile.TargetDir, plannedFiles, previousFiles)
+	transactionPaths := fanoutTransactionPaths(stateDir, plannedFiles, previousFiles)
 	if kind == "instruction" {
 		for _, definition := range instructionRegionDefinitionsForPlans(plans) {
 			transactionPaths = append(transactionPaths, definition.path)
@@ -770,10 +770,10 @@ func (a *app) installArtifactFanout(profile fs.ProjectProfile, cfg fs.ProjectCon
 			}
 		}
 	}
-	if ensureErr := fs.EnsureTargetDir(profile.TargetDir); ensureErr != nil {
+	if ensureErr := fs.EnsureTargetDir(stateDir); ensureErr != nil {
 		return transaction.rollback(ensureErr)
 	}
-	if writeErr := fs.WriteInstalledStateV2(profile.TargetDir, state); writeErr != nil {
+	if writeErr := fs.WriteInstalledStateV2(stateDir, state); writeErr != nil {
 		return transaction.rollback(writeErr)
 	}
 	a.writeFanoutOwnershipMessages(ownershipMessages, jsonOut)
@@ -847,22 +847,99 @@ func invertReadsFrom(readsFrom map[string]string) map[string][]string {
 	return out
 }
 
-func (a *app) updateFanout(profile *fs.ProjectProfile, cfg fs.ProjectConfigV2, dryRun, jsonOut, failOnChanges bool) error {
-	state, err := fs.ReadInstalledStateV2(profile.TargetDir)
-	if err != nil {
-		if jsonOut {
-			emitJSONError(a.stdout, err, 1)
+type updateGroup struct {
+	stateDir   string
+	providerID string
+	names      []string
+}
+
+func updateStateDirs(cfg fs.ProjectConfigV2, primaryStateDir string) []string {
+	dirs := make([]string, 0, len(cfg.Providers)+1)
+	seen := make(map[string]struct{})
+	for _, candidate := range append([]string{primaryStateDir}, fs.StateTargetDirs(cfg)...) {
+		cleaned := filepath.Clean(strings.TrimSpace(candidate))
+		if cleaned == "" || cleaned == "." {
+			continue
 		}
-		return err
+		if _, exists := seen[cleaned]; exists {
+			continue
+		}
+		seen[cleaned] = struct{}{}
+		dirs = append(dirs, cleaned)
+	}
+	return dirs
+}
+
+func groupUpdateTargets(cfg fs.ProjectConfigV2, stateDirs []string, states map[string]fs.InstalledResourceStateV2) []updateGroup {
+	defaultProviderID := fs.DefaultProviderID(cfg)
+	groups := make([]updateGroup, 0)
+	indexes := make(map[string]int)
+	seenNames := make(map[string]struct{})
+	for _, stateDir := range stateDirs {
+		for _, record := range states[stateDir].Entries {
+			providerID := strings.TrimSpace(record.ProviderID)
+			if providerID == "" {
+				providerID = defaultProviderID
+			}
+			nameKey := stateDir + "\x00" + providerID + "\x00" + record.ResourceName
+			if _, exists := seenNames[nameKey]; exists {
+				continue
+			}
+			seenNames[nameKey] = struct{}{}
+			groupKey := stateDir + "\x00" + providerID
+			groupIndex, exists := indexes[groupKey]
+			if !exists {
+				groups = append(groups, updateGroup{stateDir: stateDir, providerID: providerID})
+				groupIndex = len(groups) - 1
+				indexes[groupKey] = groupIndex
+			}
+			groups[groupIndex].names = append(groups[groupIndex].names, record.ResourceName)
+		}
+	}
+	return groups
+}
+
+func (a *app) reportUpdateFailure(accumulator *fanoutJSONAccumulator, name, outcome string, cause error) {
+	if accumulator != nil {
+		accumulator.results = append(accumulator.results, updateJSONResult{ResourceName: name, Outcome: outcome, Error: cause.Error()})
+		return
+	}
+	a.writeStderr(fmt.Sprintf("Failed to update '%s': %v", name, cause))
+}
+
+func (a *app) updateFanout(primaryProfile *fs.ProjectProfile, cfg fs.ProjectConfigV2, dryRun, jsonOut, failOnChanges bool) error {
+	stateDirs := updateStateDirs(cfg, primaryProfile.TargetDir)
+	states := make(map[string]fs.InstalledResourceStateV2, len(stateDirs))
+	for _, stateDir := range stateDirs {
+		state, err := fs.ReadInstalledStateV2(stateDir)
+		if err != nil {
+			if jsonOut {
+				emitJSONError(a.stdout, err, 1)
+			}
+			return err
+		}
+		states[stateDir] = state
+		if dryRun {
+			continue
+		}
+		release, lockErr := a.prepareProviderStateAccess(stateDir, primaryProfile.TargetDir)
+		if lockErr != nil {
+			if jsonOut {
+				emitJSONError(a.stdout, lockErr, 1)
+			}
+			return lockErr
+		}
+		defer release()
 	}
 
 	if failOnChanges {
 		projectRoot, _ := filepath.Abs(".")
-		results := fs.ComputeAllStatuses(state, cfg, nil, projectRoot)
 		modified := make([]fs.StatusResult, 0)
-		for _, result := range results {
-			if result.Status == fs.ResourceStatusModifiedLocally {
-				modified = append(modified, result)
+		for _, stateDir := range stateDirs {
+			for _, result := range fs.ComputeAllStatuses(states[stateDir], cfg, nil, projectRoot) {
+				if result.Status == fs.ResourceStatusModifiedLocally {
+					modified = append(modified, result)
+				}
 			}
 		}
 		if len(modified) > 0 {
@@ -881,57 +958,22 @@ func (a *app) updateFanout(profile *fs.ProjectProfile, cfg fs.ProjectConfigV2, d
 		}
 	}
 
-	installedNames := make([]string, 0, len(state.Entries))
-	seen := make(map[string]bool)
-	for _, record := range state.Entries {
-		if seen[record.ResourceName] {
-			continue
+	groups := groupUpdateTargets(cfg, stateDirs, states)
+	updatableCount := 0
+	for _, group := range groups {
+		for _, name := range group.names {
+			if fs.PinnedVersion(cfg, name) == "" {
+				updatableCount++
+			}
 		}
-		seen[record.ResourceName] = true
-		installedNames = append(installedNames, record.ResourceName)
 	}
-	if len(installedNames) == 0 {
+	if len(groups) == 0 {
 		if jsonOut {
 			a.writeStdout("[]")
 		} else {
 			a.writeStdout("No resources to update.")
 		}
 		return nil
-	}
-
-	var entries []fs.CatalogEntry
-	if err := a.withAuthRecovery(context.Background(), func() error {
-		var listErr error
-		entries, listErr = a.client.ListCatalog(context.Background(), *profile)
-		return listErr
-	}); err != nil {
-		if jsonOut {
-			emitJSONError(a.stdout, err, 1)
-		}
-		return err
-	}
-	byID := make(map[string]fs.CatalogEntry, len(entries))
-	for _, entry := range entries {
-		byID[entry.CatalogID] = entry
-	}
-	if !dryRun && !jsonOut {
-		updateCount := 0
-		for _, name := range installedNames {
-			if fs.PinnedVersion(cfg, name) != "" {
-				continue
-			}
-			if _, found := byID[name]; found {
-				updateCount++
-			}
-		}
-		if updateCount > 0 {
-			a.progress.start(updateCount * 3)
-		}
-	}
-
-	providerID := "default"
-	if len(cfg.Providers) > 0 {
-		providerID = cfg.Providers[0].ID
 	}
 
 	var accumulator *fanoutJSONAccumulator
@@ -941,38 +983,68 @@ func (a *app) updateFanout(profile *fs.ProjectProfile, cfg fs.ProjectConfigV2, d
 		defer func() { a.fanoutJSON = nil }()
 	}
 
+	if !dryRun && !jsonOut && updatableCount > 0 {
+		a.progress.start(updatableCount * 3)
+	}
+
 	failures := 0
-	latestCache := make(map[string]string)
-	for _, name := range installedNames {
-		if pinned := fs.PinnedVersion(cfg, name); pinned != "" {
-			if accumulator != nil {
-				accumulator.results = append(accumulator.results, updateJSONResult{ResourceName: name, Outcome: "pinned", PreviousVersion: pinned})
-				continue
+	for _, group := range groups {
+		profile, profileErr := a.sourceProfile(cfg, group.providerID)
+		if profileErr != nil {
+			failures += len(group.names)
+			for _, name := range group.names {
+				a.reportUpdateFailure(accumulator, name, "failed", profileErr)
 			}
-			a.writeStdout(fmt.Sprintf("  [pinned at %s] %s", pinned, name))
 			continue
 		}
-		entry, ok := byID[name]
-		if !ok {
-			if accumulator != nil {
-				accumulator.results = append(accumulator.results, updateJSONResult{ResourceName: name, Outcome: "skipped", Error: "resource missing from catalog"})
-				continue
+
+		var entries []fs.CatalogEntry
+		listErr := a.withAuthRecovery(context.Background(), func() error {
+			var innerErr error
+			entries, innerErr = a.client.ListCatalog(context.Background(), profile)
+			return innerErr
+		})
+		if listErr != nil {
+			failures += len(group.names)
+			for _, name := range group.names {
+				a.reportUpdateFailure(accumulator, name, "failed", fmt.Errorf("provider %s unavailable: %w", group.providerID, listErr))
 			}
-			a.writeStderr(fmt.Sprintf("Resource '%s' is missing from the catalog; skipped.", name))
 			continue
 		}
-		resolvedVersion := ""
-		if !dryRun {
-			resolvedVersion = a.resolveCommitForEntry(context.Background(), cfg, providerID, entry, latestCache)
+		byID := make(map[string]fs.CatalogEntry, len(entries))
+		for _, entry := range entries {
+			entry.ProviderID = group.providerID
+			byID[entry.CatalogID] = entry
 		}
-		if err := a.installFanout(*profile, cfg, entry, providerID, resolvedVersion, dryRun, jsonOut, false); err != nil {
-			failures++
-			if accumulator != nil {
-				accumulator.results = append(accumulator.results, updateJSONResult{ResourceName: name, Outcome: "failed", Error: err.Error()})
+
+		latestCache := make(map[string]string)
+		for _, name := range group.names {
+			if pinned := fs.PinnedVersion(cfg, name); pinned != "" {
+				if accumulator != nil {
+					accumulator.results = append(accumulator.results, updateJSONResult{ResourceName: name, Outcome: "pinned", PreviousVersion: pinned})
+					continue
+				}
+				a.writeStdout(fmt.Sprintf("  [pinned at %s] %s", pinned, name))
 				continue
 			}
-			a.writeStderr(fmt.Sprintf("Failed to update '%s': %v", name, err))
-			continue
+			entry, found := byID[name]
+			if !found {
+				if accumulator != nil {
+					accumulator.results = append(accumulator.results, updateJSONResult{ResourceName: name, Outcome: "skipped", Error: "resource missing from catalog"})
+					continue
+				}
+				a.writeStderr(fmt.Sprintf("Resource '%s' is missing from the catalog of provider %s; skipped.", name, group.providerID))
+				continue
+			}
+			resolvedVersion := ""
+			if !dryRun {
+				resolvedVersion = a.resolveCommitForEntry(context.Background(), cfg, group.providerID, entry, latestCache)
+			}
+			if installErr := a.installFanout(profile, group.stateDir, cfg, entry, group.providerID, resolvedVersion, dryRun, jsonOut, false); installErr != nil {
+				failures++
+				a.reportUpdateFailure(accumulator, name, "failed", installErr)
+				continue
+			}
 		}
 	}
 

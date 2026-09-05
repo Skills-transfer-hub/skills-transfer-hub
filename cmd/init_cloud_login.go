@@ -28,11 +28,12 @@ func (a *app) promptCloudLoginIfNeeded(session *tui.Session, current fs.Telemetr
 	case hasKey && providerAttached:
 		return fs.TelemetryConnected
 	case hasKey && !providerAttached:
-		if err := ensureCloudProviderEntry(); err != nil {
+		attachment, attachErr := ensureCloudProviderEntry()
+		if attachErr != nil {
 			a.writeStderr("Warning: could not attach the sth-cloud provider.")
-			return a.downgradeToAnonymous("STH Cloud unavailable", err)
+			return a.downgradeToAnonymous("STH Cloud unavailable", attachErr)
 		}
-		a.writeStdout("The sth-cloud provider is now attached to this project.", "")
+		a.writeStdout(append(attachment.announcement(), "")...)
 		return fs.TelemetryConnected
 	}
 
@@ -95,15 +96,17 @@ func (a *app) promptCloudLoginInteractive(session *tui.Session) error {
 		return newInitUserError("could not store the key in the OS keychain", err)
 	}
 
-	if err := ensureCloudProviderEntry(); err != nil {
+	attachment, attachErr := ensureCloudProviderEntry()
+	if attachErr != nil {
 		a.writeStderr("Warning: could not write the project configuration.")
 	}
 
-	a.writeStdout(
+	lines := []string{
 		fmt.Sprintf("Connected to %s (plan %s, expires %s).", resp.Org.Name, resp.Plan, resp.ExpiresAt),
 		"Key stored in the OS keychain.",
-		"",
-	)
+	}
+	lines = append(lines, attachment.announcement()...)
+	a.writeStdout(append(lines, "")...)
 	return nil
 }
 

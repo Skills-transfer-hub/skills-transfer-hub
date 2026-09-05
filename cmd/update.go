@@ -240,14 +240,15 @@ func (a *app) runUpdate(args []string) error {
 		if queryPath == "" {
 			return ""
 		}
-		if cached, ok := latestByPath[queryPath]; ok {
+		cacheKey := fs.LatestVersionKey(providerID, queryPath)
+		if cached, ok := latestByPath[cacheKey]; ok {
 			return cached
 		}
 		sha, shaErr := a.client.GetLatestCommitSHAForPath(context.Background(), cfg, providerID, queryPath)
 		if shaErr != nil {
 			return ""
 		}
-		latestByPath[queryPath] = sha
+		latestByPath[cacheKey] = sha
 		return sha
 	}
 
