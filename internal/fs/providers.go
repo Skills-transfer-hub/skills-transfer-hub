@@ -116,6 +116,14 @@ func StateTargetDirs(cfg ProjectConfigV2) []string {
 	return dirs
 }
 
+func RecordProviderID(cfg ProjectConfigV2, record InstalledResourceRecordV2) string {
+	trimmed := strings.TrimSpace(record.ProviderID)
+	if trimmed != "" {
+		return trimmed
+	}
+	return DefaultProviderID(cfg)
+}
+
 func LatestVersionKey(providerID, queryPath string) string {
 	return strings.TrimSpace(providerID) + "\x00" + queryPath
 }

@@ -55,7 +55,7 @@ func ComputeAllStatuses(state InstalledResourceStateV2, config ProjectConfigV2, 
 			}
 			resolved.ManagedRegions = regions
 		}
-		latestVersion := latestByPath[CommitQueryPath(rec.SourcePath, rec.ArtifactKind)]
+		latestVersion := latestByPath[LatestVersionKey(RecordProviderID(config, rec), CommitQueryPath(rec.SourcePath, rec.ArtifactKind))]
 		status, modFiles := ComputeResourceStatus(resolved, latestVersion)
 		pinnedVer := PinnedVersion(config, rec.ResourceName)
 		results = append(results, StatusResult{

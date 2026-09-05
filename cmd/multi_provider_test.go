@@ -200,3 +200,62 @@ func TestUpdateRefreshesFromTheOriginProvider(t *testing.T) {
 		t.Fatalf("state after update = %+v, want provider_id internal", state.Entries)
 	}
 }
+
+func newGitLabProviderServer(t *testing.T) *httptest.Server {
+	t.Helper()
+	server := httptest.NewServer(stdhttp.HandlerFunc(func(responseWriter stdhttp.ResponseWriter, request *stdhttp.Request) {
+		switch request.URL.EscapedPath() {
+		case "/projects/group%2Fskills/repository/files/SKILLS.md/raw":
+			_, _ = responseWriter.Write([]byte(testCatalogMarkdown(
+				"| agent | gitlab-agent | agents | agents/gitlab-agent.md | GitLab |",
+			)))
+		case "/projects/group%2Fskills/repository/files/agents%2Fgitlab-agent.md/raw":
+			_, _ = responseWriter.Write([]byte("---\ndescription: GitLab\n---\nGITLAB_SENTINEL\n"))
+		case "/projects/group%2Fskills/repository/commits":
+			responseWriter.Header().Set("Content-Type", "application/json")
+			_, _ = responseWriter.Write([]byte(`[{"id":"g1t1ab00000000000"}]`))
+		default:
+			stdhttp.NotFound(responseWriter, request)
+		}
+	}))
+	t.Cleanup(server.Close)
+	t.Setenv("STH_GITLAB_API_BASE_URL", server.URL)
+	return server
+}
+
+func TestInstallResolvesVersionForNonGithubProvider(t *testing.T) {
+	newMultiProviderServer(t)
+	newGitLabProviderServer(t)
+
+	config := multiProviderConfig()
+	config.Providers = append(config.Providers, fs.ProviderEntry{
+		ID:           "gitlab",
+		Provider:     "gitlab",
+		RepositoryID: "group/skills",
+		CatalogRef:   "main",
+		CatalogPath:  "SKILLS.md",
+		TargetDir:    ".sth",
+	})
+	projectDir := t.TempDir()
+	writeProjectConfigV2ForTest(t, projectDir, config)
+
+	result := runCLI(t, projectDir, t.TempDir(), "install", "gitlab-agent")
+	if result.err != nil {
+		t.Fatalf("install error = %v\nstderr=%s", result.err, result.stderr)
+	}
+
+	content := readProjectFile(t, projectDir, ".claude/agents/gitlab-agent.md")
+	if !strings.Contains(content, "GITLAB_SENTINEL") {
+		t.Fatalf("installed content = %q", content)
+	}
+	state := readStateV2(t, projectDir)
+	if len(state.Entries) != 1 {
+		t.Fatalf("state = %+v, want a single record", state.Entries)
+	}
+	if state.Entries[0].ProviderID != "gitlab" {
+		t.Fatalf("provider_id = %q, want gitlab", state.Entries[0].ProviderID)
+	}
+	if state.Entries[0].ResolvedVersion != "g1t1ab00000000000" {
+		t.Fatalf("resolved_version = %q, want the GitLab commit id", state.Entries[0].ResolvedVersion)
+	}
+}
