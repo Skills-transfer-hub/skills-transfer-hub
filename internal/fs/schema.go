@@ -37,8 +37,8 @@ func (c *OwnershipConflict) Error() string {
 //
 // Targets and ScannerHint are PR3+ extensions; omitempty keeps legacy v2
 // configs untouched on write when these fields are not set. When Targets
-// is empty, callers should resolve the effective targets via EffectiveTargets,
-// which synthesizes a single Claude target from each provider's TargetDir.
+// is empty, EffectiveTargets synthesizes a single Claude destination; target
+// identity is the destination tool, never the source provider.
 type ProjectConfigV2 struct {
 	SchemaVersion int             `json:"schema_version"`
 	Providers     []ProviderEntry `json:"providers"`
@@ -47,10 +47,6 @@ type ProjectConfigV2 struct {
 	ScannerHint   string          `json:"scanner_hint,omitempty"`
 }
 
-// TargetEntry describes one writable destination tool for installed artifacts.
-// Kind values today: "claude", "copilot", "codex", "cursor". RootDir is the
-// project-relative directory where the writer for that kind installs files
-// (e.g. ".claude/skills" for Claude, ".github" for Copilot).
 type TargetEntry struct {
 	ID      string `json:"id"`
 	Kind    string `json:"kind"`
@@ -62,26 +58,19 @@ type TargetEntry struct {
 // project configs that have no explicit Targets list.
 const TargetKindClaude = "claude"
 
-// EffectiveTargets returns the targets STH should install to for cfg.
-// When cfg.Targets is non-empty it is returned as-is. Otherwise one
-// Claude target is synthesized per provider, using the provider's TargetDir
-// as the destination root. This preserves the pre-multi-target behavior:
-// any v2 config written before PR5 still installs to the same Claude
-// .claude/skills directory it always did.
 func EffectiveTargets(cfg ProjectConfigV2) []TargetEntry {
 	if len(cfg.Targets) > 0 {
 		return cfg.Targets
 	}
-	result := make([]TargetEntry, 0, len(cfg.Providers))
-	for _, provider := range cfg.Providers {
-		result = append(result, TargetEntry{
-			ID:      provider.ID,
-			Kind:    TargetKindClaude,
-			RootDir: provider.TargetDir,
-			Enabled: true,
-		})
+	if len(cfg.Providers) == 0 {
+		return []TargetEntry{}
 	}
-	return result
+	return []TargetEntry{{
+		ID:      TargetKindClaude,
+		Kind:    TargetKindClaude,
+		RootDir: fallbackTargetDirFor(cfg),
+		Enabled: true,
+	}}
 }
 
 // ProviderEntry describes one configured remote provider in v2 project.json.

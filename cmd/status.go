@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"strings"
+
 	"sth/internal/fs"
 	sthhttp "sth/internal/http"
 )
@@ -75,8 +77,12 @@ func (a *app) runStatusInner(jsonOut bool) error {
 		return nil
 	}
 
+	showProvider := len(config.Providers) > 1
 	for _, result := range results {
 		line := fmt.Sprintf("%-30s  %s", result.ResourceName, result.Status)
+		if showProvider {
+			line = fmt.Sprintf("%-30s  %-16s  %s", result.ResourceName, statusProviderLabel(config, result), result.Status)
+		}
 		if result.Status == fs.ResourceStatusOutdated && !result.Pinned {
 			line += fmt.Sprintf("  installed: %.8s  available: %.8s", result.InstalledVersion, result.LatestVersion)
 		}
@@ -98,6 +104,13 @@ func (a *app) runStatusInner(jsonOut bool) error {
 	}
 
 	return nil
+}
+
+func statusProviderLabel(config fs.ProjectConfigV2, result fs.StatusResult) string {
+	if strings.TrimSpace(result.ProviderID) != "" {
+		return result.ProviderID
+	}
+	return fs.DefaultProviderID(config)
 }
 
 func projectStateDirs(config fs.ProjectConfigV2) ([]string, error) {
