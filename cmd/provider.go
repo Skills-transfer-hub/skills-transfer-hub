@@ -59,7 +59,7 @@ func (a *app) runProviderList() error {
 		}
 		lines = append(lines, fmt.Sprintf("%s %-16s %-40s %-13s %d resource(s)", marker, providerID, descriptor, health, installedCounts[providerID]))
 	}
-	lines = append(lines, "", "* default source when a resource exists in a single catalog or `--provider` is omitted.")
+	lines = append(lines, "", "* default source, used for resources installed before their origin was tracked.")
 	a.writeStdout(lines...)
 	return nil
 }
