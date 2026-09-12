@@ -5,24 +5,30 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"sth/internal/artifact"
 	"sth/internal/fs"
 )
 
-// runList implements `sth list`. With --json, the semantics differ from text
-// mode: text mode shows the remote catalog; JSON mode shows the installed
-// resources state (FR-020 schema). The schema documents this divergence.
 func (a *app) runList() error {
 	return a.runListWithArgs(nil)
 }
 
-func (a *app) runListWithArgs(args []string) error {
+func (a *app) runListWithArgs(args []string) (resultErr error) {
+	defer func() {
+		if !slices.Contains(args, "--installed") && !hasArtifactListOptions(args) {
+			a.recordOperationResult("list", "", resultErr)
+		}
+		if resultErr != nil && slices.Contains(args, "--json") {
+			emitJSONError(a.stdout, resultErr, 1)
+		}
+	}()
 	if hasArtifactListOptions(args) {
 		return a.runArtifactList(args)
 	}
-	flags, _ := parseFlags(args, "--json")
+	flags, _ := parseFlags(args, "--json", "--installed")
 	jsonOut := flags["--json"]
 
 	if cfgPath, err := fs.ProjectProfilePath(); err == nil {
@@ -31,8 +37,8 @@ func (a *app) runListWithArgs(args []string) error {
 		}
 	}
 
-	if jsonOut {
-		return a.runListJSON()
+	if flags["--installed"] {
+		return a.runInstalledList(jsonOut)
 	}
 
 	cfg, err := fs.ReadProjectConfigV2ReadOnly()
@@ -45,6 +51,14 @@ func (a *app) runListWithArgs(args []string) error {
 		return err
 	}
 	a.reportProviderFailures(catalog.failures)
+	if jsonOut {
+		payload, err := json.Marshal(catalog.entries)
+		if err != nil {
+			return err
+		}
+		a.writeStdout(string(payload))
+		return nil
+	}
 
 	if len(catalog.entries) == 0 {
 		a.writeStdout("No resources available in the remote catalog.")
@@ -188,26 +202,29 @@ type listJSONEntry struct {
 	PinnedVersion   any    `json:"pinned_version"` // null when unpinned
 }
 
-func (a *app) runListJSON() error {
+func (a *app) runListJSON() error { return a.runInstalledList(true) }
+
+func (a *app) runInstalledList(jsonOut bool) error {
 	cfg, err := fs.ReadProjectConfigV2()
 	if err != nil {
-		emitJSONError(a.stdout, err, 1)
 		return err
 	}
 	if len(cfg.Providers) == 0 {
-		a.writeStdout("[]")
+		if jsonOut {
+			a.writeStdout("[]")
+		} else {
+			a.writeStdout("Aucun skill installé. Choisissez Installer un skill.")
+		}
 		return nil
 	}
 
 	stateDirs, dirsErr := projectStateDirs(cfg)
 	if dirsErr != nil {
-		emitJSONError(a.stdout, dirsErr, 1)
 		return dirsErr
 	}
 
 	state, err := fs.ReadInstalledStateAcrossDirs(stateDirs)
 	if err != nil {
-		emitJSONError(a.stdout, err, 1)
 		return err
 	}
 
@@ -229,9 +246,17 @@ func (a *app) runListJSON() error {
 		out = append(out, entry)
 	}
 
+	if !jsonOut {
+		if len(out) == 0 {
+			a.writeStdout("Aucun skill installé. Choisissez Installer un skill.")
+		}
+		for _, entry := range out {
+			a.writeStdout(fmt.Sprintf("%s [%s] — %s — version %s — pinned %v", entry.ResourceName, entry.ProviderID, entry.Status, entry.ResolvedVersion, entry.PinnedVersion))
+		}
+		return nil
+	}
 	data, err := json.Marshal(out)
 	if err != nil {
-		emitJSONError(a.stdout, err, 1)
 		return err
 	}
 	a.writeStdout(string(data))

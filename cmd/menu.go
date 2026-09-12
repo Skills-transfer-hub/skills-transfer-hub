@@ -16,9 +16,10 @@ var errMenuQuit = errors.New("menu: exit requested")
 type projectState string
 
 const (
-	projectStateUnconfigured    projectState = "unconfigured"
-	projectStateConfiguredBad   projectState = "configured-invalid"
-	projectStateConfiguredReady projectState = "configured-ready"
+	projectStateUnconfigured         projectState = "unconfigured"
+	projectStateConfiguredBad        projectState = "configured-invalid"
+	projectStateConfiguredReady      projectState = "configured-ready"
+	projectStateConnectionUnverified projectState = "connection-unverified"
 )
 
 func projectStateLabel(state projectState) string {
@@ -27,6 +28,8 @@ func projectStateLabel(state projectState) string {
 		return "not configured"
 	case projectStateConfiguredBad:
 		return "invalid configuration"
+	case projectStateConnectionUnverified:
+		return "connexion non vérifiée"
 	case projectStateConfiguredReady:
 		return "ready"
 	default:
@@ -55,7 +58,7 @@ func (a *app) loadGuidedStartupState() guidedStartupState {
 			state.UpdateOffer = a.cachedStableUpdateOffer()
 			a.refreshUpdateOfferInBackground()
 			if state.ProjectState == projectStateConfiguredReady && state.UpdateOffer != nil && state.UpdateOffer.DownloadReady {
-				state.AvailableActions = []string{"list", "install", "update", "update-self", "show-config", "provider-guide", "init", "help", "quit"}
+				state.AvailableActions = []string{"install", "status", "remove", "update", "doctor", "list", "update-self", "advanced", "quit"}
 			}
 		}
 		return state
@@ -75,17 +78,21 @@ func (a *app) loadGuidedStartupState() guidedStartupState {
 		return withUpdateOffer(guidedStartupState{
 			InteractionMode:  mode,
 			ProjectState:     projectStateUnconfigured,
-			PrimaryAction:    "init",
-			AvailableActions: []string{"init", "help", "quit"},
+			PrimaryAction:    "install",
+			AvailableActions: []string{"install", "advanced", "quit"},
 			Detail:           "No project configuration found.",
 		})
 	}
 
+	state := projectStateConfiguredReady
+	if lastOperation, err := fs.ReadLastOperation(); err == nil && lastOperation != nil && lastOperation.Status == fs.LastOperationStatusError {
+		state = projectStateConnectionUnverified
+	}
 	return withUpdateOffer(guidedStartupState{
 		InteractionMode:  mode,
-		ProjectState:     projectStateConfiguredReady,
-		PrimaryAction:    "list",
-		AvailableActions: []string{"list", "install", "update", "show-config", "provider-guide", "init", "help", "quit"},
+		ProjectState:     state,
+		PrimaryAction:    "install",
+		AvailableActions: []string{"install", "status", "remove", "update", "doctor", "list", "advanced", "quit"},
 		ProviderHint:     profile.Provider,
 		Detail:           fmt.Sprintf("Configured provider: %s", profile.Provider),
 	})
@@ -120,10 +127,18 @@ func updateOfferLines(offer *fs.StableUpdateOffer) []string {
 
 func guidedActionLabel(action string) string {
 	switch action {
+	case "status":
+		return "Mes skills"
+	case "remove":
+		return "Supprimer"
+	case "doctor":
+		return "Diagnostic"
+	case "advanced":
+		return "Réglages avancés"
 	case "list":
 		return "List catalog resources"
 	case "install":
-		return "Install a resource or bundle"
+		return "Installer un skill"
 	case "update":
 		return "Update tracked resources"
 	case "update-self":
@@ -145,10 +160,18 @@ func guidedActionLabel(action string) string {
 
 func guidedActionDescription(action string) string {
 	switch action {
+	case "status":
+		return "Voir les skills installés dans ce projet"
+	case "remove":
+		return "Choisir un skill et voir ses fichiers avant suppression"
+	case "doctor":
+		return "Vérifier la configuration et les accès"
+	case "advanced":
+		return "Dépôts, tokens, configuration et commandes techniques"
 	case "list":
 		return "Show resources from the remote catalog"
 	case "install":
-		return "Add a resource or bundle to your targets"
+		return "Choisir un skill, son assistant, puis vérifier les fichiers"
 	case "update":
 		return "Refresh tracked resources from the repository"
 	case "update-self":
@@ -188,6 +211,9 @@ func projectStateBadge(state projectState) string {
 	case projectStateConfiguredBad:
 		label = "invalid configuration"
 		style = tui.ErrorStyle
+	case projectStateConnectionUnverified:
+		label = "connexion non vérifiée"
+		style = tui.WarningStyle
 	case projectStateConfiguredReady:
 		label = "ready"
 		style = tui.SuccessStyle
@@ -270,19 +296,28 @@ func (a *app) promptGuidedMenuAction(session *tui.Session, state guidedStartupSt
 	return state.AvailableActions[index], nil
 }
 
-func (a *app) executeGuidedMenuAction(session *tui.Session, action string) error {
+func (a *app) executeGuidedMenuAction(session *tui.Session, action string) (resultErr error) {
+	defer func() {
+		switch action {
+		case "list", "install", "update", "doctor":
+			if !errors.Is(resultErr, tui.ErrAborted) {
+				a.recordOperationResult(action, "", resultErr)
+			}
+		}
+	}()
 	switch action {
 	case "list":
 		return a.runList()
 	case "install":
-		resourceRef, err := tui.Input(session, tui.InputConfig{
-			Label:    "Resource or bundle reference",
-			Required: true,
-		})
-		if err != nil {
-			return err
-		}
-		return a.runInstall([]string{resourceRef})
+		return a.runFirstSkill(session)
+	case "status":
+		return a.runListWithArgs([]string{"--installed"})
+	case "remove":
+		return a.runGuidedRemove(session)
+	case "doctor":
+		return a.runDoctor(nil)
+	case "advanced":
+		return a.runAdvancedMenu(session)
 	case "update":
 		return a.runUpdate([]string{})
 	case "update-self":
@@ -367,6 +402,9 @@ func renderProviderGuideLines(provider string) []string {
 }
 
 func startupGuidanceLines(state guidedStartupState) []string {
+	if state.PrimaryAction == "install" {
+		state.PrimaryAction = "init"
+	}
 	lines := []string{
 		fmt.Sprintf("Project state: %s", projectStateLabel(state.ProjectState)),
 		fmt.Sprintf("Recommended action: sth %s", state.PrimaryAction),

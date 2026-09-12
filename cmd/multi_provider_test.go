@@ -285,7 +285,7 @@ func TestStatusGroupsOneLinePerResource(t *testing.T) {
 		t.Fatalf("status printed the resource %d times, want once:\n%s", occurrences, statusResult.stdout)
 	}
 
-	listResult := runCLI(t, projectDir, t.TempDir(), "list", "--json")
+	listResult := runCLI(t, projectDir, t.TempDir(), "list", "--installed", "--json")
 	if listResult.err != nil {
 		t.Fatalf("list --json error = %v", listResult.err)
 	}

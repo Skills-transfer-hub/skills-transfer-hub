@@ -18,7 +18,7 @@ func refuseModifiedResources(state fs.InstalledResourceStateV2, config fs.Projec
 			continue
 		}
 		if result.Status == fs.ResourceStatusModifiedLocally {
-			return fmt.Errorf("resource %q has local modifications in %v; restore or remove it before continuing", result.ResourceName, result.ModifiedFiles)
+			return fmt.Errorf("resource %q has local modifications in %v; copy your edits outside the managed folder, then restore the original file before retrying", result.ResourceName, result.ModifiedFiles)
 		}
 	}
 	return nil

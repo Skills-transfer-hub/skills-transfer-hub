@@ -13,17 +13,19 @@ import (
 )
 
 func (a *app) runStatus(args []string) error {
-	flags, _ := parseFlags(args, "--json")
+	flags, _ := parseFlags(args, "--json", "--local")
 	jsonOut := flags["--json"]
 
-	statusErr := a.runStatusInner(jsonOut)
+	statusErr := a.runStatusInnerWithLocal(jsonOut, flags["--local"])
 	if statusErr != nil && jsonOut {
 		emitJSONError(a.stdout, statusErr, 1)
 	}
 	return statusErr
 }
 
-func (a *app) runStatusInner(jsonOut bool) error {
+func (a *app) runStatusInner(jsonOut bool) error { return a.runStatusInnerWithLocal(jsonOut, false) }
+
+func (a *app) runStatusInnerWithLocal(jsonOut, localOnly bool) error {
 	if configPath, err := fs.ProjectProfilePath(); err == nil {
 		if absolutePath, absolutePathErr := filepath.Abs(configPath); absolutePathErr == nil {
 			a.verbose.Path("project.json", absolutePath)
@@ -60,17 +62,19 @@ func (a *app) runStatusInner(jsonOut bool) error {
 	}
 
 	var latestByPath map[string]string
-	if err := a.withAuthRecovery(context.Background(), func() error {
-		resolved, resolveErr := a.latestVersionsByPath(context.Background(), config, state)
-		if resolveErr != nil {
-			return fmt.Errorf("network error fetching latest versions: %w", resolveErr)
+	if !localOnly {
+		if err := a.withAuthRecovery(context.Background(), func() error {
+			resolved, resolveErr := a.latestVersionsByPath(context.Background(), config, state)
+			if resolveErr != nil {
+				return fmt.Errorf("network error fetching latest versions: %w", resolveErr)
+			}
+			latestByPath = resolved
+			return nil
+		}); err != nil {
+			return err
 		}
-		latestByPath = resolved
-		return nil
-	}); err != nil {
-		return err
-	}
 
+	}
 	results := fs.GroupStatusesByResource(fs.ComputeAllStatuses(state, config, latestByPath, projectRoot))
 	v3Results := []fs.StatusResultV3(nil)
 	if useV3 {

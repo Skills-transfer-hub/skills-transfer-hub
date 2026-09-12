@@ -6,28 +6,23 @@ import (
 	"strings"
 )
 
-// DeleteManagedFiles deletes each managed file for a record.
-// Missing files are reported in failedPaths with "(missing)" prefix but not treated as errors.
-// Permission/lock errors are reported in failedPaths as real errors.
 func DeleteManagedFiles(record InstalledResourceRecordV2) (deletedPaths []string, failedPaths []string) {
-	for _, mf := range record.ManagedFiles {
-		err := os.Remove(mf.Path)
+	for _, managedFile := range record.ManagedFiles {
+		err := os.Remove(managedFile.Path)
 		if err == nil {
-			deletedPaths = append(deletedPaths, mf.Path)
+			deletedPaths = append(deletedPaths, managedFile.Path)
 			continue
 		}
 		if os.IsNotExist(err) {
-			failedPaths = append(failedPaths, "(missing) "+mf.Path)
+			failedPaths = append(failedPaths, "(missing) "+managedFile.Path)
 		} else {
-			failedPaths = append(failedPaths, mf.Path)
+			failedPaths = append(failedPaths, managedFile.Path)
 		}
 	}
 	return
 }
 
-// RemoveResourceFromState removes the named resource record from sth-state-v2.json.
-// Returns an error when the name is not found.
-func RemoveResourceFromState(targetDir string, resourceName string) error {
+func RemoveResourceFromState(targetDir string, resourceName string, providerIDs ...string) error {
 	state, err := ReadInstalledStateV2(targetDir)
 	if err != nil {
 		return err
@@ -35,11 +30,11 @@ func RemoveResourceFromState(targetDir string, resourceName string) error {
 
 	found := false
 	filtered := state.Entries[:0]
-	for _, rec := range state.Entries {
-		if rec.ResourceName == resourceName {
+	for _, record := range state.Entries {
+		if record.ResourceName == resourceName && (len(providerIDs) == 0 || record.ProviderID == providerIDs[0]) {
 			found = true
 		} else {
-			filtered = append(filtered, rec)
+			filtered = append(filtered, record)
 		}
 	}
 	if !found {
@@ -50,7 +45,6 @@ func RemoveResourceFromState(targetDir string, resourceName string) error {
 	return WriteInstalledStateV2(targetDir, state)
 }
 
-// isMissingFailure reports whether a failedPath is a "(missing)" warning rather than a real error.
-func isMissingFailure(p string) bool {
-	return strings.HasPrefix(p, "(missing) ")
+func isMissingFailure(failedPath string) bool {
+	return strings.HasPrefix(failedPath, "(missing) ")
 }

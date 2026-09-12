@@ -54,12 +54,12 @@ var commandCatalog = []commandSpec{
 	},
 	{
 		name:    "list",
-		usage:   "sth list [--type <kind>] [--scope <scope>] [--target <target>] [--status <status>] [--json]",
+		usage:   "sth list [--installed] [--type <kind>] [--scope <scope>] [--target <target>] [--status <status>] [--json]",
 		summary: "List the configured remote provider repository catalog (requires `sth init`)",
 		details: []string{
 			"Text mode reads SKILLS.md from the remote provider repository (GitHub, GitLab, and others). If it is missing, STH scans the remote tree and infers category/folder bundles. Requires `sth init` and network access.",
 			"To generate a local SKILLS.md from the current repository, use `catalog init` instead.",
-			"With --json, returns the state of locally installed resources (resource_name, provider_id, status, resolved_version, pinned_version). This differs from text mode.",
+			"Text and JSON list the same remote catalog. Add --installed for local installed resources in either format.",
 			"When an artifact filter is present, scans local native artifacts and reports their dialect, scope, state, and compatibility plans.",
 		},
 		examples: []string{
@@ -67,7 +67,7 @@ var commandCatalog = []commandSpec{
 			"sth list --json",
 			"sth list --type agent --target codex --json",
 		},
-		flags: []string{"--type", "--scope", "--target", "--status", "--json"},
+		flags: []string{"--installed", "--type", "--scope", "--target", "--status", "--json"},
 	},
 	{
 		name:    "install",
@@ -162,13 +162,13 @@ var commandCatalog = []commandSpec{
 	},
 	{
 		name:    "remove",
-		usage:   "sth remove <resource-name> [--yes]",
+		usage:   "sth remove <resource-ref> [--provider <id>] [--yes] [--json]",
 		summary: "Remove an installed resource and its managed files",
 		examples: []string{
 			"sth remove skills/analyse-risque",
 			"sth remove skills/analyse-risque --yes",
 		},
-		flags: []string{"--yes"},
+		flags: []string{"--yes", "--provider", "--json"},
 	},
 	{
 		name:    "buddy",
@@ -205,7 +205,7 @@ var commandCatalog = []commandSpec{
 	},
 	{
 		name:    "doctor",
-		usage:   "sth doctor",
+		usage:   "sth doctor [--json]",
 		summary: "Diagnose the current project's STH setup (token, config, state, and provider access)",
 		details: []string{
 			"Shows pass or fail for every check, with a remediation step after each failure.",

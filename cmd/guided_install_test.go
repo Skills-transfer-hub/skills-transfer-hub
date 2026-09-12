@@ -1,0 +1,106 @@
+package cmd
+
+import (
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"reflect"
+	"strings"
+	"testing"
+
+	"sth/internal/fs"
+)
+
+func TestFirstSkillMenuFromEmptyFolder(t *testing.T) {
+	server := skillBundleServer(t)
+	defer server.Close()
+	t.Setenv("STH_GITHUB_RAW_BASE_URL", server.URL)
+	t.Setenv("STH_GITHUB_API_BASE_URL", server.URL)
+	projectDir := t.TempDir()
+	result := runCLIWithOptions(t, cliOptions{workDir: projectDir, homeDir: t.TempDir(), input: "install\nowner/repo\nalpha\nclaude\ny\nquit\n", interactive: func() bool { return true }})
+	if result.err != nil {
+		t.Fatalf("%v\n%s\n%s", result.err, result.stdout, result.stderr)
+	}
+	for _, expected := range []string{"Alpha", "Choisir son assistant", "Fichiers concernés", ".claude/skills/alpha/SKILL.md", "Pour essayer", "/alpha", "sth remove"} {
+		assertContains(t, result.stdout, expected)
+	}
+	assertFileExists(t, filepath.Join(projectDir, ".claude/skills/alpha/SKILL.md"))
+	if strings.Index(result.stdout, "Fichiers concernés") > strings.Index(result.stdout, "Installer ce skill") {
+		t.Fatal("confirmation happened before file preview")
+	}
+}
+
+func TestFirstSkillCancelWritesNoSkillFiles(t *testing.T) {
+	server := skillBundleServer(t)
+	defer server.Close()
+	t.Setenv("STH_GITHUB_RAW_BASE_URL", server.URL)
+	t.Setenv("STH_GITHUB_API_BASE_URL", server.URL)
+	projectDir := t.TempDir()
+	result := runCLIWithOptions(t, cliOptions{workDir: projectDir, homeDir: t.TempDir(), input: "install\nowner/repo\nalpha\nclaude\nn\nquit\n", interactive: func() bool { return true }})
+	if result.err != nil {
+		t.Fatalf("%v\n%s", result.err, result.stdout)
+	}
+	assertNoFile(t, filepath.Join(projectDir, ".claude/skills/alpha/SKILL.md"))
+	assertContains(t, result.stdout, "Installation annulée")
+}
+
+func TestCatalogTextAndJSONDescribeSameRemoteSkills(t *testing.T) {
+	server := skillBundleServer(t)
+	defer server.Close()
+	t.Setenv("STH_GITHUB_RAW_BASE_URL", server.URL)
+	t.Setenv("STH_GITHUB_API_BASE_URL", server.URL)
+	projectDir, homeDir := t.TempDir(), t.TempDir()
+	writeProjectConfigV2ForTest(t, projectDir, fanoutConfig(fanoutTarget("claude", ".claude")))
+	textResult := runCLI(t, projectDir, homeDir, "list")
+	jsonResult := runCLI(t, projectDir, homeDir, "list", "--json")
+	if textResult.err != nil || jsonResult.err != nil {
+		t.Fatalf("%v / %v", textResult.err, jsonResult.err)
+	}
+	var entries []fs.CatalogEntry
+	if err := json.Unmarshal([]byte(jsonResult.stdout), &entries); err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("expected available uninstalled skill: %s", jsonResult.stdout)
+	}
+	assertContains(t, textResult.stdout, entries[0].Name)
+	assertContains(t, textResult.stdout, entries[0].Description)
+}
+
+func TestUnchangedSkillPreservesFilesStateAndChosenAssistant(t *testing.T) {
+	server := skillBundleServer(t)
+	defer server.Close()
+	t.Setenv("STH_GITHUB_RAW_BASE_URL", server.URL)
+	t.Setenv("STH_GITHUB_API_BASE_URL", server.URL)
+	projectDir, homeDir := t.TempDir(), t.TempDir()
+	writeProjectConfigV2ForTest(t, projectDir, fanoutConfig(fanoutTarget("claude", ".claude"), fanoutTarget("codex", ".codex")))
+	if result := runCLI(t, projectDir, homeDir, "install", "alpha", "--target", "claude"); result.err != nil {
+		t.Fatal(result.err)
+	}
+	before := transactionalProjectFileSnapshot(t, projectDir)
+	for _, args := range [][]string{{"install", "alpha", "--target", "claude"}, {"update"}} {
+		result := runCLI(t, projectDir, homeDir, args...)
+		if result.err != nil {
+			t.Fatal(result.err)
+		}
+		assertContains(t, result.stdout, "Déjà à jour")
+		if after := transactionalProjectFileSnapshot(t, projectDir); !reflect.DeepEqual(before, after) {
+			t.Fatal("unchanged operation altered project files or state")
+		}
+	}
+	assertNoFile(t, filepath.Join(projectDir, ".agents/skills/alpha/SKILL.md"))
+	filePath := filepath.Join(projectDir, ".claude/skills/alpha/SKILL.md")
+	if err := os.WriteFile(filePath, []byte("personal edit"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{{"update"}, {"remove", "alpha", "--yes"}} {
+		result := runCLI(t, projectDir, homeDir, args...)
+		if result.err == nil {
+			t.Fatalf("%v should preserve edits", args)
+		}
+		assertContains(t, result.err.Error(), "copy your edits")
+	}
+	if content, err := os.ReadFile(filePath); err != nil || string(content) != "personal edit" {
+		t.Fatalf("edit lost: %q %v", content, err)
+	}
+}

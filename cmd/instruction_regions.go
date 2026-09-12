@@ -347,7 +347,7 @@ func (a *app) removeRecordsWithManagedRegions(targetDir, resourceName string, re
 
 	remainingEntries := make([]fs.InstalledResourceRecordV2, 0, len(state.Entries))
 	for _, record := range state.Entries {
-		if record.ResourceName != resourceName {
+		if record.ResourceName != resourceName || record.ProviderID != records[0].ProviderID {
 			remainingEntries = append(remainingEntries, record)
 		}
 	}

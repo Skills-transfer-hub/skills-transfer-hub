@@ -255,7 +255,7 @@ func ReadInstalledStateAcrossDirs(targetDirs []string) (InstalledResourceStateV2
 			return InstalledResourceStateV2{}, err
 		}
 		for _, record := range state.Entries {
-			key := record.ResourceName + "\x00" + record.TargetID
+			key := record.ProviderID + "\x00" + record.ResourceName + "\x00" + record.TargetID
 			if _, exists := seen[key]; exists {
 				continue
 			}

@@ -592,6 +592,7 @@ func (a *app) collectInitDraftOutput(draft wizardProfile, validationErr error) (
 	if err != nil {
 		return nil, newInitUserError("could not save the project configuration", err)
 	}
+	a.recordOperationResult("init", draft.Alias, validationErr)
 	lines := []string{fmt.Sprintf("✓ Configuration saved: %s", path)}
 	lines = append(lines, providerAddedLines(currentCfg, entry)...)
 	if workingDir, wdErr := os.Getwd(); wdErr == nil {

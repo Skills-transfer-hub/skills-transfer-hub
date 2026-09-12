@@ -197,26 +197,23 @@ func TestDoctor_passesWithNearExpiryDetail(t *testing.T) {
 	}
 }
 
-func TestDoctor_credentialFailWhenNoToken(t *testing.T) {
+func TestDoctorPublicRepositoryNeedsNoToken(t *testing.T) {
 	projectDir := t.TempDir()
-	targetDir := ".claude/resources"
-	writeProjectConfigV2ForTest(t, projectDir, fs.ProjectConfigV2{
-		SchemaVersion: 2,
-		Providers: []fs.ProviderEntry{
-			{ID: "main", Provider: "github", RepositoryID: "owner/repo", CatalogRef: "main", CatalogPath: "SKILLS.md", TargetDir: targetDir},
-		},
-	})
+	writeProjectConfigV2ForTest(t, projectDir, fanoutConfig(fanoutTarget("claude", ".claude")))
 	t.Setenv("STH_TOKEN", "")
 	t.Setenv("ACTIONS_ID_TOKEN_REQUEST_URL", "")
-
-	res := runCLI(t, projectDir, t.TempDir(), "doctor")
-	if res.err == nil {
-		t.Fatal("expected non-zero exit when no creds")
+	server := httptest.NewServer(stdhttp.HandlerFunc(func(response stdhttp.ResponseWriter, request *stdhttp.Request) {
+		if request.Header.Get("Authorization") != "" {
+			t.Error("expected anonymous access")
+		}
+		response.WriteHeader(stdhttp.StatusOK)
+	}))
+	defer server.Close()
+	t.Setenv("STH_GITHUB_API_BASE_URL", server.URL)
+	result := runCLI(t, projectDir, t.TempDir(), "doctor")
+	if result.err != nil {
+		t.Fatalf("public diagnosis failed: %v\n%s", result.err, result.stdout)
 	}
-	if !strings.Contains(res.stdout, "[✗] Credential validity") {
-		t.Fatalf("missing credential fail line: %q", res.stdout)
-	}
-	if !strings.Contains(res.stdout, "Set a valid STH_TOKEN") {
-		t.Fatalf("missing remediation: %q", res.stdout)
-	}
+	assertContains(t, result.stdout, "no token required")
+	assertNotContains(t, result.stdout, "Set a valid STH_TOKEN")
 }

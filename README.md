@@ -563,3 +563,13 @@ internal/http/      Accès provider-aware, lecture de SKILLS.md, téléchargemen
 specs/              Spécifications actives des fonctionnalités en cours ou de référence
 ```
 
+
+### First skill from the menu
+
+Run `sth` in your project, choose **Installer un skill**, select a skill and its assistant, inspect the file preview, then confirm. In an empty folder, the short setup asks for a public GitHub repository (default: `anthropics/skills`). Other repositories, credentials and configuration remain under **Réglages avancés**. After installation, the menu explains how to open a fresh assistant conversation and invoke the skill.
+
+**Mes skills** lists installed resources without network access. **Supprimer** previews the managed files before confirmation; personal modifications must be copied aside and the original restored before removal. **Diagnostic** checks configuration and access. A failed check leaves **connexion non vérifiée** visible. GitHub quota exhaustion is reported separately from authentication failure, without demanding a token for public access.
+
+`sth list` and `sth list --json` now return the same remote catalog. Scripts that previously used JSON to inspect installed resources must use `sth list --installed --json`; the text equivalent is `sth list --installed`. `sth status --local` inspects local state without fetching remote versions. A no-change skill install or update returns `unchanged` in JSON and **Déjà à jour** in text. Updating retains the assistant selection recorded at installation.
+
+Removal accepts `name`, `skills/name`, canonical IDs and source-qualified references; use `--provider <id>` when the name exists in more than one source. Both `sth remove` and `sth doctor` accept `--json`.

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -163,6 +164,11 @@ func (a *app) installSkillFanout(profile fs.ProjectProfile, stateDir string, ent
 		return a.renderFanoutDryRun(projectRoot, stateDir, entry.CatalogID, plannedFiles, nil, nil, jsonOut)
 	}
 
+	previousConsumers, _ := fanoutInstalledRecord(state, entry.CatalogID, "")
+	if slices.Equal(previousConsumers.Consumers, kinds) && fanoutFilesUnchanged(state, entry.CatalogID, providerID, resolvedVersion, projectRoot, plannedFiles) {
+		a.reportUnchanged(entry.CatalogID, resolvedVersion)
+		return nil
+	}
 	previous, _ := fanoutInstalledRecord(state, entry.CatalogID, "")
 	transactionPaths := fanoutTransactionPaths(stateDir, plannedFiles, previous.ManagedFiles)
 	transaction, transactionErr := newFanoutFileTransaction(projectRoot, transactionPaths)
@@ -765,6 +771,10 @@ func (a *app) installArtifactFanout(profile fs.ProjectProfile, stateDir string, 
 		return a.renderFanoutDryRun(projectRoot, stateDir, entry.CatalogID, plannedFiles, derivedCurrentFiles, derivedIncomingFiles, jsonOut)
 	}
 
+	if fanoutFilesUnchanged(state, entry.CatalogID, providerID, resolvedVersion, projectRoot, plannedFiles) {
+		a.reportUnchanged(entry.CatalogID, resolvedVersion)
+		return nil
+	}
 	previousRecords := make(map[string]fs.InstalledResourceRecordV2, len(plans))
 	previousFiles := make([]fs.ManagedFile, 0)
 	for _, plan := range plans {
@@ -997,6 +1007,14 @@ func (a *app) updateFanout(primaryProfile *fs.ProjectProfile, cfg fs.ProjectConf
 			return err
 		}
 		states[stateDir] = state
+		if !dryRun {
+			if err := refuseModifiedResources(state, cfg, ""); err != nil {
+				if jsonOut {
+					emitJSONError(a.stdout, err, 1)
+				}
+				return err
+			}
+		}
 		if dryRun {
 			continue
 		}
@@ -1118,7 +1136,7 @@ func (a *app) updateFanout(primaryProfile *fs.ProjectProfile, cfg fs.ProjectConf
 			if !dryRun {
 				resolvedVersion = a.resolveCommitForEntry(context.Background(), cfg, group.providerID, entry, latestCache)
 			}
-			if installErr := a.installFanout(profile, group.stateDir, cfg, entry, group.providerID, resolvedVersion, dryRun, jsonOut, false); installErr != nil {
+			if installErr := a.installFanout(profile, group.stateDir, installedTargetConfig(cfg, states[group.stateDir], name, group.providerID), entry, group.providerID, resolvedVersion, dryRun, jsonOut, false); installErr != nil {
 				failures++
 				a.reportUpdateFailure(accumulator, name, "failed", installErr)
 				continue
