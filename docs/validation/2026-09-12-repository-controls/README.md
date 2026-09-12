@@ -40,3 +40,9 @@ Sur un dépôt privé STH existant, la lecture d’un même `README.md` par le c
 
 - [GitHub : gestion des personal access tokens](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens)
 - [GitLab : scopes des access tokens](https://docs.gitlab.com/security/tokens/access_token_scopes/)
+
+## Candidate finale
+
+La candidate `0.2.43-snapshot` est reconstruite depuis le commit `93d8a99` dans un clone propre : quatre plateformes, douze assets, archives, checksums et signature vérifiés. La clé publique jointe correspond à une signature éphémère de test, pas à une publication de production. Le menu dégrade aussi son badge en « connexion non vérifiée » lorsqu’un contrôle automatique échoue ; le test du vrai modèle de menu couvre cette régression. Le guide GitHub a été parcouru dans un terminal interactif via « Mes dépôts ».
+
+Le binaire macOS extrait de cette candidate passe les 24 contrats du parcours installation, mise à jour et suppression ; voir `candidate-lifecycle.log`.
