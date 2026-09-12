@@ -4,7 +4,7 @@
 
 Candidate **0.2.43-snapshot**, construite avec GoReleaser **2.17.1** depuis une copie Git propre du commit **06f9c3d**. Aucune release publiée et aucune fusion. Les quatre archives et leurs binaires moteur sont vérifiés. La signature emploie une clé éphémère de test, pas la clé de distribution de production.
 
-La certification dans tous les assistants reste **incomplète**. Codex exécute les fixtures, Copilot exécute le skill dans un essai limité à la lecture. Claude n’a pas de session modèle valide ; Gemini et Cursor sont absents. Antigravity a exécuté le skill lors du premier essai, mais le dernier essai renvoie une absence ou invalidité d’authentification : ce dernier résultat ne constitue pas une certification.
+La certification dans tous les assistants reste **incomplète**. Codex exécute les fixtures, Copilot exécute le skill dans un essai limité à la lecture. Claude n’a pas de session modèle valide ; Gemini et Cursor sont absents. Antigravity exécute maintenant le skill installé dans un essai en mode plan avec sandbox ; la réponse exacte est conservée dans `antigravity-skill.json`.
 
 ## Branche et préservation
 
@@ -52,11 +52,13 @@ La certification dans tous les assistants reste **incomplète**. Codex exécute 
 | Codex CLI 0.153.4 | OK | OK, `CODEX_SKILL_UPDATED` ; agents/commandes/instructions passent aussi |
 | Claude Code 2.1.223 | OK, événements natifs sans appel modèle | NON EXÉCUTÉ, authentification absente |
 | Copilot CLI 1.0.83 installé temporairement | OK, liste native du skill | OK, `COPILOT_SKILL_UPDATED` |
-| Antigravity CLI | Agent découvert | Dernier essai non exécutable, authentification absente/invalide |
+| Antigravity CLI | Agent découvert, skill chargé lors de son invocation | OK, `ANTIGRAVITY_SKILL_UPDATED`, mode plan et sandbox |
 | Gemini CLI | CLI absent | NON EXÉCUTÉ |
 | Cursor IDE | IDE absent | NON EXÉCUTÉ |
 
 L’essai Copilot utilise `--available-tools=skill,view --allow-tool=skill --no-custom-instructions --disable-builtin-mcps --no-remote --no-remote-export --no-auto-update --no-ask-user --max-ai-credits 30`. Aucun shell ni outil d’écriture disponible. Les instructions générales de la fixture sont désactivées pour isoler le skill. Une première tentative limitée à `view` a retourné la sentinelle de l’instruction globale et n’a pas été retenue comme preuve du skill.
+
+Le nouvel essai Antigravity invoque `/sth-runtime-skill` avec `--mode plan --sandbox --print-timeout 45s`. Il retourne exactement `ANTIGRAVITY_SKILL_UPDATED` en un tour. Ce résultat complète les lignes historiques non exécutées de `runtime.tsv` pour le skill ; il ne certifie pas les autres artifacts Antigravity.
 
 ## Migration de scripts
 
@@ -65,5 +67,5 @@ L’essai Copilot utilise `--available-tools=skill,view --allow-tool=skill --no-
 ## À terminer avant certification complète
 
 1. Rejouer l’accès public réellement anonyme après réinitialisation du quota.
-2. Connecter Claude et Antigravity, fournir Gemini et Cursor, puis exécuter les skills dans ces assistants.
+2. Connecter Claude, fournir Gemini et Cursor, puis exécuter les skills dans ces assistants.
 3. Garder la PR en brouillon tant que ces preuves et la CI finale ne sont pas acquises. Ne pas présenter les tests de fichiers ou les builds croisés comme des essais natifs des assistants ou de Windows/Linux.
