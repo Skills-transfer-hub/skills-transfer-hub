@@ -60,6 +60,8 @@ func TestRepositoryUpdatesKeepReachableSourcesAndNeverWriteSkills(t *testing.T) 
 	}
 	updated, _ := model.Update(report)
 	assertContains(t, updated.(guidedMenuModel).View(), "1 mise(s) à jour disponible(s)")
+	assertContains(t, updated.(guidedMenuModel).View(), "connexion non vérifiée")
+	assertNotContains(t, updated.(guidedMenuModel).View(), "Project state: ready")
 	if _, repeated := application.prepareRepositoryUpdateCheck(false); repeated != nil {
 		t.Fatal("menu refresh ignored five-minute cache")
 	}

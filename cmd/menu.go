@@ -100,6 +100,17 @@ func (a *app) loadGuidedStartupState() guidedStartupState {
 }
 
 func renderGuidedMenuLines(state guidedStartupState) []string {
+	if state.RepositoryUpdates != nil {
+		if state.RepositoryUpdates.Error != "" {
+			state.ProjectState = projectStateConnectionUnverified
+		}
+		for _, resource := range state.RepositoryUpdates.Resources {
+			if resource.Status == "unverified" {
+				state.ProjectState = projectStateConnectionUnverified
+				break
+			}
+		}
+	}
 	lines := []string{
 		tui.TitleStyle.Render("STH guided menu"),
 		projectStateBadge(state.ProjectState),
