@@ -51,6 +51,7 @@ func (a *app) runListWithArgs(args []string) (resultErr error) {
 		return err
 	}
 	a.reportProviderFailures(catalog.failures)
+	a.describeCatalogSkills(context.Background(), cfg, catalog.entries)
 	if jsonOut {
 		payload, err := json.Marshal(catalog.entries)
 		if err != nil {

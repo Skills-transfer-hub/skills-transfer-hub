@@ -905,7 +905,8 @@ func basicAuthorization(username, password string) string {
 }
 
 func decorateAccessError(err error, source AccessSource, provider string) error {
-	if source.Resolved {
+	_, authentication := IsAuthError(err)
+	if source.Resolved || !authentication {
 		return err
 	}
 

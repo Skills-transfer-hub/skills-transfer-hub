@@ -2,6 +2,8 @@ package cmd
 
 import (
 	"encoding/json"
+	stdhttp "net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -10,6 +12,39 @@ import (
 
 	"sth/internal/fs"
 )
+
+func TestScannedSkillDescriptionAppearsInMenuTextAndJSON(t *testing.T) {
+	description := "Créer des graphiques clairs à partir de données."
+	server := httptest.NewServer(stdhttp.HandlerFunc(func(response stdhttp.ResponseWriter, request *stdhttp.Request) {
+		switch request.URL.Path {
+		case "/repos/owner/repo/git/trees/main":
+			_, _ = response.Write([]byte(`{"tree":[{"path":"skills/alpha/SKILL.md","type":"blob"}]}`))
+		case "/owner/repo/main/skills/alpha/SKILL.md":
+			_, _ = response.Write([]byte("---\nname: alpha\ndescription: >-\n  Créer des graphiques clairs\n  à partir de données.\n---\n# Alpha\n"))
+		case "/repos/owner/repo/commits":
+			_, _ = response.Write([]byte(`[{"sha":"` + fanoutCommitSHA + `"}]`))
+		default:
+			stdhttp.NotFound(response, request)
+		}
+	}))
+	defer server.Close()
+	t.Setenv("STH_GITHUB_RAW_BASE_URL", server.URL)
+	t.Setenv("STH_GITHUB_API_BASE_URL", server.URL)
+	projectDir, homeDir := t.TempDir(), t.TempDir()
+	result := runCLIWithOptions(t, cliOptions{workDir: projectDir, homeDir: homeDir, input: "install\nowner/repo\nalpha\nclaude\nn\nquit\n", interactive: func() bool { return true }})
+	if result.err != nil {
+		t.Fatalf("%v\n%s", result.err, result.stdout)
+	}
+	assertContains(t, result.stdout, description)
+	for _, arguments := range [][]string{{"list"}, {"list", "--json"}} {
+		result := runCLI(t, projectDir, homeDir, arguments...)
+		if result.err != nil {
+			t.Fatal(result.err)
+		}
+		assertContains(t, result.stdout, description)
+	}
+	assertNoFile(t, filepath.Join(projectDir, ".claude/skills/alpha/SKILL.md"))
+}
 
 func TestFirstSkillMenuFromEmptyFolder(t *testing.T) {
 	server := skillBundleServer(t)

@@ -46,6 +46,7 @@ func (a *app) runFirstSkill(session *tui.Session) error {
 		return fmt.Errorf("catalogue inaccessible : %w; vérifiez la connexion puis réessayez avec `sth list`", err)
 	}
 	a.reportProviderFailures(catalog.failures)
+	a.describeCatalogSkills(context.Background(), config, catalog.entries)
 	skills := make([]fs.CatalogEntry, 0)
 	for _, entry := range catalog.entries {
 		if artifactKindOf(entry) == "skill" {
