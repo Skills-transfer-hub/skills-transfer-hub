@@ -52,10 +52,6 @@ resolve_asset_path() {
 		printf '%s\n' "$resolved_asset_path"
 		return 0
 	fi
-	if [ "$asset_name" = sth-code-engine.json ] && [ -f "$asset_directory/artifacts.json" ] && [ -f "$repository_directory/.release/sth-code-engine.json" ] && [ ! -L "$repository_directory/.release/sth-code-engine.json" ]; then
-		printf '%s\n' "$repository_directory/.release/sth-code-engine.json"
-		return 0
-	fi
 	return 1
 }
 

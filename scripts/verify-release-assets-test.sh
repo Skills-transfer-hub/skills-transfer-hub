@@ -130,6 +130,20 @@ if sh "$script_directory/verify-release-assets.sh" "$asset_directory" v1.2.3 >/d
 fi
 cp "$temporary_directory/artifacts.json" "$asset_directory/artifacts.json"
 
+mkdir -p "$temporary_directory/.release"
+for metadata_name in sth-code-engine.json sth-capabilities-v1.json sth-capabilities-v1.json.sha256 sth-capabilities-v1.md; do
+ mv "$asset_directory/$metadata_name" "$temporary_directory/.release/$metadata_name"
+done
+sh "$script_directory/verify-release-assets.sh" "$asset_directory" v1.2.3
+mv "$temporary_directory/.release" "$temporary_directory/metadata-outside"
+ln -s "$temporary_directory/metadata-outside" "$temporary_directory/.release"
+if sh "$script_directory/verify-release-assets.sh" "$asset_directory" v1.2.3 >/dev/null 2>&1; then
+ printf 'symlinked metadata directory was accepted\n' >&2
+ exit 1
+fi
+rm "$temporary_directory/.release"
+mv "$temporary_directory/metadata-outside" "$temporary_directory/.release"
+
 printf 'tampered\n' >> "$goreleaser_directory/sth-engine-linux-amd64"
 if sh "$script_directory/verify-release-assets.sh" "$asset_directory" v1.2.3 >/dev/null 2>&1; then
 	printf 'tampered release asset was accepted\n' >&2

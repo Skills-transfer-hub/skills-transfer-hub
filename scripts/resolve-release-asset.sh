@@ -30,6 +30,17 @@ if [ ! -f "$asset_directory/artifacts.json" ]; then
 	printf 'release asset not found: %s\n' "$asset_name" >&2
 	exit 1
 fi
+case "$asset_name" in
+ sth-code-engine.json|sth-capabilities-v1.json|sth-capabilities-v1.json.sha256|sth-capabilities-v1.md)
+  metadata_directory="$asset_parent_directory/.release"
+  metadata_path="$metadata_directory/$asset_name"
+  if [ -d "$metadata_directory" ] && [ ! -L "$metadata_directory" ] && [ -f "$metadata_path" ] && [ ! -L "$metadata_path" ]; then
+   printf '%s\n' "$metadata_path"
+   exit 0
+  fi
+  ;;
+esac
+
 if ! command -v jq >/dev/null 2>&1; then
 	printf 'jq is required\n' >&2
 	exit 1
