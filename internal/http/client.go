@@ -560,7 +560,7 @@ func (c *Client) downloadURLWithLimit(ctx context.Context, rawURL string, header
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		c.emitHTTP(stdhttp.MethodGet, rawURL, 0)
-		return nil, fmt.Errorf("request to %s failed: %w", rawURL, err)
+		return nil, fmt.Errorf("request to %s failed: %w; check your network connection and retry the command", rawURL, err)
 	}
 	defer resp.Body.Close()
 	c.emitHTTP(stdhttp.MethodGet, rawURL, resp.StatusCode)
