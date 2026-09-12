@@ -245,6 +245,20 @@ func (a *app) doctorCheckOneProvider(entry fs.ProviderEntry) doctorCheck {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), doctorReachabilityTimeout)
 	defer cancel()
+	if !IsCloudProvider(entry.Provider) {
+		profile := fs.ProjectProfileFromProvider(entry, ".sth")
+		if err := a.client.CheckProjectAccess(ctx, profile); err != nil {
+			remediation := "Check the repository and branch, restore network access, then rerun `sth doctor`."
+			if _, authentication := sthhttp.IsAuthError(err); authentication {
+				remediation = "Check the credentials configured for this source, then rerun `sth doctor`."
+			}
+			if strings.Contains(err.Error(), "rate limit") {
+				remediation = "Wait until the provider quota resets, then rerun `sth doctor`; no token is required for public access."
+			}
+			return doctorCheck{name: fmt.Sprintf("Provider reachability (%s)", entry.ID), status: "fail", detail: err.Error(), remediation: remediation}
+		}
+		return doctorCheck{name: fmt.Sprintf("Provider reachability (%s)", entry.ID), status: "pass", detail: "Catalog access verified using the same access method as installation"}
+	}
 	req, err := stdhttp.NewRequestWithContext(ctx, stdhttp.MethodHead, url, nil)
 	if err != nil {
 		return doctorCheck{

@@ -71,6 +71,7 @@ func TestDoctor_passesOnHealthyProject(t *testing.T) {
 	}))
 	defer srv.Close()
 	t.Setenv("STH_GITHUB_API_BASE_URL", srv.URL)
+	t.Setenv("STH_GITHUB_RAW_BASE_URL", srv.URL)
 
 	res := runCLI(t, projectDir, t.TempDir(), "doctor")
 	if res.err != nil {
@@ -210,10 +211,35 @@ func TestDoctorPublicRepositoryNeedsNoToken(t *testing.T) {
 	}))
 	defer server.Close()
 	t.Setenv("STH_GITHUB_API_BASE_URL", server.URL)
+	t.Setenv("STH_GITHUB_RAW_BASE_URL", server.URL)
+	t.Setenv("GITHUB_TOKEN", "")
+	t.Setenv("GIT_CONFIG_GLOBAL", filepath.Join(t.TempDir(), "empty-gitconfig"))
 	result := runCLI(t, projectDir, t.TempDir(), "doctor")
 	if result.err != nil {
 		t.Fatalf("public diagnosis failed: %v\n%s", result.err, result.stdout)
 	}
 	assertContains(t, result.stdout, "no token required")
 	assertNotContains(t, result.stdout, "Set a valid STH_TOKEN")
+}
+
+func TestDoctorUsesTheInstallationCredentials(t *testing.T) {
+	projectDir := t.TempDir()
+	config := fanoutConfig(fanoutTarget("claude", ".claude"))
+	config.Providers[0].Private = true
+	writeProjectConfigV2ForTest(t, projectDir, config)
+	t.Setenv("STH_TOKEN", "fixture-token")
+	server := httptest.NewServer(stdhttp.HandlerFunc(func(response stdhttp.ResponseWriter, request *stdhttp.Request) {
+		if request.Header.Get("Authorization") != "Bearer fixture-token" {
+			response.WriteHeader(stdhttp.StatusUnauthorized)
+			return
+		}
+		response.Write([]byte(testCatalogMarkdown("| skill | alpha | skills | skills/alpha.md | Alpha |")))
+	}))
+	defer server.Close()
+	t.Setenv("STH_GITHUB_RAW_BASE_URL", server.URL)
+	t.Setenv("STH_GITHUB_API_BASE_URL", server.URL)
+	result := runCLI(t, projectDir, t.TempDir(), "doctor")
+	if result.err != nil {
+		t.Fatalf("valid source access rejected: %v\n%s", result.err, result.stdout)
+	}
 }
