@@ -2,7 +2,7 @@
 
 ## État
 
-Candidate **0.2.43-snapshot**, construite avec GoReleaser **2.17.1** depuis une copie Git propre du commit **06f9c3d**. Aucune release publiée et aucune fusion. Les quatre archives et leurs binaires moteur sont vérifiés. La signature emploie une clé éphémère de test, pas la clé de distribution de production.
+Candidate **0.2.43-snapshot**, construite avec GoReleaser **2.17.1** depuis une copie Git propre du commit **74302f4**. Aucune release publiée et aucune fusion. Les quatre archives et leurs binaires moteur sont vérifiés. La signature emploie une clé éphémère de test, pas la clé de distribution de production.
 
 La certification dans tous les assistants reste **incomplète**. Codex exécute les fixtures, Copilot exécute le skill dans un essai limité à la lecture. Claude n’a pas de session modèle valide ; Gemini et Cursor sont absents. Antigravity exécute maintenant le skill installé dans un essai en mode plan avec sandbox ; la réponse exacte est conservée dans `antigravity-skill.json`.
 
@@ -28,6 +28,8 @@ La certification dans tous les assistants reste **incomplète**. Codex exécute 
 | Mise à jour étend les cibles | Reprise des assistants enregistrés pour chaque skill | Même test |
 | Édition personnelle menacée | Refus avec action concrète, copie personnelle conservée | Même test et parcours réseau |
 | Quota anonyme traité comme credential invalide | HTTP 403 avec quota à zéro / HTTP 429 ne déclenchent plus de demande de token | `TestAnonymousRateLimitDoesNotTriggerAuthenticationRecovery` |
+| Skills sans catalogue décrits de façon générique | Description extraite du frontmatter de `SKILL.md`, partagée par le menu et les listes | `TestScannedSkillDescriptionAppearsInMenuTextAndJSON` |
+| Erreur réseau accompagnée d’une demande d’authentification | Conseil d’authentification limité aux erreurs d’accès typées | `TestAccessAdviceDistinguishesNetworkAndAuthenticationFailures` et parcours anonyme |
 | Archives GoReleaser : manifestes introuvables | Résolution contrôlée des quatre métadonnées `.release`, rejet des symlinks | `scripts/verify-release-assets-test.sh` et vrai snapshot |
 
 ## Vérifications exécutées
@@ -41,11 +43,11 @@ La certification dans tous les assistants reste **incomplète**. Codex exécute 
 - Binaire extrait : cycle réel sur **24 contrats** `install → update --dry-run → update → status → remove`, avec fournisseur HTTP local isolé.
 - Terminal PTY réel, dossier vide : choix dépôt, skill avec description, Codex, aperçu ; absence du fichier confirmée avant validation ; installation ; instructions `$premier-skill` ; « Mes skills » ; suppression avec aperçu ; absence du fichier confirmée après suppression.
 - Dépôt GitHub public `anthropics/skills`, skill `skills/brand-guidelines` : catalogue, diagnostic, aperçu, installation, réinstallation inchangée, update inchangée, refus d’écraser une édition personnelle, retour au contenu initial et suppression **sans réseau** passent. Cet essai utilise l’accès GitHub déjà connecté, sans affichage ni stockage du token.
-- Essai **anonyme** réel : quota GitHub de 60 requêtes épuisé, HTTP 403 ; il ne permet pas de certifier le parcours complet sans token sur ce réseau. Le comportement sans token est couvert par les tests HTTP isolés. Le quota annoncé se réinitialise le 12 septembre à 09:27:04 UTC ; refaire le parcours anonyme après cette échéance.
+- Essai **anonyme** réel après reset du quota : succès avec la candidate `74302f4`, tokens et configuration Git globale désactivés. Catalogue avec descriptions réelles, diagnostic, aperçu, installation, réinstallation/update inchangées, protection des éditions et suppression hors réseau sont vérifiés dans `public-github-anonymous.log`. Une connexion refusée conseille maintenant de vérifier le réseau, sans suggestion d’authentification.
 
 ## Preuves assistants et limites
 
-`runtime.tsv` contient l’essai du binaire `6217a13`, version `0.2.43-snapshot`. `06f9c3d` ne change ensuite que l’affichage du menu et de la liste. Les fixtures ont été générées par le vrai STH à partir du cycle complet, avec challenge renouvelé ; elles ne sont pas des fichiers copiés à la main.
+`runtime.tsv` contient l’essai du binaire `6217a13`, version `0.2.43-snapshot`. Les changements suivants portent sur l’affichage du menu, les descriptions du catalogue et les conseils après une erreur réseau ; ils ne modifient pas les fichiers installés. Le cycle des 24 contrats a été rejoué avec la candidate `74302f4`. Les fixtures ont été générées par le vrai STH à partir du cycle complet, avec challenge renouvelé ; elles ne sont pas des fichiers copiés à la main.
 
 | Assistant | Chargement | Exécution du skill |
 |---|---|---|
@@ -66,6 +68,5 @@ Le nouvel essai Antigravity invoque `/sth-runtime-skill` avec `--mode plan --san
 
 ## À terminer avant certification complète
 
-1. Rejouer l’accès public réellement anonyme après réinitialisation du quota.
-2. Connecter Claude, fournir Gemini et Cursor, puis exécuter les skills dans ces assistants.
-3. Garder la PR en brouillon tant que ces preuves et la CI finale ne sont pas acquises. Ne pas présenter les tests de fichiers ou les builds croisés comme des essais natifs des assistants ou de Windows/Linux.
+1. Connecter Claude, fournir Gemini et Cursor, puis exécuter les skills dans ces assistants.
+2. Garder la PR en brouillon tant que ces preuves et la CI finale ne sont pas acquises. Ne pas présenter les tests de fichiers ou les builds croisés comme des essais natifs des assistants ou de Windows/Linux.
