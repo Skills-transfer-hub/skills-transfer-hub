@@ -1,0 +1,83 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://skills-transfer-hub.dev/schemas/capabilities-v1.schema.json",
+  "title": "STH capabilities manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "cli_version", "targets", "artifact_kinds", "target_specs", "compatibility"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "cli_version": { "type": "string", "minLength": 1 },
+    "targets": {
+      "type": "array",
+      "minItems": 6,
+      "uniqueItems": true,
+      "items": { "enum": ["antigravity", "claude", "codex", "copilot", "cursor", "gemini"] }
+    },
+    "artifact_kinds": {
+      "type": "array",
+      "minItems": 6,
+      "uniqueItems": true,
+      "items": { "enum": ["agent", "command", "instruction", "rule", "skill", "workflow"] }
+    },
+    "target_specs": {
+      "type": "array",
+      "minItems": 6,
+      "items": { "$ref": "#/$defs/target_spec" }
+    },
+    "compatibility": {
+      "type": "array",
+      "minItems": 36,
+      "items": { "$ref": "#/$defs/compatibility" }
+    }
+  },
+  "$defs": {
+    "target_spec": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "display_name", "root_dir", "detect_markers", "dialects", "native_paths", "validator", "maturity"],
+      "properties": {
+        "kind": { "type": "string" },
+        "display_name": { "type": "string" },
+        "root_dir": { "type": "string" },
+        "detect_markers": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["path", "evidence"],
+            "properties": {
+              "path": { "type": "string" },
+              "evidence": { "type": "string" }
+            }
+          }
+        },
+        "dialects": { "type": "object", "additionalProperties": { "type": "string" } },
+        "native_paths": {
+          "type": "object",
+          "additionalProperties": { "type": "array", "items": { "type": "string" } }
+        },
+        "validator": { "type": "string" },
+        "maturity": { "type": "string" },
+        "minimum_version": { "type": "string" }
+      }
+    },
+    "compatibility": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["target_kind", "artifact_kind", "level", "surface", "implemented", "maturity"],
+      "properties": {
+        "target_kind": { "type": "string" },
+        "artifact_kind": { "type": "string" },
+        "level": { "enum": ["exact", "lossy", "native-only", "unsupported"] },
+        "surface": { "type": "string" },
+        "destination": { "type": "string" },
+        "invocation": { "type": "string" },
+        "implemented": { "type": "boolean" },
+        "reason": { "type": "string" },
+        "maturity": { "type": "string" },
+        "minimum_version": { "type": "string" }
+      }
+    }
+  }
+}

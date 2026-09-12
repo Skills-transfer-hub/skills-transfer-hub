@@ -1389,7 +1389,10 @@ func WriteInstalledStateV2(targetDir string, state InstalledResourceStateV2) err
 		return fmt.Errorf("failed to serialize v2 state: %w", err)
 	}
 	statePath := filepath.Join(filepath.Clean(targetDir), stateFileNameV2)
-	return atomicWriteFile(statePath, append(data, '\n'), 0o644)
+	if err := atomicWriteFile(statePath, append(data, '\n'), 0o644); err != nil {
+		return err
+	}
+	return MergeInstalledStateV3FromV2(".", targetDir, state)
 }
 
 // InstallCatalogEntryV2 writes the catalog entry to disk and records it in sth-state-v2.json.

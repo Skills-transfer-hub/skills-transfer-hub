@@ -45,6 +45,8 @@ cp "$repository_directory/README.md" "$windows_directory/README.md"
 (cd "$windows_directory" && zip -q "$asset_directory/sth-windows-amd64.zip" sth.exe LICENSE README.md)
 
 sh "$script_directory/write-sth-code-engine-manifest.sh" v1.2.3 "$asset_directory/sth-code-engine.json"
+sh "$script_directory/write-capabilities-manifest.sh" v1.2.3 "$asset_directory/sth-capabilities-v1.json"
+sh "$script_directory/write-capabilities-documentation.sh" "$asset_directory/sth-capabilities-v1.json" "$asset_directory/sth-capabilities-v1.md"
 
 expected_assets='sth-linux-amd64.tar.gz
 sth-darwin-amd64.tar.gz
@@ -54,7 +56,10 @@ sth-engine-linux-amd64
 sth-engine-darwin-amd64
 sth-engine-darwin-arm64
 sth-engine-windows-amd64.exe
-sth-code-engine.json'
+sth-code-engine.json
+sth-capabilities-v1.json
+sth-capabilities-v1.json.sha256
+sth-capabilities-v1.md'
 
 : > "$asset_directory/SHA256SUMS"
 for asset_name in $expected_assets; do

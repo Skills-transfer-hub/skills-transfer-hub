@@ -29,26 +29,21 @@ done
 cd "$project_directory" || exit 2
 
 for fixture_path in \
-	.claude/commands/sth-runtime-command.md \
-	.claude/skills/sth-runtime-skill/SKILL.md \
+	.agents/skills/sth-runtime-skill/SKILL.md \
 	.github/agents/sth-runtime-agent.agent.md \
-	.github/instructions/sth-runtime.instructions.md \
-	.github/prompts/sth-runtime-command.prompt.md; do
+	.github/prompts/sth-runtime-command.prompt.md \
+	.github/sth/instructions/sth-runtime.md \
+	AGENTS.md; do
 	[ -f "$fixture_path" ] || exit 2
 done
-grep -Fq "COPILOT_SKILL_$sentinel_suffix" .claude/skills/sth-runtime-skill/SKILL.md || exit 2
+grep -Fq "COPILOT_SKILL_$sentinel_suffix" .agents/skills/sth-runtime-skill/SKILL.md || exit 2
 grep -Fq "COPILOT_AGENT_$sentinel_suffix" .github/agents/sth-runtime-agent.agent.md || exit 2
-grep -Fq "COPILOT_COMMAND_$sentinel_suffix" .claude/commands/sth-runtime-command.md || exit 2
 grep -Fq "COPILOT_COMMAND_$sentinel_suffix" .github/prompts/sth-runtime-command.prompt.md || exit 2
-grep -Fq "COPILOT_INSTRUCTION_$sentinel_suffix" .github/instructions/sth-runtime.instructions.md || exit 2
+grep -Fq "COPILOT_INSTRUCTION_$sentinel_suffix" AGENTS.md || exit 2
 
 case " $arguments " in
 	*" skill list --json "*)
-		printf '[{"name":"sth-runtime-skill"},{"name":"sth-runtime-command"}]\n'
-		exit 0
-		;;
-	*" plugins list --kind instruction --json "*)
-		printf '[{"path":".github/instructions/sth-runtime.instructions.md"}]\n'
+		printf '[{"name":"sth-runtime-skill"}]\n'
 		exit 0
 		;;
 esac

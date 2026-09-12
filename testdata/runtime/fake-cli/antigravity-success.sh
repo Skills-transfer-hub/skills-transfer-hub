@@ -43,7 +43,7 @@ done
 canonical_added_directory=$(CDPATH= cd -- "$added_directory" && pwd) || exit 2
 [ "$canonical_added_directory" = "$(pwd)" ] || exit 2
 [ -f .agents/skills/sth-runtime-skill/SKILL.md ] || exit 2
-[ -f .agents/agents/sth-runtime-agent.md ] || exit 2
+[ -f .agents/agents/sth-runtime-agent/agent.md ] || exit 2
 [ -f .agents/workflows/sth-runtime-command.md ] || exit 2
 [ -f .agents/rules/sth-runtime-rule.md ] || exit 2
 

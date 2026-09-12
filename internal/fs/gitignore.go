@@ -17,6 +17,7 @@ func managedGitignoreBlock() string {
 	lines := []string{
 		gitignoreManagedHeader,
 		"**/sth-state-v2.json",
+		".sth/sth-state-v3.json",
 		"**/sth-state.json",
 		"**/.sth-state.lock",
 		"**/.sth-tmp-*",

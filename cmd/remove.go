@@ -2,9 +2,11 @@ package cmd
 
 import (
 	"fmt"
+	"path/filepath"
+	"strings"
+
 	"sth/internal/fs"
 	"sth/internal/tui"
-	"strings"
 )
 
 func (a *app) runRemove(args []string) error {
@@ -28,6 +30,13 @@ func (a *app) runRemove(args []string) error {
 	}
 	if len(records) == 0 {
 		return fmt.Errorf("resource %q not found", resourceName)
+	}
+	state, stateErr := fs.ReadInstalledStateV2(profile.TargetDir)
+	if stateErr != nil {
+		return stateErr
+	}
+	if driftErr := refuseModifiedResources(state, fs.ProjectConfigV2{}, resourceName); driftErr != nil {
+		return driftErr
 	}
 
 	if !skipConfirm {
@@ -56,6 +65,18 @@ func (a *app) runRemove(args []string) error {
 	if handled, removeErr := a.removeRecordsWithManagedRegions(profile.TargetDir, resourceName, records); handled {
 		return removeErr
 	}
+	projectRoot, pathErr := filepath.Abs(".")
+	if pathErr != nil {
+		return pathErr
+	}
+	managedFiles := make([]fs.ManagedFile, 0)
+	for _, record := range records {
+		managedFiles = append(managedFiles, record.ManagedFiles...)
+	}
+	transaction, transactionErr := newFanoutFileTransaction(projectRoot, fanoutTransactionPaths(profile.TargetDir, managedFiles, nil))
+	if transactionErr != nil {
+		return transactionErr
+	}
 
 	var hardFailures []string
 	for _, record := range records {
@@ -71,11 +92,11 @@ func (a *app) runRemove(args []string) error {
 	}
 
 	if len(hardFailures) > 0 {
-		return fmt.Errorf("%d file(s) could not be removed — state left unchanged", len(hardFailures))
+		return transaction.rollback(fmt.Errorf("%d file(s) could not be removed — state left unchanged", len(hardFailures)))
 	}
 
 	if err := fs.RemoveResourceFromState(profile.TargetDir, resourceName); err != nil {
-		return err
+		return transaction.rollback(err)
 	}
 
 	a.writeStdout(fmt.Sprintf("Resource '%s' removed.", resourceName))

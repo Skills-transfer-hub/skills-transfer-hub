@@ -142,9 +142,9 @@ func TestInstallReportsAmbiguousResourceAcrossProviders(t *testing.T) {
 func TestInstallHonorsProviderFlagAndQualifiedRef(t *testing.T) {
 	newMultiProviderServer(t)
 	for _, arguments := range [][]string{
-		{"install", "--provider", "internal", "shared"},
-		{"install", "internal:shared"},
-		{"install", "--provider=internal", "agents/shared"},
+		{"install", "--allow", "exact,lossy", "--provider", "internal", "shared"},
+		{"install", "--allow", "exact,lossy", "internal:shared"},
+		{"install", "--allow", "exact,lossy", "--provider=internal", "agents/shared"},
 	} {
 		projectDir := t.TempDir()
 		writeProjectConfigV2ForTest(t, projectDir, multiProviderConfig())
@@ -181,7 +181,7 @@ func TestUpdateRefreshesFromTheOriginProvider(t *testing.T) {
 	projectDir := t.TempDir()
 	writeProjectConfigV2ForTest(t, projectDir, multiProviderConfig())
 
-	installResult := runCLI(t, projectDir, t.TempDir(), "install", "internal:shared")
+	installResult := runCLI(t, projectDir, t.TempDir(), "install", "--allow", "exact,lossy", "internal:shared")
 	if installResult.err != nil {
 		t.Fatalf("install error = %v\nstderr=%s", installResult.err, installResult.stderr)
 	}
@@ -240,7 +240,7 @@ func TestInstallResolvesVersionForNonGithubProvider(t *testing.T) {
 	projectDir := t.TempDir()
 	writeProjectConfigV2ForTest(t, projectDir, config)
 
-	result := runCLI(t, projectDir, t.TempDir(), "install", "gitlab-agent")
+	result := runCLI(t, projectDir, t.TempDir(), "install", "--allow", "exact,lossy", "gitlab-agent")
 	if result.err != nil {
 		t.Fatalf("install error = %v\nstderr=%s", result.err, result.stderr)
 	}
@@ -268,7 +268,7 @@ func TestStatusGroupsOneLinePerResource(t *testing.T) {
 	config.Targets = []fs.TargetEntry{fanoutTarget("claude", ".claude"), fanoutTarget("codex", ".codex")}
 	writeProjectConfigV2ForTest(t, projectDir, config)
 
-	installResult := runCLI(t, projectDir, t.TempDir(), "install", "internal:shared")
+	installResult := runCLI(t, projectDir, t.TempDir(), "install", "--allow", "exact,lossy", "internal:shared")
 	if installResult.err != nil {
 		t.Fatalf("install error = %v\nstderr=%s", installResult.err, installResult.stderr)
 	}

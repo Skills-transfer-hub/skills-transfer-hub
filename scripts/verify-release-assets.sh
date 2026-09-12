@@ -41,7 +41,10 @@ sth-engine-linux-amd64
 sth-engine-darwin-amd64
 sth-engine-darwin-arm64
 sth-engine-windows-amd64.exe
-sth-code-engine.json'
+sth-code-engine.json
+sth-capabilities-v1.json
+sth-capabilities-v1.json.sha256
+sth-capabilities-v1.md'
 
 resolve_asset_path() {
 	asset_name=$1
@@ -78,7 +81,7 @@ for asset_name in $expected_assets; do
 done
 
 checksum_entries=$(awk 'NF >= 2 { count++ } END { print count + 0 }' "$asset_directory/SHA256SUMS")
-if [ "$checksum_entries" -ne 9 ]; then
+if [ "$checksum_entries" -ne 12 ]; then
 	printf 'unexpected checksum entry count: %s\n' "$checksum_entries" >&2
 	exit 1
 fi
@@ -109,6 +112,32 @@ jq -e --arg version "$normalized_version" '
   .artifacts["darwin-arm64"].name == "sth-engine-darwin-arm64" and
   .artifacts["windows-amd64"].name == "sth-engine-windows-amd64.exe"
 ' "$manifest_path" >/dev/null
+
+capabilities_path=$(resolve_asset_path sth-capabilities-v1.json)
+jq -e --arg version "$normalized_version" '
+  .schema_version == 1 and
+  (.cli_version == $version or .cli_version == ("v" + $version)) and
+  (.targets | length) == 6 and
+  (.artifact_kinds | length) == 6 and
+  (.compatibility | length) == 36
+' "$capabilities_path" >/dev/null
+capabilities_checksum_path=$(resolve_asset_path sth-capabilities-v1.json.sha256)
+expected_capabilities_checksum=$(awk -v expected="sth-capabilities-v1.json" '$2 == expected { print $1 }' "$capabilities_checksum_path")
+if [ "$checksum_command" = sha256sum ]; then
+	actual_capabilities_checksum=$(sha256sum "$capabilities_path" | awk '{ print $1 }')
+else
+	actual_capabilities_checksum=$(shasum -a 256 "$capabilities_path" | awk '{ print $1 }')
+fi
+if [ "$expected_capabilities_checksum" != "$actual_capabilities_checksum" ]; then
+	printf 'capabilities sidecar checksum mismatch\n' >&2
+	exit 1
+fi
+
+capabilities_documentation_path=$(resolve_asset_path sth-capabilities-v1.md)
+if { ! grep -Fq "Generated from schema version 1 for CLI $normalized_version." "$capabilities_documentation_path" && ! grep -Fq "Generated from schema version 1 for CLI v$normalized_version." "$capabilities_documentation_path"; } || ! grep -Fq '| cursor ' "$capabilities_documentation_path"; then
+	printf 'capabilities documentation does not match manifest\n' >&2
+	exit 1
+fi
 
 (cd "$repository_directory" && go run ./tools/release-sign --verify --in "$asset_directory/SHA256SUMS" --signature "$asset_directory/SHA256SUMS.sig")
 

@@ -37,6 +37,9 @@ func (CopilotWriter) Render(request WriteRequest) ([]byte, error) {
 		return nil, fmt.Errorf("installed_path is required")
 	}
 	if isCopilotPromptPath(request.InstalledPath) {
+		if !request.AddManagedHeader && isCopilotPromptPath(request.SourcePath) {
+			return request.Content, nil
+		}
 		return renderCopilotPrompt(request)
 	}
 
@@ -58,16 +61,17 @@ func (CopilotWriter) Plan(artifactKind, artifactName, _ string, sources []string
 
 	switch artifactKind {
 	case "skill":
-		return PlanResult{Files: relForSkillBundle(".claude/skills", artifactName, sources)}
+		return PlanResult{Files: relForSkillBundle(".agents/skills", artifactName, sources)}
 	case "agent":
 		return PlanResult{Files: []PlannedFile{{SourcePath: sources[0], RelativePath: ".github/agents/" + artifactName + ".agent.md"}}}
 	case "command":
-		return PlanResult{Files: []PlannedFile{
-			{SourcePath: sources[0], RelativePath: ".claude/commands/" + artifactName + ".md"},
-			{SourcePath: sources[0], RelativePath: ".github/prompts/" + artifactName + ".prompt.md"},
-		}}
+		return PlanResult{Files: []PlannedFile{{SourcePath: sources[0], RelativePath: ".github/prompts/" + artifactName + ".prompt.md"}}}
 	case "instruction":
+		return PlanResult{Files: []PlannedFile{{SourcePath: sources[0], RelativePath: ".github/sth/instructions/" + artifactName + ".md"}}}
+	case "rule":
 		return PlanResult{Files: []PlannedFile{{SourcePath: sources[0], RelativePath: ".github/instructions/" + artifactName + ".instructions.md"}}}
+	case "workflow":
+		return PlanResult{Skipped: true, Reason: "Copilot workflows are outside the V1 artifact contract"}
 	}
 
 	return PlanResult{Skipped: true, Reason: "unknown artifact kind: " + artifactKind}

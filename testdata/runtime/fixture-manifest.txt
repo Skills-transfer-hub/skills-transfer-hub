@@ -1,4 +1,4 @@
-testdata/runtime/antigravity-project/.agents/agents/sth-runtime-agent.md
+testdata/runtime/antigravity-project/.agents/agents/sth-runtime-agent/agent.md
 testdata/runtime/antigravity-project/.agents/rules/sth-runtime-rule.md
 testdata/runtime/antigravity-project/.agents/skills/sth-runtime-skill/SKILL.md
 testdata/runtime/antigravity-project/.agents/workflows/sth-runtime-command.md
@@ -11,12 +11,17 @@ testdata/runtime/codex-project/.agents/skills/sth-runtime-skill/SKILL.md
 testdata/runtime/codex-project/.codex/agents/sth-runtime-agent.toml
 testdata/runtime/codex-project/.codex/sth/instructions/sth-runtime-instruction.md
 testdata/runtime/codex-project/AGENTS.md
-testdata/runtime/copilot-project/.claude/commands/sth-runtime-command.md
-testdata/runtime/copilot-project/.claude/skills/sth-runtime-skill/SKILL.md
+testdata/runtime/copilot-project/.agents/skills/sth-runtime-skill/SKILL.md
 testdata/runtime/copilot-project/.github/agents/sth-runtime-agent.agent.md
-testdata/runtime/copilot-project/.github/instructions/sth-runtime.instructions.md
 testdata/runtime/copilot-project/.github/prompts/sth-runtime-command.prompt.md
+testdata/runtime/copilot-project/.github/sth/instructions/sth-runtime.md
+testdata/runtime/copilot-project/AGENTS.md
 testdata/runtime/copilot-project/sth-runtime-instruction-target.txt
+testdata/runtime/cursor-project/.agents/skills/sth-runtime-skill/SKILL.md
+testdata/runtime/cursor-project/.cursor/agents/sth-runtime-agent.md
+testdata/runtime/cursor-project/.cursor/rules/sth-runtime-rule.mdc
+testdata/runtime/cursor-project/.cursor/sth/instructions/sth-runtime-instruction.md
+testdata/runtime/cursor-project/AGENTS.md
 testdata/runtime/gemini-project/.agents/skills/sth-runtime-skill/SKILL.md
 testdata/runtime/gemini-project/.gemini/agents/sth-runtime-agent.md
 testdata/runtime/gemini-project/.gemini/commands/sth-runtime-command.toml

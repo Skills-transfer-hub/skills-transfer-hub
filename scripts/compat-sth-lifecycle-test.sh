@@ -86,19 +86,28 @@ PY
 
 assert_update_result() {
 	result_file=$1
-	expected_instruction=$2
-	python3 - "$result_file" "$expected_instruction" <<'PY'
+	target=$2
+	expected_instruction=$3
+	python3 - "$result_file" "$target" "$expected_instruction" <<'PY'
 import json
 import sys
 
 with open(sys.argv[1], encoding="utf-8") as result_stream:
     entries = json.load(result_stream)
-expected_names = {
-    "skill::skills::sth-runtime-skill",
-    "agent::agents::sth-runtime-agent",
-    "command::commands::sth-runtime-command",
-    f"instruction::instructions::{sys.argv[2]}",
-}
+if sys.argv[2] == "cursor":
+    expected_names = {
+        "skill::skills::sth-runtime-skill",
+        "agent::agents::sth-runtime-agent",
+        "instruction::instructions::sth-runtime-instruction",
+        "rule::rules::sth-runtime-rule",
+    }
+else:
+    expected_names = {
+        "skill::skills::sth-runtime-skill",
+        "agent::agents::sth-runtime-agent",
+        "command::commands::sth-runtime-command",
+        f"instruction::instructions::{sys.argv[3]}",
+    }
 actual_names = [entry.get("resource_name") for entry in entries]
 if len(entries) != 4 or len(set(actual_names)) != 4 or set(actual_names) != expected_names:
     raise SystemExit(f"update: ressources inattendues {actual_names!r}")
@@ -112,24 +121,38 @@ PY
 
 assert_status_result() {
 	result_file=$1
-	expected_instruction=$2
-	python3 - "$result_file" "$expected_instruction" <<'PY'
+	target=$2
+	expected_instruction=$3
+	python3 - "$result_file" "$target" "$expected_instruction" <<'PY'
 import json
 import sys
 
 with open(sys.argv[1], encoding="utf-8") as result_stream:
     entries = json.load(result_stream)
-expected_names = {
-    "skill::skills::sth-runtime-skill",
-    "agent::agents::sth-runtime-agent",
-    "command::commands::sth-runtime-command",
-    f"instruction::instructions::{sys.argv[2]}",
-}
+if sys.argv[2] == "cursor":
+    expected_names = {
+        "skill::skills::sth-runtime-skill",
+        "agent::agents::sth-runtime-agent",
+        "instruction::instructions::sth-runtime-instruction",
+        "rule::rules::sth-runtime-rule",
+    }
+else:
+    expected_names = {
+        "skill::skills::sth-runtime-skill",
+        "agent::agents::sth-runtime-agent",
+        "command::commands::sth-runtime-command",
+        f"instruction::instructions::{sys.argv[3]}",
+    }
 actual_names = [entry.get("resource_name") for entry in entries]
 if len(entries) != 4 or len(set(actual_names)) != 4 or set(actual_names) != expected_names:
     raise SystemExit(f"status: ressources inattendues {actual_names!r}")
 for entry in entries:
-    if entry.get("status") != "up-to-date":
+    expected_status = (
+        "up-to-date"
+        if entry.get("resource_name") == "skill::skills::sth-runtime-skill"
+        else "partially-converted"
+    )
+    if entry.get("status") != expected_status:
         raise SystemExit(f"status: ressource non à jour {entry!r}")
     if entry.get("installed_version") != "2222222222222222":
         raise SystemExit(f"status: version installée inattendue {entry!r}")
@@ -200,6 +223,9 @@ target_root() {
 		gemini)
 			printf '.gemini\n'
 			;;
+		cursor)
+			printf '.cursor\n'
+			;;
 		*)
 			return 1
 			;;
@@ -218,13 +244,21 @@ target_instruction_name() {
 		copilot)
 			printf 'sth-runtime\n'
 			;;
-		codex|gemini)
+		codex|gemini|cursor)
 			printf 'sth-runtime-instruction\n'
 			;;
 		*)
 			return 1
 			;;
 	esac
+}
+
+target_artifacts() {
+	if [ "$1" = "cursor" ]; then
+		printf 'skill agent instruction rule\n'
+		return
+	fi
+	printf 'skill agent command instruction\n'
 }
 
 write_target_source() {
@@ -245,18 +279,32 @@ write_target_source() {
 		"$target_source_directory/agents" \
 		"$target_source_directory/commands" \
 		"$target_source_directory/instructions" \
+		"$target_source_directory/rules" \
 		"$server_root/repos/runtime/$target/git/trees"
 
-	printf '%s\n' \
-		'# STH runtime fixtures' \
-		'' \
-		'| Type | Name | Folder | Source | Description |' \
-		'| ---- | ---- | ------ | ------ | ----------- |' \
-		'| skill | sth-runtime-skill | skills | skills/sth-runtime-skill/SKILL.md | Runtime skill |' \
-		'| agent | sth-runtime-agent | agents | agents/sth-runtime-agent.md | Runtime agent |' \
-		'| command | sth-runtime-command | commands | commands/sth-runtime-command.md | Runtime command |' \
-		"| instruction | $instruction_name | instructions | instructions/$instruction_name.md | Runtime instruction |" \
-		>"$target_source_directory/SKILLS.md"
+	if [ "$target" = "cursor" ]; then
+		printf '%s\n' \
+			'# STH runtime fixtures' \
+			'' \
+			'| Type | Name | Folder | Source | Description |' \
+			'| ---- | ---- | ------ | ------ | ----------- |' \
+			'| skill | sth-runtime-skill | skills | skills/sth-runtime-skill/SKILL.md | Runtime skill |' \
+			'| agent | sth-runtime-agent | agents | agents/sth-runtime-agent.md | Runtime agent |' \
+			"| instruction | $instruction_name | instructions | instructions/$instruction_name.md | Runtime instruction |" \
+			'| rule | sth-runtime-rule | rules | rules/sth-runtime-rule.md | Runtime rule |' \
+			>"$target_source_directory/SKILLS.md"
+	else
+		printf '%s\n' \
+			'# STH runtime fixtures' \
+			'' \
+			'| Type | Name | Folder | Source | Description |' \
+			'| ---- | ---- | ------ | ------ | ----------- |' \
+			'| skill | sth-runtime-skill | skills | skills/sth-runtime-skill/SKILL.md | Runtime skill |' \
+			'| agent | sth-runtime-agent | agents | agents/sth-runtime-agent.md | Runtime agent |' \
+			'| command | sth-runtime-command | commands | commands/sth-runtime-command.md | Runtime command |' \
+			"| instruction | $instruction_name | instructions | instructions/$instruction_name.md | Runtime instruction |" \
+			>"$target_source_directory/SKILLS.md"
+	fi
 
 	printf '%s\n' \
 		'---' \
@@ -284,6 +332,10 @@ write_target_source() {
 		"Reply with exactly \`${prefix}_COMMAND_${suffix}\` and nothing else." \
 		>"$target_source_directory/commands/sth-runtime-command.md"
 
+	printf '%s\n' \
+		"When the user asks for the STH rule sentinel, reply with exactly \`${prefix}_RULE_${suffix}\` and nothing else." \
+		>"$target_source_directory/rules/sth-runtime-rule.md"
+
 	if [ "$target" = "copilot" ]; then
 		printf '%s\n' \
 			'---' \
@@ -299,14 +351,25 @@ write_target_source() {
 			>"$target_source_directory/instructions/$instruction_name.md"
 	fi
 
-	printf '%s\n' \
-		'{"tree":[' \
-		'{"path":"skills/sth-runtime-skill/SKILL.md","type":"blob"},' \
-		'{"path":"agents/sth-runtime-agent.md","type":"blob"},' \
-		'{"path":"commands/sth-runtime-command.md","type":"blob"},' \
-		"{\"path\":\"instructions/$instruction_name.md\",\"type\":\"blob\"}" \
-		']}' \
-		>"$server_root/repos/runtime/$target/git/trees/main"
+	if [ "$target" = "cursor" ]; then
+		printf '%s\n' \
+			'{"tree":[' \
+			'{"path":"skills/sth-runtime-skill/SKILL.md","type":"blob"},' \
+			'{"path":"agents/sth-runtime-agent.md","type":"blob"},' \
+			"{\"path\":\"instructions/$instruction_name.md\",\"type\":\"blob\"}," \
+			'{"path":"rules/sth-runtime-rule.md","type":"blob"}' \
+			']}' \
+			>"$server_root/repos/runtime/$target/git/trees/main"
+	else
+		printf '%s\n' \
+			'{"tree":[' \
+			'{"path":"skills/sth-runtime-skill/SKILL.md","type":"blob"},' \
+			'{"path":"agents/sth-runtime-agent.md","type":"blob"},' \
+			'{"path":"commands/sth-runtime-command.md","type":"blob"},' \
+			"{\"path\":\"instructions/$instruction_name.md\",\"type\":\"blob\"}" \
+			']}' \
+			>"$server_root/repos/runtime/$target/git/trees/main"
+	fi
 	printf '[{"sha":"%s"}]\n' "$commit_sha" >"$server_root/repos/runtime/$target/commits"
 }
 
@@ -339,18 +402,22 @@ artifact_paths() {
 		codex:agent) printf '.codex/agents/sth-runtime-agent.toml\n' ;;
 		codex:command) printf '.agents/skills/sth-runtime-command/SKILL.md\n' ;;
 		codex:instruction) printf '.codex/sth/instructions/sth-runtime-instruction.md\n' ;;
-		copilot:skill) printf '.claude/skills/sth-runtime-skill/SKILL.md\n' ;;
+		copilot:skill) printf '.agents/skills/sth-runtime-skill/SKILL.md\n' ;;
 		copilot:agent) printf '.github/agents/sth-runtime-agent.agent.md\n' ;;
-		copilot:command) printf '.claude/commands/sth-runtime-command.md\n.github/prompts/sth-runtime-command.prompt.md\n' ;;
-		copilot:instruction) printf '.github/instructions/sth-runtime.instructions.md\n' ;;
+		copilot:command) printf '.github/prompts/sth-runtime-command.prompt.md\n' ;;
+		copilot:instruction) printf '.github/sth/instructions/sth-runtime.md\n' ;;
 		antigravity:skill) printf '.agents/skills/sth-runtime-skill/SKILL.md\n' ;;
-		antigravity:agent) printf '.agents/agents/sth-runtime-agent.md\n' ;;
+		antigravity:agent) printf '.agents/agents/sth-runtime-agent/agent.md\n' ;;
 		antigravity:command) printf '.agents/workflows/sth-runtime-command.md\n' ;;
 		antigravity:instruction) printf '.agents/rules/sth-runtime-rule.md\n' ;;
 		gemini:skill) printf '.agents/skills/sth-runtime-skill/SKILL.md\n' ;;
 		gemini:agent) printf '.gemini/agents/sth-runtime-agent.md\n' ;;
 		gemini:command) printf '.gemini/commands/sth-runtime-command.toml\n' ;;
 		gemini:instruction) printf '.gemini/sth/instructions/sth-runtime-instruction.md\n' ;;
+		cursor:skill) printf '.agents/skills/sth-runtime-skill/SKILL.md\n' ;;
+		cursor:agent) printf '.cursor/agents/sth-runtime-agent.md\n' ;;
+		cursor:instruction) printf '.cursor/sth/instructions/sth-runtime-instruction.md\n' ;;
+		cursor:rule) printf '.cursor/rules/sth-runtime-rule.mdc\n' ;;
 		*) return 1 ;;
 	esac
 }
@@ -516,7 +583,7 @@ if [ -n "$fixture_export_root" ]; then
 fi
 
 surface_failures=0
-for target in claude codex copilot antigravity gemini; do
+for target in claude codex copilot antigravity gemini cursor; do
 	write_target_source "$target" v1 || fail_test "$target: préparation de la source v1 échouée"
 	project_directory="$projects_root/$target-project"
 	write_project_config "$target" "$project_directory" || fail_test "$target: configuration projet échouée"
@@ -623,18 +690,19 @@ if ! "$sth_binary" telemetry off >"$test_directory/telemetry-off.out" 2>"$test_d
 	fail_test "désactivation de la télémétrie échouée"
 fi
 
-for target in claude codex copilot antigravity gemini; do
+for target in claude codex copilot antigravity gemini cursor; do
 	project_directory="$projects_root/$target-project"
 	instruction_name=$(target_instruction_name "$target") || fail_test "$target: instruction inconnue"
-	for artifact in skill agent command instruction; do
+	for artifact in $(target_artifacts "$target"); do
 		case "$artifact" in
 			skill) resource_name=sth-runtime-skill; folder_name=skills ;;
 			agent) resource_name=sth-runtime-agent; folder_name=agents ;;
 			command) resource_name=sth-runtime-command; folder_name=commands ;;
 			instruction) resource_name=$instruction_name; folder_name=instructions ;;
+			rule) resource_name=sth-runtime-rule; folder_name=rules ;;
 		esac
 		result_file="$test_directory/$target-install-$artifact.json"
-		if ! run_sth "$project_directory" "$result_file" install "$resource_name" --json; then
+		if ! run_sth "$project_directory" "$result_file" install "$resource_name" --allow exact,lossy --json; then
 			fail_test "$target/$artifact: installation échouée"
 		fi
 		if ! assert_install_result "$result_file" "$artifact::$folder_name::$resource_name"; then
@@ -650,11 +718,11 @@ if [ "$surface_failures" -ne 0 ]; then
 	fail_test "$surface_failures fixture(s) runtime diffèrent des artefacts réellement générés"
 fi
 
-for target in claude codex copilot antigravity gemini; do
+for target in claude codex copilot antigravity gemini cursor; do
 	write_target_source "$target" v2 || fail_test "$target: préparation de la source v2 échouée"
 done
 
-for target in claude codex copilot antigravity gemini; do
+for target in claude codex copilot antigravity gemini cursor; do
 	project_directory="$projects_root/$target-project"
 	instruction_name=$(target_instruction_name "$target") || fail_test "$target: instruction inconnue"
 	dry_run_file="$test_directory/$target-update-dry-run.json"
@@ -675,7 +743,7 @@ for target in claude codex copilot antigravity gemini; do
 	if ! diff -u "$dry_run_before" "$dry_run_after"; then
 		fail_test "$target: dry-run mutant"
 	fi
-	for artifact in skill agent command instruction; do
+	for artifact in $(target_artifacts "$target"); do
 		assert_artifact_sentinel "$target" "$project_directory" "$artifact" OK
 	done
 
@@ -683,10 +751,10 @@ for target in claude codex copilot antigravity gemini; do
 	if ! run_sth "$project_directory" "$update_file" update --json; then
 		fail_test "$target: mise à jour échouée"
 	fi
-	if ! assert_update_result "$update_file" "$instruction_name"; then
+	if ! assert_update_result "$update_file" "$target" "$instruction_name"; then
 		fail_test "$target: contrat JSON de la mise à jour invalide"
 	fi
-	for artifact in skill agent command instruction; do
+	for artifact in $(target_artifacts "$target"); do
 		assert_artifact_sentinel "$target" "$project_directory" "$artifact" UPDATED
 	done
 
@@ -694,18 +762,21 @@ for target in claude codex copilot antigravity gemini; do
 	if ! run_sth "$project_directory" "$status_file" status --json; then
 		fail_test "$target: status échoué"
 	fi
-	if ! assert_status_result "$status_file" "$instruction_name"; then
+	if ! assert_status_result "$status_file" "$target" "$instruction_name"; then
 		fail_test "$target: contrat JSON du status invalide"
 	fi
 	if [ -n "$fixture_export_root" ]; then
 		export_project_surface "$target" "$project_directory"
 	fi
 
-	for resource_identifier in \
-		'skill::skills::sth-runtime-skill' \
-		'agent::agents::sth-runtime-agent' \
-		'command::commands::sth-runtime-command' \
-		"instruction::instructions::$instruction_name"; do
+	for artifact in $(target_artifacts "$target"); do
+		case "$artifact" in
+			skill) resource_identifier='skill::skills::sth-runtime-skill' ;;
+			agent) resource_identifier='agent::agents::sth-runtime-agent' ;;
+			command) resource_identifier='command::commands::sth-runtime-command' ;;
+			instruction) resource_identifier="instruction::instructions::$instruction_name" ;;
+			rule) resource_identifier='rule::rules::sth-runtime-rule' ;;
+		esac
 		remove_label=$(printf '%s\n' "$resource_identifier" | tr ':/' '__')
 		remove_file="$test_directory/$target-remove-$remove_label.txt"
 		if ! run_sth "$project_directory" "$remove_file" remove "$resource_identifier" --yes; then
@@ -743,7 +814,7 @@ if ! python3 - "$server_request_log" <<'PY'
 import re
 import sys
 
-allowed = re.compile(r"^/(?:runtime/(?:claude|codex|copilot|antigravity|gemini)/main/|repos/runtime/(?:claude|codex|copilot|antigravity|gemini)/(?:commits|git/trees/main))(?:[^?]*)?(?:\?.*)?$")
+allowed = re.compile(r"^/(?:runtime/(?:claude|codex|copilot|antigravity|gemini|cursor)/main/|repos/runtime/(?:claude|codex|copilot|antigravity|gemini|cursor)/(?:commits|git/trees/main))(?:[^?]*)?(?:\?.*)?$")
 with open(sys.argv[1], encoding="utf-8") as request_stream:
     requests = [line.strip() for line in request_stream if line.strip()]
 if not requests:
@@ -760,4 +831,4 @@ if [ -s "$server_authentication_log" ]; then
 	fail_test "en-tête d'authentification transmis au fournisseur local"
 fi
 
-printf 'OK: cycle STH réel install -> update --dry-run -> update -> status -> remove sur 20 contrats\n'
+printf 'OK: cycle STH réel install -> update --dry-run -> update -> status -> remove sur 24 contrats\n'

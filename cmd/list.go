@@ -5,6 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"strings"
+
+	"sth/internal/artifact"
 	"sth/internal/fs"
 )
 
@@ -16,6 +19,9 @@ func (a *app) runList() error {
 }
 
 func (a *app) runListWithArgs(args []string) error {
+	if hasArtifactListOptions(args) {
+		return a.runArtifactList(args)
+	}
 	flags, _ := parseFlags(args, "--json")
 	jsonOut := flags["--json"]
 
@@ -65,6 +71,114 @@ func (a *app) runListWithArgs(args []string) error {
 	return nil
 }
 
+type artifactListEntry struct {
+	ID            string                       `json:"id"`
+	Kind          artifact.Kind                `json:"kind"`
+	Dialect       artifact.Dialect             `json:"dialect"`
+	Path          string                       `json:"path"`
+	Scope         artifact.Scope               `json:"scope"`
+	Status        fs.ResourceStatus            `json:"status,omitempty"`
+	Compatibility []artifact.CompatibilityPlan `json:"compatibility"`
+}
+
+func hasArtifactListOptions(args []string) bool {
+	for _, argument := range args {
+		for _, prefix := range []string{"--type", "--scope", "--target", "--status"} {
+			if argument == prefix || strings.HasPrefix(argument, prefix+"=") {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func (a *app) runArtifactList(args []string) error {
+	options, err := parseCommandOptions(args, []string{"--json"}, []string{"--type", "--scope", "--target", "--status"})
+	if err != nil {
+		return err
+	}
+	if len(options.positional) != 0 {
+		return fmt.Errorf("usage: sth list [--type <kind>] [--scope <scope>] [--target <target>] [--status <status>] [--json]")
+	}
+	targets := optionValues(options, "--target")
+	inspections, err := inspectProjectArtifacts("", targets, false)
+	if err != nil {
+		return err
+	}
+	typeFilter := stringSet(optionValues(options, "--type"))
+	scopeFilter := stringSet(optionValues(options, "--scope"))
+	statusFilter := stringSet(optionValues(options, "--status"))
+	projectRoot, _ := filepath.Abs(".")
+	targetDirectories := make([]string, 0)
+	if config, configErr := fs.ReadProjectConfigV2ReadOnly(); configErr == nil {
+		for _, provider := range config.Providers {
+			targetDirectories = append(targetDirectories, provider.TargetDir)
+		}
+	}
+	state, stateErr := fs.ReadInstalledStateV3OrLegacy(projectRoot, targetDirectories)
+	statuses := map[string]fs.ResourceStatus{}
+	if stateErr == nil {
+		statusResults := fs.ComputeStatusesV3(state, projectRoot)
+		for resourceIndex, result := range statusResults {
+			statuses[result.ResourceID] = result.Status
+			if resourceIndex >= len(state.Resources) {
+				continue
+			}
+			resource := state.Resources[resourceIndex]
+			statuses[resource.Source.Path] = result.Status
+			for _, output := range resource.Outputs {
+				statuses[output.Path] = result.Status
+			}
+		}
+	}
+	entries := make([]artifactListEntry, 0)
+	for _, inspection := range inspections {
+		definition := inspection.Definition
+		status := statuses[definition.ID]
+		if status == "" {
+			status = statuses[definition.SourcePath]
+		}
+		if len(typeFilter) > 0 && !typeFilter[string(definition.Kind)] {
+			continue
+		}
+		if len(scopeFilter) > 0 && !scopeFilter[definition.Scope.Level] && !scopeFilter[definition.Scope.Path] {
+			continue
+		}
+		if len(statusFilter) > 0 && !statusFilter[string(status)] {
+			continue
+		}
+		entries = append(entries, artifactListEntry{ID: definition.ID, Kind: definition.Kind, Dialect: definition.SourceDialect, Path: definition.SourcePath, Scope: definition.Scope, Status: status, Compatibility: inspection.Plans})
+	}
+	if options.flags["--json"] {
+		data, marshalErr := json.MarshalIndent(entries, "", "  ")
+		if marshalErr != nil {
+			return marshalErr
+		}
+		a.writeStdout(string(data))
+		return nil
+	}
+	if len(entries) == 0 {
+		a.writeStdout("No local artifacts matched the filters.")
+		return nil
+	}
+	for _, entry := range entries {
+		status := string(entry.Status)
+		if status == "" {
+			status = "not-installed"
+		}
+		a.writeStdout(fmt.Sprintf("%-28s %-12s %-20s %s", entry.ID, entry.Kind, status, entry.Path))
+	}
+	return nil
+}
+
+func stringSet(values []string) map[string]bool {
+	set := make(map[string]bool, len(values))
+	for _, value := range values {
+		set[value] = true
+	}
+	return set
+}
+
 // listJSONEntry matches FR-020 acceptance scenario 1.
 type listJSONEntry struct {
 	ResourceName    string `json:"resource_name"`
@@ -101,16 +215,16 @@ func (a *app) runListJSON() error {
 	results := fs.GroupStatusesByResource(fs.ComputeAllStatuses(state, cfg, nil, projectRoot))
 
 	out := make([]listJSONEntry, 0, len(results))
-	for _, r := range results {
+	for _, result := range results {
 		entry := listJSONEntry{
-			ResourceName:    r.ResourceName,
-			ProviderID:      r.ProviderID,
-			Status:          string(r.Status),
-			ResolvedVersion: r.InstalledVersion,
+			ResourceName:    result.ResourceName,
+			ProviderID:      result.ProviderID,
+			Status:          string(result.Status),
+			ResolvedVersion: result.InstalledVersion,
 			PinnedVersion:   nil,
 		}
-		if r.Pinned {
-			entry.PinnedVersion = r.PinnedVersion
+		if result.Pinned {
+			entry.PinnedVersion = result.PinnedVersion
 		}
 		out = append(out, entry)
 	}

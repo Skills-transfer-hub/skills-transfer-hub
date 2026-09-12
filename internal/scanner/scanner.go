@@ -4,14 +4,17 @@
 // scanners can run against any tree provider.
 package scanner
 
-// ArtifactKind enumerates the kinds of AI artifacts STH knows how to install.
-type ArtifactKind string
+import "sth/internal/artifact"
+
+type ArtifactKind = artifact.Kind
 
 const (
-	KindSkill       ArtifactKind = "skill"
-	KindAgent       ArtifactKind = "agent"
-	KindCommand     ArtifactKind = "command"
-	KindInstruction ArtifactKind = "instruction"
+	KindSkill       = artifact.KindSkill
+	KindAgent       = artifact.KindAgent
+	KindCommand     = artifact.KindCommand
+	KindInstruction = artifact.KindInstruction
+	KindRule        = artifact.KindRule
+	KindWorkflow    = artifact.KindWorkflow
 )
 
 // TreeEntry is a single path returned by a repository tree listing.

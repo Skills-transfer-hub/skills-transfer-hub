@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"os"
@@ -30,8 +31,8 @@ type instructionRegionContribution struct {
 
 func instructionRegionDefinitionForTarget(target fs.TargetEntry) (instructionRegionDefinition, bool) {
 	switch target.Kind {
-	case "codex":
-		return instructionRegionDefinition{path: "AGENTS.md", id: codexInstructionRegionID, targetID: target.ID, targetKind: target.Kind}, true
+	case "codex", "cursor", "copilot":
+		return instructionRegionDefinition{path: "AGENTS.md", id: codexInstructionRegionID, targetID: target.ID, targetKind: "agents"}, true
 	case "gemini":
 		return instructionRegionDefinition{path: "GEMINI.md", id: geminiInstructionRegionID, targetID: target.ID, targetKind: target.Kind}, true
 	default:
@@ -42,7 +43,7 @@ func instructionRegionDefinitionForTarget(target fs.TargetEntry) (instructionReg
 func instructionRegionDefinitionFromManagedRegion(region fs.ManagedRegion) (instructionRegionDefinition, bool) {
 	switch region.ID {
 	case codexInstructionRegionID:
-		return instructionRegionDefinition{path: region.Path, id: region.ID, targetKind: "codex"}, true
+		return instructionRegionDefinition{path: region.Path, id: region.ID, targetKind: "agents"}, true
 	case geminiInstructionRegionID:
 		return instructionRegionDefinition{path: region.Path, id: region.ID, targetKind: "gemini"}, true
 	default:
@@ -108,6 +109,7 @@ func recordContributesToInstructionRegion(record fs.InstalledResourceRecordV2, d
 func instructionRegionContributions(projectRoot string, state fs.InstalledResourceStateV2, definition instructionRegionDefinition, contentOverrides map[string][]byte) ([]instructionRegionContribution, error) {
 	contributions := make([]instructionRegionContribution, 0)
 	seenFragmentPaths := make(map[string]struct{})
+	seenBodies := make(map[string]struct{})
 	for _, record := range state.Entries {
 		if !recordContributesToInstructionRegion(record, definition) {
 			continue
@@ -133,16 +135,42 @@ func instructionRegionContributions(projectRoot string, state fs.InstalledResour
 			}
 		}
 		fragmentName := strings.TrimSuffix(filepath.Base(fragmentPath), filepath.Ext(fragmentPath))
+		body := normalizedInstructionBody(fragmentContent)
+		bodyKey := fragmentName + "\x00" + body
+		if _, duplicate := seenBodies[bodyKey]; duplicate {
+			continue
+		}
+		seenBodies[bodyKey] = struct{}{}
 		contributions = append(contributions, instructionRegionContribution{
 			name:    fragmentName,
 			path:    fragmentPath,
-			content: append([]byte(nil), fragmentContent...),
+			content: []byte(body),
 		})
 	}
 	sort.Slice(contributions, func(leftIndex, rightIndex int) bool {
 		return contributions[leftIndex].path < contributions[rightIndex].path
 	})
 	return contributions, nil
+}
+
+func normalizedInstructionBody(content []byte) string {
+	body := bytes.TrimPrefix(content, []byte{0xEF, 0xBB, 0xBF})
+	if bytes.HasPrefix(body, []byte("---\n")) || bytes.HasPrefix(body, []byte("---\r\n")) {
+		lineOffset := bytes.IndexByte(body, '\n') + 1
+		for lineOffset > 0 && lineOffset < len(body) {
+			lineEnd := bytes.IndexByte(body[lineOffset:], '\n')
+			if lineEnd < 0 {
+				break
+			}
+			line := bytes.TrimSuffix(body[lineOffset:lineOffset+lineEnd], []byte("\r"))
+			lineOffset += lineEnd + 1
+			if bytes.Equal(line, []byte("---")) {
+				body = body[lineOffset:]
+				break
+			}
+		}
+	}
+	return strings.TrimSpace(strings.TrimPrefix(string(body), instructionFragmentManagedMarker))
 }
 
 func buildInstructionRegionBody(projectRoot string, state fs.InstalledResourceStateV2, definition instructionRegionDefinition, contentOverrides map[string][]byte) ([]byte, int, error) {
@@ -156,14 +184,13 @@ func buildInstructionRegionBody(projectRoot string, state fs.InstalledResourceSt
 
 	var body strings.Builder
 	switch definition.targetKind {
-	case "codex":
+	case "agents", "codex":
 		body.WriteString("## Instructions managed by STH\n")
 		for _, contribution := range contributions {
 			body.WriteString("\n### ")
 			body.WriteString(contribution.name)
 			body.WriteString("\n\n")
-			instructionBody := strings.TrimSpace(strings.TrimPrefix(string(contribution.content), instructionFragmentManagedMarker))
-			body.WriteString(instructionBody)
+			body.WriteString(string(contribution.content))
 			body.WriteByte('\n')
 		}
 	case "gemini":
