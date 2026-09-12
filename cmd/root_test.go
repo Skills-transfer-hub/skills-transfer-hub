@@ -212,7 +212,7 @@ func TestRun_noArgumentsNonInteractiveShowsNextStepGuidance(t *testing.T) {
 
 func TestRun_noArgumentsInteractiveShowsGuidedMenuAndAllowsQuit(t *testing.T) {
 	result := runCLIWithOptions(t, cliOptions{
-		input:       "3\n",
+		input:       "quit\n",
 		interactive: func() bool { return true },
 	})
 

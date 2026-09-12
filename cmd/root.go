@@ -32,6 +32,7 @@ type commandSpec struct {
 }
 
 var commandCatalog = []commandSpec{
+	{name: "check-updates", usage: "sth check-updates [--json]", summary: "Vérifier les mises à jour des skills, source par source, sans modifier les fichiers", flags: []string{"--json"}},
 	{
 		name:    "init",
 		usage:   "sth init [--no-cloud-prompt]",
@@ -373,6 +374,7 @@ type app struct {
 	installApprovedLossy map[string]bool
 
 	updateRefreshOnce sync.Once
+	repositoryUpdates *repositoryUpdateReport
 }
 
 func newApp(stdin io.Reader, stdout, stderr io.Writer, client *sthhttp.Client) *app {
@@ -488,6 +490,12 @@ func (a *app) run(args []string) error {
 				a.recordOperationResult("update", "", err)
 			}
 		}
+	case "check-updates":
+		if len(args) >= 2 && isHelpFlag(args[1]) {
+			a.writeStdout(commandHelpText("check-updates"))
+			return nil
+		}
+		err = a.runCheckUpdates(args[1:])
 	case "status":
 		if len(args) >= 2 && isHelpFlag(args[1]) {
 			a.writeStdout(commandHelpText("status"))

@@ -644,6 +644,9 @@ func (model initFlowModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			return model, nil
 		}
 		model.completeAccessAndToken()
+		if model.draft.IsPrivate {
+			return model, printInitLinesCmd(privateCreationGuide(model.draft.Provider)...)
+		}
 		return model, nil
 
 	case stepPrivateDetailsAsk:

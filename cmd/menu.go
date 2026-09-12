@@ -38,13 +38,14 @@ func projectStateLabel(state projectState) string {
 }
 
 type guidedStartupState struct {
-	InteractionMode  string
-	ProjectState     projectState
-	PrimaryAction    string
-	AvailableActions []string
-	ProviderHint     string
-	UpdateOffer      *fs.StableUpdateOffer
-	Detail           string
+	InteractionMode   string
+	ProjectState      projectState
+	PrimaryAction     string
+	AvailableActions  []string
+	ProviderHint      string
+	UpdateOffer       *fs.StableUpdateOffer
+	RepositoryUpdates *repositoryUpdateReport
+	Detail            string
 }
 
 func (a *app) loadGuidedStartupState() guidedStartupState {
@@ -58,7 +59,7 @@ func (a *app) loadGuidedStartupState() guidedStartupState {
 			state.UpdateOffer = a.cachedStableUpdateOffer()
 			a.refreshUpdateOfferInBackground()
 			if state.ProjectState == projectStateConfiguredReady && state.UpdateOffer != nil && state.UpdateOffer.DownloadReady {
-				state.AvailableActions = []string{"install", "status", "remove", "update", "doctor", "list", "update-self", "advanced", "quit"}
+				state.AvailableActions = []string{"install", "status", "remove", "update", "doctor", "list", "sources", "check-updates", "update-self", "advanced", "quit"}
 			}
 		}
 		return state
@@ -79,7 +80,7 @@ func (a *app) loadGuidedStartupState() guidedStartupState {
 			InteractionMode:  mode,
 			ProjectState:     projectStateUnconfigured,
 			PrimaryAction:    "install",
-			AvailableActions: []string{"install", "advanced", "quit"},
+			AvailableActions: []string{"install", "sources", "advanced", "quit"},
 			Detail:           "No project configuration found.",
 		})
 	}
@@ -92,7 +93,7 @@ func (a *app) loadGuidedStartupState() guidedStartupState {
 		InteractionMode:  mode,
 		ProjectState:     state,
 		PrimaryAction:    "install",
-		AvailableActions: []string{"install", "status", "remove", "update", "doctor", "list", "advanced", "quit"},
+		AvailableActions: []string{"install", "status", "remove", "update", "doctor", "list", "sources", "check-updates", "advanced", "quit"},
 		ProviderHint:     profile.Provider,
 		Detail:           fmt.Sprintf("Configured provider: %s", profile.Provider),
 	})
@@ -107,6 +108,9 @@ func renderGuidedMenuLines(state guidedStartupState) []string {
 		lines = append(lines, tui.DimStyle.Render("  "+state.Detail))
 	}
 	lines = append(lines, updateOfferLines(state.UpdateOffer)...)
+	if state.RepositoryUpdates != nil {
+		lines = append(lines, repositoryUpdateMenuLines(*state.RepositoryUpdates)...)
+	}
 
 	return lines
 }
@@ -135,6 +139,10 @@ func guidedActionLabel(action string) string {
 		return "Diagnostic"
 	case "advanced":
 		return "Réglages avancés"
+	case "sources":
+		return "Mes dépôts"
+	case "check-updates":
+		return "Vérifier les mises à jour"
 	case "list":
 		return "List catalog resources"
 	case "install":
@@ -168,6 +176,10 @@ func guidedActionDescription(action string) string {
 		return "Vérifier la configuration et les accès"
 	case "advanced":
 		return "Dépôts, tokens, configuration et commandes techniques"
+	case "sources":
+		return "Ajouter une source publique ou privée et retrouver le guide de clé"
+	case "check-updates":
+		return "Contrôler les skills de toutes les sources sans modifier les fichiers"
 	case "list":
 		return "Show resources from the remote catalog"
 	case "install":
@@ -263,6 +275,14 @@ func (a *app) runGuidedMenu() error {
 	timing.Mark("menu-session-created")
 	for {
 		state := a.loadGuidedStartupState()
+		if state.ProjectState == projectStateConfiguredReady || state.ProjectState == projectStateConnectionUnverified {
+			report, check := a.prepareRepositoryUpdateCheck(false)
+			if check != nil {
+				report = check()
+			}
+			a.repositoryUpdates = &report
+			state.RepositoryUpdates = &report
+		}
 		timing.Mark("menu-state-loaded")
 		a.writeStdout(renderGuidedMenuLines(state)...)
 		timing.Mark("menu-header-printed")
@@ -299,6 +319,10 @@ func (a *app) promptGuidedMenuAction(session *tui.Session, state guidedStartupSt
 func (a *app) executeGuidedMenuAction(session *tui.Session, action string) (resultErr error) {
 	defer func() {
 		switch action {
+		case "doctor", "sources", "init", "advanced":
+			a.repositoryUpdates = nil
+		}
+		switch action {
 		case "list", "install", "update", "doctor":
 			if !errors.Is(resultErr, tui.ErrAborted) {
 				a.recordOperationResult(action, "", resultErr)
@@ -318,6 +342,10 @@ func (a *app) executeGuidedMenuAction(session *tui.Session, action string) (resu
 		return a.runDoctor(nil)
 	case "advanced":
 		return a.runAdvancedMenu(session)
+	case "sources":
+		return a.runGuidedSources(session)
+	case "check-updates":
+		return a.runCheckUpdates(nil)
 	case "update":
 		return a.runUpdate([]string{})
 	case "update-self":

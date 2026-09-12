@@ -57,15 +57,34 @@ func (a *app) runFirstSkill(session *tui.Session) error {
 	if len(skills) == 0 {
 		return fmt.Errorf("aucun skill disponible; choisissez une autre source dans Réglages avancés")
 	}
+	if len(skills) > 20 {
+		query, err := tui.Input(session, tui.InputConfig{Label: "Rechercher un skill (nom, description ou source ; vide pour tout voir)"})
+		if err != nil {
+			return err
+		}
+		query = strings.ToLower(strings.TrimSpace(query))
+		if query != "" {
+			filtered := make([]fs.CatalogEntry, 0)
+			for _, skill := range skills {
+				if strings.Contains(strings.ToLower(skill.Name+" "+skill.Description+" "+fs.CatalogEntryProviderID(skill)), query) {
+					filtered = append(filtered, skill)
+				}
+			}
+			skills = filtered
+			if len(skills) == 0 {
+				return fmt.Errorf("aucun skill correspondant ; relancez Installer un skill avec un autre mot")
+			}
+		}
+	}
 	choices := make([]tui.Option, 0, len(skills))
 	for _, skill := range skills {
 		description := strings.TrimSpace(skill.Description)
 		if description == "" {
 			description = "Description non fournie par l’auteur — consultez le dépôt avant installation"
 		}
-		choices = append(choices, tui.Option{Label: skill.Name + " [" + fs.CatalogEntryProviderID(skill) + "]", Description: description, Aliases: []string{skill.Name, catalogDisplayRef(skill)}})
+		choices = append(choices, tui.Option{Label: skill.Name + " [" + fs.CatalogEntryProviderID(skill) + "]", Description: description, Aliases: []string{skill.Name, catalogDisplayRef(skill), fs.CatalogEntryProviderID(skill) + ":" + catalogDisplayRef(skill)}})
 	}
-	selectedIndex, err := tui.Select(session, tui.SelectConfig{Title: "Choisir un skill", Options: choices})
+	selectedIndex, err := tui.Select(session, tui.SelectConfig{Title: "Choisir un skill", Options: choices, PageSize: 8})
 	if err != nil {
 		return err
 	}

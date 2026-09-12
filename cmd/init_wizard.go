@@ -279,6 +279,7 @@ func (a *app) askAccessAndToken(session *tui.Session, draft *wizardProfile, exis
 		draft.TokenSource = ""
 		return nil
 	}
+	a.writeStdout(privateCreationGuide(draft.Provider)...)
 
 	if envVar, value := detectProviderToken(draft.Provider); value != "" {
 		a.narrateMood(session, tui.MoodHappy,

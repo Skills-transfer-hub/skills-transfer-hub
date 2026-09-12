@@ -1,7 +1,9 @@
 package cmd
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	stdhttp "net/http"
 	"net/http/httptest"
 	"os"
@@ -11,7 +13,34 @@ import (
 	"testing"
 
 	"sth/internal/fs"
+	sthhttp "sth/internal/http"
 )
+
+func TestLargeCatalogKeepsDescriptionsWhenOneFileIsMissing(t *testing.T) {
+	server := httptest.NewServer(stdhttp.HandlerFunc(func(response stdhttp.ResponseWriter, request *stdhttp.Request) {
+		if strings.Contains(request.URL.Path, "skill-00/") {
+			stdhttp.NotFound(response, request)
+			return
+		}
+		_, _ = response.Write([]byte("---\ndescription: Description utile\n---\nSkill\n"))
+	}))
+	defer server.Close()
+	t.Setenv("STH_GITHUB_RAW_BASE_URL", server.URL)
+	entries := make([]fs.CatalogEntry, 32)
+	for index := range entries {
+		name := fmt.Sprintf("skill-%02d", index)
+		entries[index] = fs.CatalogEntry{ProviderID: "public", ResourceType: "bundle", ArtifactKind: "skill", Name: name, FolderName: "skills", SourcePath: "skills/" + name + "/SKILL.md"}
+	}
+	application := newApp(nil, nil, nil, sthhttp.NewClient(server.Client()))
+	application.describeCatalogSkills(context.Background(), multiProviderConfig(), entries)
+	for index, entry := range entries {
+		if index == 0 {
+			assertContains(t, entry.Description, "inaccessible")
+		} else if entry.Description != "Description utile" {
+			t.Fatalf("description lost for %s: %s", entry.Name, entry.Description)
+		}
+	}
+}
 
 func TestScannedSkillDescriptionAppearsInMenuTextAndJSON(t *testing.T) {
 	description := "Créer des graphiques clairs à partir de données."

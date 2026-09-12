@@ -335,7 +335,7 @@ func TestRunGuidedMenu_releaseMetadataNeverBlocksLocalUse(t *testing.T) {
 	options := cliOptions{
 		workDir:      projectDir,
 		homeDir:      t.TempDir(),
-		input:        "9\n",
+		input:        "quit\n",
 		client:       sthhttp.NewClient(server.Client()),
 		interactive:  func() bool { return true },
 		userCacheDir: cacheDir,

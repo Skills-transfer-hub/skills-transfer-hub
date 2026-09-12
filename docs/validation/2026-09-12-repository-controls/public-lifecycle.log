@@ -1,0 +1,76 @@
+
+['install', 'anthropic:skills/brand-guidelines', '--target', 'codex', '--allow', 'exact,lossy', '--dry-run']
+EXIT 0
+No changes would be made.
+
+['install', 'anthropic:skills/brand-guidelines', '--target', 'codex', '--allow', 'exact,lossy']
+EXIT 0
+Déjà à jour : bundle::skills::brand-guidelines
+→ [1/4] Fetching catalog…
+→ [2/4] Downloading brand-guidelines…
+
+['install', 'gitlab:skills/commit-messages', '--target', 'codex', '--allow', 'exact,lossy', '--dry-run']
+EXIT 0
+No changes would be made.
+
+['install', 'gitlab:skills/commit-messages', '--target', 'codex', '--allow', 'exact,lossy']
+EXIT 0
+Déjà à jour : bundle::skills::commit-messages
+→ [1/4] Fetching catalog…
+→ [2/4] Downloading commit-messages…
+
+['install', 'copilot:agents/api-architect', '--target', 'codex', '--allow', 'exact,lossy', '--dry-run']
+EXIT 0
+Dry run — no changes will be written.
+[+] .codex/agents/api-architect.toml
+compatibility codex/agent: lossy → codex.agent.v1
+  destination: .codex/agents/{name}.toml
+  preserved: name
+  preserved: body
+  preserved: files
+  transformed: format
+  transformed: frontmatter
+  warning: target representation differs from the source dialect
+
+['install', 'copilot:agents/api-architect', '--target', 'codex', '--allow', 'exact,lossy']
+EXIT 0
+Resource 'api-architect' (agent) installed on 1 target(s).
+→ [1/4] Fetching catalog…
+→ [2/4] Downloading api-architect…
+compatibility codex/agent: lossy → codex.agent.v1
+  destination: .codex/agents/{name}.toml
+  preserved: name
+  preserved: body
+  preserved: files
+  transformed: format
+  transformed: frontmatter
+  warning: target representation differs from the source dialect
+→ [3/4] Installing files…
+→ [4/4] Finalizing…
+
+['check-updates', '--json']
+EXIT 0
+{"checked_at":"2026-09-12T14:57:23.38611Z","resources":[{"provider":"copilot","name":"api-architect","status":"up-to-date","installed_version":"9afab17e01358f26f967be3dcb6090048cbf4a30","available_version":"9afab17e01358f26f967be3dcb6090048cbf4a30"},{"provider":"anthropic","name":"brand-guidelines","status":"up-to-date","installed_version":"b9e19e6f44773509fbdd7001d77ff41a49a486c1","available_version":"b9e19e6f44773509fbdd7001d77ff41a49a486c1"},{"provider":"gitlab","name":"commit-messages","status":"up-to-date","installed_version":"9d00ef4ebc555720859c3309134e5dbf54b0f9db","available_version":"9d00ef4ebc555720859c3309134e5dbf54b0f9db"}]}
+
+['check-updates']
+EXIT 0
+Mises à jour des skills — vérification 16:57
+  api-architect [copilot] : Déjà à jour
+  brand-guidelines [anthropic] : Déjà à jour
+  commit-messages [gitlab] : Déjà à jour
+
+['remove', 'anthropic:skills/brand-guidelines', '--yes', '--json']
+EXIT 0
+{"message":"Resource 'bundle::skills::brand-guidelines' removed.","outcome":"removed","resource_name":"anthropic:skills/brand-guidelines"}
+
+['remove', 'gitlab:skills/commit-messages', '--yes', '--json']
+EXIT 0
+{"message":"Resource 'bundle::skills::commit-messages' removed.","outcome":"removed","resource_name":"gitlab:skills/commit-messages"}
+
+['remove', 'copilot:agents/api-architect', '--yes', '--json']
+EXIT 0
+{"message":"Resource 'agent::agents::api-architect' removed.","outcome":"removed","resource_name":"copilot:agents/api-architect"}
+
+['list', '--installed', '--json']
+EXIT 0
+[]
