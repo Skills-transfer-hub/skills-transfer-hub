@@ -1,0 +1,15 @@
+?   	sth	[no test files]
+ok  	sth/cmd	25.159s
+ok  	sth/internal/artifact	(cached)
+ok  	sth/internal/auth	(cached)
+ok  	sth/internal/cloud	(cached)
+?   	sth/internal/cloud/sthv2	[no test files]
+ok  	sth/internal/frontmatter	(cached)
+ok  	sth/internal/fs	(cached)
+ok  	sth/internal/http	(cached)
+ok  	sth/internal/log	(cached)
+ok  	sth/internal/scanner	(cached)
+?   	sth/internal/timing	[no test files]
+ok  	sth/internal/tui	(cached)
+ok  	sth/internal/writer	(cached)
+?   	sth/tools/release-sign	[no test files]

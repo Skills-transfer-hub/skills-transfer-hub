@@ -1,0 +1,70 @@
+
+COMMAND ['telemetry', 'off']
+EXIT 0
+Telemetry disabled. Commands will no longer send usage data.
+Preferences: /private/tmp/sth-first-skill-public-auth/user-config/sth/settings.json
+
+COMMAND ['list', '--json']
+EXIT 0
+[{"catalog_id":"bundle::skills::academy-guide","provider_id":"public","resource_type":"bundle","name":"academy-guide","folder_name":"skills","source_path":"skills/academy-guide/SKILL.md","description":"Discovered from the repository structure","artifact_kind":"skill"},{"catalog_id":"bundle::skills::algorithmic-art","provider_id":"public","resource_type":"bundle","name":"algorithmic-art","folder_name":"skills","source_path":"skills/algorithmic-art/SKILL.md","description":"Discovered from the repository structure","artifact_kind":"skill"},{"catalog_id":"bundle::skills::brand-guidelines","provider_id":"public","resource_type":"bundle","name":"brand-guidelines","folder_name":"skills","source_path":"skills/brand-guidelines/SKILL.md","description":"Discovered from the repository structure","artifact_kind":"skill"},{"catalog_id":"bundle::skills::canvas-design","provider_id":"public","resource_type":"bundle","name":"canvas-design","folder_name":"skills","source_path":"skills/canvas-design/SKILL.md","description":"Discovered from the repository structure","artifact_kind":"skill"},{"catalog_id":"bundle::skills::claude-api","provider_id":"public","resource_type":"bundle","name":"claude-api","folder_name":"skills","source_path":"skills/claude-api/SKILL.md","description":"Discovered from the repository structure","artifact_kind":"skill"},{"catalog_id":"bundle::skills::discernment-nudge","provider_id":"public","resource_type":"bundle","name":"discernment-nudge","folder_name":"skills","source_path":"skills/discernment-nudge/SKILL.md","description":"Discovered from the repository structure","artifact_kind":"skill"},{"catalog_id":"bundle::skills::doc-coauthoring","provider_id":"public","resource_type":"bundle","name":"doc-coauthoring","folder_name":"skills","source_path":"skills/doc-coauthoring/SKILL.md","description":"Discovered from the repository structure","artifact_kind":"skill"},{"catalog_id":"bundle::skills::docx","provider_id":"public","resource_type":"bundle","name":"docx","folder_name":"skills","source_path":"skills/docx/SKILL.md","description":"Discovered from the repository structure","artifact_kind":"skill"},{"catalog_id":"bundle::skills::frontend-design","provider_id":"public","resource_type":"bundle","name":"frontend-design","folder_name":"skills","source_path":"skills/frontend-design/SKILL.md","description":"Discovered from the repository structure","artifact_kind":"skill"},{"catalog_id":"bundle::skills::internal-comms","provider_id":"public","resource_type":"bundle","name":"internal-comms","folder_name":"skills","source_path":"skills/internal-comms/SKILL.md","description":"Discovered from the repository structure","artifact_kind":"skill"},{"catalog_id":"bundle::skills::mcp-builder","provider_id":"public","resource_type":"bundle","name":"mcp-builder","folder_name":"skills","source_path":"skills/mcp-builder/SKILL.md","description":"Discovered from the repository structure","artifact_kind":"skill"},{"catalog_id":"bundle::skills::pdf","provider_id":"public","resource_type":"bundle","name":"pdf","folder_name":"skills","source_path":"skills/pdf/SKILL.md","description":"Discovered from the repository structure","artifact_kind":"skill"},{"catalog_id":"bundle::skills::pptx","provider_id":"public","resource_type":"bundle","name":"pptx","folder_name":"skills","source_path":"skills/pptx/SKILL.md","description":"Discovered from the repository structure","artifact_kind":"skill"},{"catalog_id":"bundle::skills::skill-creator","provider_id":"public","resource_type":"bundle","name":"skill-creator","folder_name":"skills","source_path":"skills/skill-creator/SKILL.md","description":"Discovered from the repository structure","artifact_kind":"skill"},{"catalog_id":"bundle::skills::slack-gif-creator","provider_id":"public","resource_type":"bundle","name":"slack-gif-creator","folder_name":"skills","source_path":"skills/slack-gif-creator/SKILL.md","description":"Discovered from the repository structure","artifact_kind":"skill"},{"catalog_id":"bundle::skills::theme-factory","provider_id":"public","resource_type":"bundle","name":"theme-factory","folder_name":"skills","source_path":"skills/theme-factory/SKILL.md","description":"Discovered from the repository structure","artifact_kind":"skill"},{"catalog_id":"bundle::skills::web-artifacts-builder","provider_id":"public","resource_type":"bundle","name":"web-artifacts-builder","folder_name":"skills","source_path":"skills/web-artifacts-builder/SKILL.md","description":"Discovered from the repository structure","artifact_kind":"skill"},{"catalog_id":"bundle::skills::webapp-testing","provider_id":"public","resource_type":"bundle","name":"webapp-testing","folder_name":"skills","source_path":"skills/webapp-testing/SKILL.md","description":"Discovered from the repository structure","artifact_kind":"skill"},{"catalog_id":"bundle::skills::xlsx","provider_id":"public","resource_type":"bundle","name":"xlsx","folder_name":"skills","source_path":"skills/xlsx/SKILL.md","description":"Discovered from the repository structure","artifact_kind":"skill"}]
+
+COMMAND ['doctor', '--json']
+EXIT 0
+[{"detail":"1 provider(s)","name":"Project configuration","next_action":"","status":"pass"},{"detail":"0 resource(s) tracked across 1 target dir(s)","name":"State file integrity","next_action":"","status":"pass"},{"detail":"Public repositories support anonymous access; no token required","name":"Credential validity","next_action":"","status":"pass"},{"detail":"no license cache (run `sth login`)","name":"License expiry","next_action":"","status":"skip"},{"detail":"Catalog access verified using the same access method as installation","name":"Provider reachability (public)","next_action":"","status":"pass"}]
+
+COMMAND ['install', 'skills/brand-guidelines', '--target', 'codex', '--dry-run']
+EXIT 0
+Dry run — no changes will be written.
+[+] .agents/skills/brand-guidelines/LICENSE.txt
+[+] .agents/skills/brand-guidelines/SKILL.md
+
+COMMAND ['install', 'skills/brand-guidelines', '--target', 'codex']
+EXIT 0
+Skill 'brand-guidelines' installed:
+  → .agents/skills/brand-guidelines (read by codex)
+Next step: use `sth update` to refresh tracked resources.
+→ [1/4] Fetching catalog…
+→ [2/4] Downloading brand-guidelines…
+→ [3/4] Installing files…
+→ [4/4] Finalizing…
+
+COMMAND ['install', 'skills/brand-guidelines', '--target', 'codex']
+EXIT 0
+Déjà à jour : bundle::skills::brand-guidelines
+→ [1/4] Fetching catalog…
+→ [2/4] Downloading brand-guidelines…
+
+COMMAND ['update']
+EXIT 0
+Déjà à jour : bundle::skills::brand-guidelines
+→ [1/3] Downloading brand-guidelines…
+
+COMMAND ['list', '--installed', '--json']
+EXIT 0
+[{"resource_name":"bundle::skills::brand-guidelines","provider_id":"public","status":"up-to-date","resolved_version":"b9e19e6f44773509fbdd7001d77ff41a49a486c1","pinned_version":null}]
+
+PROTECTED ['update']
+EXIT 1
+Error: resource "bundle::skills::brand-guidelines" has local modifications in [/private/tmp/sth-first-skill-public-auth/.agents/skills/brand-guidelines/SKILL.md]; copy your edits outside the managed folder, then restore the original file before retrying
+
+PROTECTED ['update', '--fail-on-changes']
+EXIT 1
+Modified files detected (--fail-on-changes):
+  bundle::skills::brand-guidelines — /private/tmp/sth-first-skill-public-auth/.agents/skills/brand-guidelines/SKILL.md
+Error: 1 resource(s) have local modifications
+
+PROTECTED ['remove', 'skills/brand-guidelines', '--yes']
+EXIT 1
+Error: resource "bundle::skills::brand-guidelines" has local modifications in [/private/tmp/sth-first-skill-public-auth/.agents/skills/brand-guidelines/SKILL.md]; copy your edits outside the managed folder, then restore the original file before retrying
+
+OFFLINE ['list']
+EXIT 1
+Error: provider public: request to http://127.0.0.1:1/anthropics/skills/main/SKILLS.md failed: Get "http://127.0.0.1:1/anthropics/skills/main/SKILLS.md": dial tcp 127.0.0.1:1: connect: connection refused
+
+OFFLINE ['list', '--installed', '--json']
+EXIT 0
+[{"resource_name":"bundle::skills::brand-guidelines","provider_id":"public","status":"up-to-date","resolved_version":"b9e19e6f44773509fbdd7001d77ff41a49a486c1","pinned_version":null}]
+
+OFFLINE ['remove', 'skills/brand-guidelines', '--yes', '--json']
+EXIT 0
+{"message":"Resource 'bundle::skills::brand-guidelines' removed.","outcome":"removed","resource_name":"skills/brand-guidelines"}

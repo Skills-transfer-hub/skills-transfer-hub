@@ -1,0 +1,40 @@
+sth-linux-amd64.tar.gz: OK
+sth-darwin-amd64.tar.gz: OK
+sth-darwin-arm64.tar.gz: OK
+sth-windows-amd64.zip: OK
+sth-engine-linux-amd64: OK
+sth-engine-darwin-amd64: OK
+sth-engine-darwin-arm64: OK
+sth-engine-windows-amd64.exe: OK
+sth-code-engine.json: OK
+sth-capabilities-v1.json: OK
+sth-capabilities-v1.json.sha256: OK
+sth-capabilities-v1.md: OK
+release assets verified: 1.2.3
+sth-linux-amd64.tar.gz: OK
+sth-darwin-amd64.tar.gz: OK
+sth-darwin-arm64.tar.gz: OK
+sth-windows-amd64.zip: OK
+sth-engine-linux-amd64: OK
+sth-engine-darwin-amd64: OK
+sth-engine-darwin-arm64: OK
+sth-engine-windows-amd64.exe: OK
+sth-code-engine.json: OK
+sth-capabilities-v1.json: OK
+sth-capabilities-v1.json.sha256: OK
+sth-capabilities-v1.md: OK
+release assets verified: 1.2.3
+sth-linux-amd64.tar.gz: OK
+sth-darwin-amd64.tar.gz: OK
+sth-darwin-arm64.tar.gz: OK
+sth-windows-amd64.zip: OK
+sth-engine-linux-amd64: OK
+sth-engine-darwin-amd64: OK
+sth-engine-darwin-arm64: OK
+sth-engine-windows-amd64.exe: OK
+sth-code-engine.json: OK
+sth-capabilities-v1.json: OK
+sth-capabilities-v1.json.sha256: OK
+sth-capabilities-v1.md: OK
+release assets verified: 1.2.3
+release asset verifier tests passed
