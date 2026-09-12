@@ -251,7 +251,11 @@ func (a *app) runInstalledList(jsonOut bool) error {
 			a.writeStdout("Aucun skill installé. Choisissez Installer un skill.")
 		}
 		for _, entry := range out {
-			a.writeStdout(fmt.Sprintf("%s [%s] — %s — version %s — pinned %v", entry.ResourceName, entry.ProviderID, entry.Status, entry.ResolvedVersion, entry.PinnedVersion))
+			pin := "non verrouillée"
+			if entry.PinnedVersion != nil {
+				pin = fmt.Sprintf("verrouillée sur %v", entry.PinnedVersion)
+			}
+			a.writeStdout(fmt.Sprintf("%s [%s] — %s — version %s — %s", entry.ResourceName, entry.ProviderID, entry.Status, entry.ResolvedVersion, pin))
 		}
 		return nil
 	}

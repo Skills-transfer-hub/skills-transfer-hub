@@ -144,7 +144,7 @@ func (a *app) runGuidedRemove(session *tui.Session) error {
 	}
 	options := make([]tui.Option, 0, len(selections))
 	for _, selection := range selections {
-		options = append(options, tui.Option{Label: selection.resourceName, Description: selection.providerID, Aliases: []string{selection.resourceName}})
+		options = append(options, tui.Option{Label: installedDisplayName(selection.resourceName), Description: selection.providerID, Aliases: []string{selection.resourceName}})
 	}
 	index, err := tui.Select(session, tui.SelectConfig{Title: "Supprimer un skill", Options: options})
 	if err != nil {
@@ -174,4 +174,58 @@ func (a *app) runAdvancedMenu(session *tui.Session) error {
 		return nil
 	}
 	return a.executeGuidedMenuAction(session, actions[index])
+}
+
+func installedDisplayName(resourceName string) string {
+	_, _, name, canonical := fs.ParseCatalogID(resourceName)
+	if canonical {
+		return name
+	}
+	return resourceName
+}
+
+func (a *app) runGuidedSkills() error {
+	config, err := fs.ReadProjectConfigV2ReadOnly()
+	if err != nil {
+		return err
+	}
+	selections, err := installedSelections(config)
+	if err != nil {
+		return err
+	}
+	if len(selections) == 0 {
+		a.writeStdout("Aucun skill installé. Choisissez Installer un skill.")
+		return nil
+	}
+	for _, selection := range selections {
+		label := "Installé"
+		assistants := map[string]bool{}
+		for _, record := range selection.records {
+			if status, _ := fs.ComputeResourceStatus(record, ""); status == fs.ResourceStatusModifiedLocally {
+				label = "Modifié sur ce poste — changements protégés"
+			}
+			if record.TargetKind != "" {
+				assistants[record.TargetKind] = true
+			}
+			for _, consumer := range record.Consumers {
+				assistants[consumer] = true
+			}
+		}
+		names := make([]string, 0, len(assistants))
+		for assistant := range assistants {
+			if spec, exists := writer.SpecForKind(assistant); exists {
+				names = append(names, spec.DisplayName)
+			} else {
+				names = append(names, assistant)
+			}
+		}
+		sort.Strings(names)
+		a.writeStdout(fmt.Sprintf("%s — %s", installedDisplayName(selection.resourceName), label))
+		if len(names) > 0 {
+			a.writeStdout("  Assistants : " + strings.Join(names, ", "))
+		}
+		a.writeStdout("  Source : " + selection.providerID)
+	}
+	a.writeStdout("Choisissez Supprimer pour retirer un skill, ou Mettre à jour pour vérifier sa version distante.")
+	return nil
 }

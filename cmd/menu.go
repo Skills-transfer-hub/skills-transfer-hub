@@ -140,7 +140,7 @@ func guidedActionLabel(action string) string {
 	case "install":
 		return "Installer un skill"
 	case "update":
-		return "Update tracked resources"
+		return "Mettre à jour"
 	case "update-self":
 		return "Apply the downloaded sth update"
 	case "show-config":
@@ -311,7 +311,7 @@ func (a *app) executeGuidedMenuAction(session *tui.Session, action string) (resu
 	case "install":
 		return a.runFirstSkill(session)
 	case "status":
-		return a.runListWithArgs([]string{"--installed"})
+		return a.runGuidedSkills()
 	case "remove":
 		return a.runGuidedRemove(session)
 	case "doctor":
