@@ -43,6 +43,10 @@ func (ClaudeWriter) Plan(artifactKind, artifactName, _ string, sources []string)
 		return PlanResult{Files: []PlannedFile{{SourcePath: sources[0], RelativePath: ".claude/commands/" + artifactName + ".md"}}}
 	case "instruction":
 		return PlanResult{Files: []PlannedFile{{SourcePath: sources[0], RelativePath: ".claude/rules/" + artifactName + ".md"}}}
+	case "rule":
+		return PlanResult{Files: []PlannedFile{{SourcePath: sources[0], RelativePath: ".claude/rules/" + artifactName + ".md"}}}
+	case "workflow":
+		return PlanResult{Files: []PlannedFile{{SourcePath: sources[0], RelativePath: ".claude/workflows/" + artifactName + ".js"}}}
 	}
 	return PlanResult{Skipped: true, Reason: "unknown artifact kind: " + artifactKind}
 }

@@ -24,6 +24,7 @@ type SelectConfig struct {
 	Options     []Option
 	Recommended int
 	MaxAttempts int
+	PageSize    int
 }
 
 type selectModel struct {
@@ -38,6 +39,7 @@ type selectModel struct {
 	chosenIndex int
 	chosen      bool
 	aborted     bool
+	pageSize    int
 }
 
 func (model selectModel) isFinished() bool {
@@ -56,6 +58,7 @@ func newSelectModel(config SelectConfig) selectModel {
 		cursor:      recommended,
 		maxAttempts: config.MaxAttempts,
 		chosenIndex: -1,
+		pageSize:    config.PageSize,
 	}
 }
 
@@ -135,7 +138,16 @@ func (model *selectModel) resolve() {
 func (model selectModel) View() string {
 	var builder strings.Builder
 	builder.WriteString(TitleStyle.Render(model.title) + "\n")
+	start, end := 0, len(model.options)
+	if model.pageSize > 0 && len(model.options) > model.pageSize {
+		start = model.cursor / model.pageSize * model.pageSize
+		end = min(start+model.pageSize, len(model.options))
+		builder.WriteString(DimStyle.Render(fmt.Sprintf("%d–%d / %d", start+1, end, len(model.options))) + "\n")
+	}
 	for index, option := range model.options {
+		if index < start || index >= end {
+			continue
+		}
 		label := option.Label
 		if index == model.recommended {
 			label += DimStyle.Render(" (recommended)")
@@ -170,12 +182,19 @@ func resolveSelectToken(token string, options []Option, recommended int) (int, e
 		}
 		return 0, fmt.Errorf("number out of range: %s", token)
 	}
+	matched := -1
 	for index, option := range options {
 		for _, alias := range option.Aliases {
 			if strings.EqualFold(alias, token) {
-				return index, nil
+				if matched >= 0 && matched != index {
+					return 0, fmt.Errorf("ambiguous name %q; select the source explicitly", token)
+				}
+				matched = index
 			}
 		}
+	}
+	if matched >= 0 {
+		return matched, nil
 	}
 	for index, option := range options {
 		if strings.EqualFold(option.Label, token) {

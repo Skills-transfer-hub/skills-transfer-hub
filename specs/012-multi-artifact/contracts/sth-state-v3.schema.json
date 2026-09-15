@@ -1,0 +1,93 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://skills-transfer-hub.dev/schemas/sth-state-v3.schema.json",
+  "title": "STH project state v3",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "resources"],
+  "properties": {
+    "schema_version": { "const": 3 },
+    "resources": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/resource" }
+    }
+  },
+  "$defs": {
+    "resource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["resource_id", "provider_id", "artifact_kind", "installed_at", "source", "plans", "outputs"],
+      "properties": {
+        "resource_id": { "type": "string", "minLength": 1 },
+        "provider_id": { "type": "string", "minLength": 1 },
+        "artifact_kind": { "enum": ["skill", "agent", "instruction", "rule", "command", "workflow"] },
+        "resolved_version": { "type": "string" },
+        "previous_version": { "type": "string" },
+        "installed_at": { "type": "string" },
+        "source": { "$ref": "#/$defs/source" },
+        "plans": { "type": "array", "items": { "$ref": "#/$defs/plan" } },
+        "outputs": { "type": "array", "items": { "$ref": "#/$defs/output" } }
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["dialect", "path"],
+      "properties": {
+        "dialect": { "type": "string" },
+        "path": { "type": "string" },
+        "commit": { "type": "string" },
+        "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+      }
+    },
+    "plan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["target_id", "target_kind", "target_dialect", "transformer", "transformer_version", "compatibility", "report", "outputs"],
+      "properties": {
+        "target_id": { "type": "string" },
+        "target_kind": { "type": "string" },
+        "target_dialect": { "type": "string" },
+        "transformer": { "type": "string" },
+        "transformer_version": { "type": "string" },
+        "compatibility": { "enum": ["exact", "lossy", "native-only", "unsupported"] },
+        "report": { "$ref": "#/$defs/report" },
+        "legacy_state_directory": { "type": "string" },
+        "outputs": { "type": "array", "items": { "$ref": "#/$defs/output" } }
+      }
+    },
+    "report": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "preserved": { "type": "array", "items": { "type": "string" } },
+        "transformed": { "type": "array", "items": { "type": "string" } },
+        "dropped": { "type": "array", "items": { "type": "string" } },
+        "warnings": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["consumers", "path", "sha256"],
+      "properties": {
+        "consumers": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+        "path": { "type": "string" },
+        "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "regions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["path", "id"],
+            "properties": {
+              "path": { "type": "string" },
+              "id": { "type": "string" },
+              "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+            }
+          }
+        }
+      }
+    }
+  }
+}

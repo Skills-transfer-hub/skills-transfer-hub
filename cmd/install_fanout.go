@@ -5,15 +5,27 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
 
+	"sth/internal/artifact"
 	"sth/internal/fs"
 	"sth/internal/writer"
 )
 
 func (a *app) installFanout(profile fs.ProjectProfile, stateDir string, cfg fs.ProjectConfigV2, entry fs.CatalogEntry, providerID, resolvedVersion string, dryRun, jsonOut, force bool) error {
+	filteredTargets := make([]fs.TargetEntry, 0, len(cfg.Targets))
+	for _, target := range fs.EffectiveTargets(cfg) {
+		if target.Enabled && a.targetSelected(target.ID, target.Kind) {
+			filteredTargets = append(filteredTargets, target)
+		}
+	}
+	if len(filteredTargets) == 0 {
+		return fmt.Errorf("no configured target matched --target")
+	}
+	cfg.Targets = filteredTargets
 	if validationErr := validateFanoutTargetRoots(cfg); validationErr != nil {
 		return validationErr
 	}
@@ -92,6 +104,15 @@ func (a *app) installSkillFanout(profile fs.ProjectProfile, stateDir string, ent
 	if validationErr := validateSkillConsumerContracts(projectRoot, entry.Name, sources, kinds, fetch); validationErr != nil {
 		return validationErr
 	}
+	sourceFiles := make([]artifact.File, 0, len(sources))
+	for _, sourcePath := range sources {
+		content, fetchErr := fetch(sourcePath)
+		if fetchErr != nil {
+			return fetchErr
+		}
+		sourceFiles = append(sourceFiles, artifact.File{Path: sourcePath, Content: content})
+	}
+	sourceSHA256 := artifact.HashFiles(sourceFiles)
 
 	placement := writer.PlanSkillPlacement(kinds)
 	if len(placement.Folders) == 0 {
@@ -106,7 +127,7 @@ func (a *app) installSkillFanout(profile fs.ProjectProfile, stateDir string, ent
 		if !ok {
 			continue
 		}
-		result, matErr := writer.MaterializeArtifact(projectRoot, target, "skill", entry.Name, entry.Lang, sources, fetch, true, false)
+		result, matErr := writer.MaterializeArtifact(projectRoot, target, "skill", entry.Name, entry.Lang, sources, fetch, false, false)
 		if matErr != nil {
 			return matErr
 		}
@@ -127,6 +148,11 @@ func (a *app) installSkillFanout(profile fs.ProjectProfile, stateDir string, ent
 	if stateErr != nil {
 		return stateErr
 	}
+	if !dryRun {
+		if driftErr := refuseModifiedResources(state, fs.ProjectConfigV2{}, entry.CatalogID); driftErr != nil {
+			return driftErr
+		}
+	}
 	if !force {
 		for _, file := range plannedFiles {
 			if conflict := fs.CheckOwnershipConflict(&state, entry.CatalogID, file.Path); conflict != nil {
@@ -138,6 +164,11 @@ func (a *app) installSkillFanout(profile fs.ProjectProfile, stateDir string, ent
 		return a.renderFanoutDryRun(projectRoot, stateDir, entry.CatalogID, plannedFiles, nil, nil, jsonOut)
 	}
 
+	previousConsumers, _ := fanoutInstalledRecord(state, entry.CatalogID, "")
+	if slices.Equal(previousConsumers.Consumers, kinds) && fanoutFilesUnchanged(state, entry.CatalogID, providerID, resolvedVersion, projectRoot, plannedFiles) {
+		a.reportUnchanged(entry.CatalogID, resolvedVersion)
+		return nil
+	}
 	previous, _ := fanoutInstalledRecord(state, entry.CatalogID, "")
 	transactionPaths := fanoutTransactionPaths(stateDir, plannedFiles, previous.ManagedFiles)
 	transaction, transactionErr := newFanoutFileTransaction(projectRoot, transactionPaths)
@@ -148,7 +179,7 @@ func (a *app) installSkillFanout(profile fs.ProjectProfile, stateDir string, ent
 	a.progress.step("Installing files…")
 	managedFiles := make([]fs.ManagedFile, 0, len(plannedFiles))
 	for _, plan := range plans {
-		result, matErr := writer.MaterializeArtifact(projectRoot, plan.target, "skill", entry.Name, entry.Lang, sources, fetch, true, true)
+		result, matErr := writer.MaterializeArtifact(projectRoot, plan.target, "skill", entry.Name, entry.Lang, sources, fetch, false, true)
 		if matErr != nil {
 			return transaction.rollback(matErr)
 		}
@@ -163,14 +194,21 @@ func (a *app) installSkillFanout(profile fs.ProjectProfile, stateDir string, ent
 		effectiveVersion = previous.ResolvedVersion
 	}
 	record := fs.InstalledResourceRecordV2{
-		ResourceName:    entry.CatalogID,
-		ProviderID:      providerID,
-		ResolvedVersion: effectiveVersion,
-		PreviousVersion: previous.ResolvedVersion,
-		InstalledAt:     time.Now().UTC().Format(time.RFC3339),
-		ManagedFiles:    managedFiles,
-		SourcePath:      entry.SourcePath,
-		ArtifactKind:    "skill",
+		ResourceName:        entry.CatalogID,
+		ProviderID:          providerID,
+		ResolvedVersion:     effectiveVersion,
+		PreviousVersion:     previous.ResolvedVersion,
+		InstalledAt:         time.Now().UTC().Format(time.RFC3339),
+		ManagedFiles:        managedFiles,
+		SourcePath:          entry.SourcePath,
+		ArtifactKind:        "skill",
+		SourceDialect:       string(artifact.DialectAgentSkills),
+		SourceSHA256:        sourceSHA256,
+		TargetDialect:       string(artifact.DialectAgentSkills),
+		Compatibility:       string(artifact.CompatibilityExact),
+		CompatibilityReport: artifact.CompatibilityReport{Preserved: []string{"name", "body", "files"}},
+		TransformerVersion:  "1",
+		Consumers:           append([]string(nil), kinds...),
 	}
 	recordPlan := fanoutRecordPlan{record: record, previous: previous}
 	ownershipMessages := make([]string, 0)
@@ -203,9 +241,12 @@ func (a *app) installSkillFanout(profile fs.ProjectProfile, stateDir string, ent
 }
 
 type fanoutTargetPlan struct {
-	target  fs.TargetEntry
-	tool    writer.Target
-	preview writer.MaterializeResult
+	target           fs.TargetEntry
+	tool             writer.Target
+	preview          writer.MaterializeResult
+	compatibility    artifact.CompatibilityLevel
+	report           artifact.CompatibilityReport
+	addManagedHeader bool
 }
 
 type fanoutSkillPlan struct {
@@ -449,7 +490,7 @@ func fanoutInstalledRecord(state fs.InstalledResourceStateV2, resourceName, targ
 }
 
 func fanoutTransactionPaths(targetDir string, plannedFiles, previousFiles []fs.ManagedFile) []string {
-	paths := make([]string, 0, len(plannedFiles)+len(previousFiles)+1)
+	paths := make([]string, 0, len(plannedFiles)+len(previousFiles)+2)
 	for _, file := range plannedFiles {
 		paths = append(paths, file.Path)
 	}
@@ -457,6 +498,7 @@ func fanoutTransactionPaths(targetDir string, plannedFiles, previousFiles []fs.M
 		paths = append(paths, file.Path)
 	}
 	paths = append(paths, filepath.ToSlash(filepath.Join(targetDir, "sth-state-v2.json")))
+	paths = append(paths, filepath.ToSlash(filepath.Join(".sth", fs.StateFileNameV3)))
 	return paths
 }
 
@@ -632,7 +674,7 @@ func (a *app) installArtifactFanout(profile fs.ProjectProfile, stateDir string, 
 			a.writeFanoutSkip(target.Kind, preliminaryPlan.Reason, jsonOut)
 			continue
 		}
-		eligiblePlans = append(eligiblePlans, fanoutTargetPlan{target: target, tool: tool})
+		eligiblePlans = append(eligiblePlans, fanoutTargetPlan{target: target, tool: tool, compatibility: capability.Level, addManagedHeader: capability.Level != artifact.CompatibilityExact})
 	}
 	if len(eligiblePlans) == 0 {
 		return fmt.Errorf("no compatible target for artifact %s (%s)", entry.Name, kind)
@@ -643,13 +685,41 @@ func (a *app) installArtifactFanout(profile fs.ProjectProfile, stateDir string, 
 	if err != nil {
 		return err
 	}
+	definition := artifact.DefinitionFromContent(artifact.Kind(kind), entry.Name, entry.SourcePath, content)
+	if definition.Common.Description == "" {
+		definition.Common.Description = entry.Description
+	}
+	diagnostics := writer.ValidateForKind(eligiblePlans[0].target.Kind, definition)
+	for _, diagnostic := range diagnostics {
+		a.writeStderr(fmt.Sprintf("%s %s %s: %s", diagnostic.Severity, diagnostic.Path, diagnostic.Code, diagnostic.Message))
+	}
+	if artifact.HasErrors(diagnostics, false) {
+		return fmt.Errorf("artifact validation failed for %s", entry.Name)
+	}
+	approvedPlans := make([]fanoutTargetPlan, 0, len(eligiblePlans))
+	for _, eligiblePlan := range eligiblePlans {
+		compatibilityPlan := writer.PlanCompatibility(definition, eligiblePlan.target.Kind)
+		capability, _ := writer.CapabilityFor(eligiblePlan.target.Kind, kind)
+		if !a.allowInstallPlan(compatibilityPlan, capability, eligiblePlan.target.Kind, entry.SourcePath, jsonOut) {
+			a.writeFanoutSkip(eligiblePlan.target.Kind, fmt.Sprintf("compatibility %s requires explicit approval", compatibilityPlan.Level), jsonOut)
+			continue
+		}
+		eligiblePlan.compatibility = compatibilityPlan.Level
+		eligiblePlan.report = compatibilityPlan.Report
+		eligiblePlan.addManagedHeader = compatibilityPlan.Level != artifact.CompatibilityExact
+		approvedPlans = append(approvedPlans, eligiblePlan)
+	}
+	eligiblePlans = approvedPlans
+	if len(eligiblePlans) == 0 {
+		return fmt.Errorf("no compatible target for artifact %s (%s)", entry.Name, kind)
+	}
 	fetch := func(string) ([]byte, error) { return content, nil }
 
 	plans := make([]fanoutTargetPlan, 0)
 	plannedFiles := make([]fs.ManagedFile, 0)
 	plannedFileIndexes := make(map[string]int)
 	for _, eligiblePlan := range eligiblePlans {
-		preview, matErr := writer.MaterializeArtifact(projectRoot, eligiblePlan.tool, kind, entry.Name, entry.Lang, sources, fetch, true, false)
+		preview, matErr := writer.MaterializeArtifact(projectRoot, eligiblePlan.tool, kind, entry.Name, entry.Lang, sources, fetch, eligiblePlan.addManagedHeader, false)
 		if matErr != nil {
 			return matErr
 		}
@@ -664,7 +734,8 @@ func (a *app) installArtifactFanout(profile fs.ProjectProfile, stateDir string, 
 				return appendErr
 			}
 		}
-		plans = append(plans, fanoutTargetPlan{target: eligiblePlan.target, tool: eligiblePlan.tool, preview: preview})
+		preview.Compatibility = eligiblePlan.compatibility
+		plans = append(plans, fanoutTargetPlan{target: eligiblePlan.target, tool: eligiblePlan.tool, preview: preview, compatibility: eligiblePlan.compatibility, addManagedHeader: eligiblePlan.addManagedHeader})
 	}
 	if len(plans) == 0 {
 		return fmt.Errorf("no compatible target for artifact %s (%s)", entry.Name, kind)
@@ -673,6 +744,11 @@ func (a *app) installArtifactFanout(profile fs.ProjectProfile, stateDir string, 
 	state, stateErr := fs.ReadInstalledStateV2(stateDir)
 	if stateErr != nil {
 		return stateErr
+	}
+	if !dryRun {
+		if driftErr := refuseModifiedResources(state, cfg, entry.CatalogID); driftErr != nil {
+			return driftErr
+		}
 	}
 	if !force {
 		for _, file := range plannedFiles {
@@ -695,6 +771,10 @@ func (a *app) installArtifactFanout(profile fs.ProjectProfile, stateDir string, 
 		return a.renderFanoutDryRun(projectRoot, stateDir, entry.CatalogID, plannedFiles, derivedCurrentFiles, derivedIncomingFiles, jsonOut)
 	}
 
+	if fanoutFilesUnchanged(state, entry.CatalogID, providerID, resolvedVersion, projectRoot, plannedFiles) {
+		a.reportUnchanged(entry.CatalogID, resolvedVersion)
+		return nil
+	}
 	previousRecords := make(map[string]fs.InstalledResourceRecordV2, len(plans))
 	previousFiles := make([]fs.ManagedFile, 0)
 	for _, plan := range plans {
@@ -717,13 +797,14 @@ func (a *app) installArtifactFanout(profile fs.ProjectProfile, stateDir string, 
 	installedCount := 0
 	recordPlans := make([]fanoutRecordPlan, 0, len(plans))
 	for _, plan := range plans {
-		result, matErr := writer.MaterializeArtifact(projectRoot, plan.tool, kind, entry.Name, entry.Lang, sources, fetch, true, true)
+		result, matErr := writer.MaterializeArtifact(projectRoot, plan.tool, kind, entry.Name, entry.Lang, sources, fetch, plan.addManagedHeader, true)
 		if matErr != nil {
 			return transaction.rollback(matErr)
 		}
 		if result.Skipped {
 			continue
 		}
+		result.Compatibility = plan.compatibility
 		files := make([]fs.ManagedFile, 0, len(result.Files))
 		for _, file := range result.Files {
 			files = append(files, fs.ManagedFile{Path: file.RelativePath, SHA256: file.SHA256})
@@ -734,16 +815,23 @@ func (a *app) installArtifactFanout(profile fs.ProjectProfile, stateDir string, 
 			effectiveVersion = previous.ResolvedVersion
 		}
 		record := fs.InstalledResourceRecordV2{
-			ResourceName:    entry.CatalogID,
-			ProviderID:      providerID,
-			ResolvedVersion: effectiveVersion,
-			PreviousVersion: previous.ResolvedVersion,
-			InstalledAt:     time.Now().UTC().Format(time.RFC3339),
-			ManagedFiles:    files,
-			ManagedRegions:  nil,
-			SourcePath:      entry.SourcePath,
-			TargetID:        plan.target.ID,
-			ArtifactKind:    kind,
+			ResourceName:        entry.CatalogID,
+			ProviderID:          providerID,
+			ResolvedVersion:     effectiveVersion,
+			PreviousVersion:     previous.ResolvedVersion,
+			InstalledAt:         time.Now().UTC().Format(time.RFC3339),
+			ManagedFiles:        files,
+			ManagedRegions:      nil,
+			SourcePath:          entry.SourcePath,
+			TargetID:            plan.target.ID,
+			TargetKind:          plan.target.Kind,
+			ArtifactKind:        kind,
+			SourceDialect:       "sth.catalog.v1",
+			SourceSHA256:        fs.ComputeSHA256(content),
+			TargetDialect:       string(writer.DialectForTargetKind(plan.target.Kind, artifact.Kind(kind))),
+			Compatibility:       string(result.Compatibility),
+			CompatibilityReport: plan.report,
+			TransformerVersion:  "1",
 		}
 		if kind == "instruction" {
 			record.ManagedRegions = managedRegionForInstructionTarget(plan.target)
@@ -919,6 +1007,14 @@ func (a *app) updateFanout(primaryProfile *fs.ProjectProfile, cfg fs.ProjectConf
 			return err
 		}
 		states[stateDir] = state
+		if !dryRun {
+			if err := refuseModifiedResources(state, cfg, ""); err != nil {
+				if jsonOut {
+					emitJSONError(a.stdout, err, 1)
+				}
+				return err
+			}
+		}
 		if dryRun {
 			continue
 		}
@@ -1040,7 +1136,7 @@ func (a *app) updateFanout(primaryProfile *fs.ProjectProfile, cfg fs.ProjectConf
 			if !dryRun {
 				resolvedVersion = a.resolveCommitForEntry(context.Background(), cfg, group.providerID, entry, latestCache)
 			}
-			if installErr := a.installFanout(profile, group.stateDir, cfg, entry, group.providerID, resolvedVersion, dryRun, jsonOut, false); installErr != nil {
+			if installErr := a.installFanout(profile, group.stateDir, installedTargetConfig(cfg, states[group.stateDir], name, group.providerID), entry, group.providerID, resolvedVersion, dryRun, jsonOut, false); installErr != nil {
 				failures++
 				a.reportUpdateFailure(accumulator, name, "failed", installErr)
 				continue

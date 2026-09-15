@@ -1,0 +1,4 @@
+PRIVATE anonymous exit 1
+PRIVATE checks [('Project configuration', 'pass'), ('State file integrity', 'pass'), ('Credential validity', 'skip'), ('License expiry', 'skip'), ('Provider reachability (private-test)', 'fail')]
+PRIVATE authenticated exit 0
+PRIVATE checks [('Project configuration', 'pass'), ('State file integrity', 'pass'), ('Credential validity', 'skip'), ('License expiry', 'skip'), ('Provider reachability (private-test)', 'pass')]

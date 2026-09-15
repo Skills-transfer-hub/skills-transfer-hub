@@ -1,0 +1,38 @@
+status	target	artifact	evidence	mode
+OK	claude	skill-discovery	system/init: skill chargé sans modèle	real
+OK	claude	agent-discovery	system/init: agent chargé sans modèle	real
+OK	claude	command-discovery	system/init: commande chargée sans modèle	real
+OK	claude	instruction-discovery	InstructionsLoaded: règle projet chargée sans modèle	real
+NON_EXECUTE	claude	skill	authentification absente	real
+NON_EXECUTE	claude	agent	authentification absente	real
+NON_EXECUTE	claude	command	authentification absente	real
+NON_EXECUTE	claude	instruction	authentification absente	real
+OK	codex	skill-discovery	.agents/skills chargé	real
+OK	codex	instruction-discovery	AGENTS.md chargé	real
+OK	codex	command-discovery	commande adaptée en skill chargée	real
+OK	codex	skill	CODEX_SKILL_UPDATED	real
+OK	codex	agent	CODEX_AGENT_UPDATED	real
+OK	codex	command	CODEX_COMMAND_UPDATED	real
+OK	codex	instruction	CODEX_INSTRUCTION_UPDATED	real
+NON_EXECUTE	copilot-ide	command-fixture	.github/prompts valide, transcript IDE absent	real
+NON_EXECUTE	copilot-cli	skill	binaire absent	real
+NON_EXECUTE	copilot-cli	agent	binaire absent	real
+NON_EXECUTE	copilot-cli	command	binaire absent	real
+NON_EXECUTE	copilot-cli	instruction	binaire absent	real
+NON_EXECUTE	gemini	skill	binaire absent	real
+NON_EXECUTE	gemini	agent	binaire absent	real
+NON_EXECUTE	gemini	command	binaire absent	real
+NON_EXECUTE	gemini	instruction	binaire absent	real
+OK	antigravity-cli	agent-discovery	.agents/agents chargé	real
+NON_EXECUTE	antigravity-cli	skill	authentification absente ou invalide	real
+NON_EXECUTE	antigravity-cli	agent	smoke précédent non exécutable	real
+NON_EXECUTE	antigravity-cli	command	smoke précédent non exécutable	real
+NON_EXECUTE	antigravity-cli	instruction	smoke précédent non exécutable	real
+NON_EXECUTE	antigravity-ide	command-discovery	transcript IDE absent	real
+NON_EXECUTE	antigravity-ide	command	transcript IDE absent	real
+NON_EXECUTE	antigravity-ide	instruction-discovery	transcript IDE absent	real
+NON_EXECUTE	antigravity-ide	instruction	transcript IDE absent	real
+NON_EXECUTE	cursor-ide	skill	Cursor IDE absent ou sans transcript runtime certifié	real
+NON_EXECUTE	cursor-ide	agent	Cursor IDE absent ou sans transcript runtime certifié	real
+NON_EXECUTE	cursor-ide	instruction	Cursor IDE absent ou sans transcript runtime certifié	real
+NON_EXECUTE	cursor-ide	rule	Cursor IDE absent ou sans transcript runtime certifié	real

@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	stdhttp "net/http"
@@ -28,8 +29,11 @@ type doctorCheck struct {
 // runDoctor runs the four independent checks defined by FR-013 and prints a
 // concise pass/fail/skip table. A single failed check yields a non-zero exit;
 // skipped checks do not.
-func (a *app) runDoctor(args []string) error {
-	if len(args) > 0 {
+func (a *app) runDoctor(args []string) (resultErr error) {
+	flags, positional := parseFlags(args, "--json")
+	jsonOut := flags["--json"]
+	defer func() { a.recordOperationResult("doctor", "", resultErr) }()
+	if len(positional) > 0 {
 		return fmt.Errorf("usage: sth doctor")
 	}
 
@@ -43,9 +47,27 @@ func (a *app) runDoctor(args []string) error {
 	checks = append(checks, a.doctorChecksProviderReachability(cfg, cfgErr)...)
 
 	failures := 0
-	for _, c := range checks {
+	if jsonOut {
+		output := make([]map[string]string, 0, len(checks))
+		for _, check := range checks {
+			output = append(output, map[string]string{"name": check.name, "status": check.status, "detail": check.detail, "next_action": check.remediation})
+			if check.status == "fail" {
+				failures++
+			}
+		}
+		payload, err := json.Marshal(output)
+		if err != nil {
+			return err
+		}
+		a.writeStdout(string(payload))
+		if failures > 0 {
+			return fmt.Errorf("%d check(s) failed; follow each next_action and rerun `sth doctor`", failures)
+		}
+		return nil
+	}
+	for _, check := range checks {
 		marker := "[?]"
-		switch c.status {
+		switch check.status {
 		case "pass":
 			marker = "[✓]"
 		case "fail":
@@ -54,13 +76,13 @@ func (a *app) runDoctor(args []string) error {
 		case "skip":
 			marker = "[SKIP]"
 		}
-		line := fmt.Sprintf("%s %s", marker, c.name)
-		if c.detail != "" {
-			line = fmt.Sprintf("%s — %s", line, c.detail)
+		line := fmt.Sprintf("%s %s", marker, check.name)
+		if check.detail != "" {
+			line = fmt.Sprintf("%s — %s", line, check.detail)
 		}
 		a.writeStdout(line)
-		if c.status == "fail" && c.remediation != "" {
-			a.writeStdout(fmt.Sprintf("    → %s", c.remediation))
+		if check.status == "fail" && check.remediation != "" {
+			a.writeStdout(fmt.Sprintf("    → %s", check.remediation))
 		}
 	}
 
@@ -151,7 +173,7 @@ func (a *app) doctorCheckStateFile(cfg fs.ProjectConfigV2, cfgErr error) doctorC
 			name:        "State file integrity",
 			status:      "fail",
 			detail:      strings.Join(failures, "; "),
-			remediation: "Delete the corrupted sth-state-v2.json file(s) and re-install your resources.",
+			remediation: "Back up the state files and restore a known-good copy; keep your installed files until ownership is recovered.",
 		}
 	}
 	return doctorCheck{
@@ -166,26 +188,12 @@ func (a *app) doctorCheckCredential(cfg fs.ProjectConfigV2, cfgErr error) doctor
 		return doctorCheck{name: "Credential validity", status: "skip", detail: "no project configured"}
 	}
 
-	if token := strings.TrimSpace(os.Getenv("STH_TOKEN")); token != "" {
-		return doctorCheck{
-			name:   "Credential validity",
-			status: "pass",
-			detail: "STH_TOKEN is set",
+	for _, provider := range cfg.Providers {
+		if IsCloudProvider(provider.Provider) || provider.Private {
+			return doctorCheck{name: "Credential validity", status: "skip", detail: "Credentials checked when accessing each configured source; token presence alone does not verify access"}
 		}
 	}
-	if oidcURL := strings.TrimSpace(os.Getenv("ACTIONS_ID_TOKEN_REQUEST_URL")); oidcURL != "" {
-		return doctorCheck{
-			name:   "Credential validity",
-			status: "pass",
-			detail: "GitHub Actions OIDC env present",
-		}
-	}
-	return doctorCheck{
-		name:        "Credential validity",
-		status:      "fail",
-		detail:      "no STH_TOKEN or OIDC env detected",
-		remediation: "Set a valid STH_TOKEN or run `sth init`.",
-	}
+	return doctorCheck{name: "Credential validity", status: "pass", detail: "Public repositories support anonymous access; no token required"}
 }
 
 func (a *app) doctorCheckLicenseExpiry() doctorCheck {
@@ -237,6 +245,20 @@ func (a *app) doctorCheckOneProvider(entry fs.ProviderEntry) doctorCheck {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), doctorReachabilityTimeout)
 	defer cancel()
+	if !IsCloudProvider(entry.Provider) {
+		profile := fs.ProjectProfileFromProvider(entry, ".sth")
+		if err := a.client.CheckProjectAccess(ctx, profile); err != nil {
+			remediation := "Check the repository and branch, restore network access, then rerun `sth doctor`."
+			if _, authentication := sthhttp.IsAuthError(err); authentication {
+				remediation = "Check the credentials configured for this source, then rerun `sth doctor`."
+			}
+			if strings.Contains(err.Error(), "rate limit") {
+				remediation = "Wait until the provider quota resets, then rerun `sth doctor`; no token is required for public access."
+			}
+			return doctorCheck{name: fmt.Sprintf("Provider reachability (%s)", entry.ID), status: "fail", detail: err.Error(), remediation: remediation}
+		}
+		return doctorCheck{name: fmt.Sprintf("Provider reachability (%s)", entry.ID), status: "pass", detail: "Catalog access verified using the same access method as installation"}
+	}
 	req, err := stdhttp.NewRequestWithContext(ctx, stdhttp.MethodHead, url, nil)
 	if err != nil {
 		return doctorCheck{
@@ -263,6 +285,9 @@ func (a *app) doctorCheckOneProvider(entry fs.ProviderEntry) doctorCheck {
 			status: "pass",
 			detail: fmt.Sprintf("%s → %d", url, resp.StatusCode),
 		}
+	}
+	if resp.StatusCode == stdhttp.StatusTooManyRequests || resp.StatusCode == stdhttp.StatusForbidden && resp.Header.Get("X-RateLimit-Remaining") == "0" {
+		return doctorCheck{name: fmt.Sprintf("Provider reachability (%s)", entry.ID), status: "fail", detail: "Provider rate limit reached", remediation: "Wait until the provider quota resets, then rerun `sth doctor`; public access does not require a token."}
 	}
 	if resp.StatusCode == stdhttp.StatusUnauthorized || resp.StatusCode == stdhttp.StatusForbidden {
 		if IsCloudProvider(entry.Provider) {

@@ -65,6 +65,26 @@ func TestNew_RefusesExistingSkill(t *testing.T) {
 	}
 }
 
+func TestNew_AcceptsUnderscoreWithoutRenamingFolder(t *testing.T) {
+	directory := chdirToTemp(t)
+	var stdout bytes.Buffer
+	application := newApp(nil, &stdout, io.Discard, nil)
+
+	if err := application.runNew([]string{"prompts/code_review"}); err != nil {
+		t.Fatal(err)
+	}
+	content, err := os.ReadFile(filepath.Join(directory, "prompts", "code_review", "SKILL.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(content), "name: code_review") {
+		t.Fatalf("skill name was rewritten: %s", content)
+	}
+	if !strings.Contains(stdout.String(), "Suggestion: use code-review") {
+		t.Fatalf("missing portability suggestion: %s", stdout.String())
+	}
+}
+
 func TestNew_RejectsInvalidRefs(t *testing.T) {
 	chdirToTemp(t)
 	application := newApp(nil, io.Discard, io.Discard, nil)

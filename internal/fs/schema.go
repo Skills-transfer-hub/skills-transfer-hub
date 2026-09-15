@@ -1,15 +1,21 @@
 package fs
 
-import "fmt"
+import (
+	"fmt"
+
+	"sth/internal/artifact"
+)
 
 // ResourceStatus represents the lifecycle state of an installed resource.
 type ResourceStatus string
 
 const (
-	ResourceStatusUpToDate        ResourceStatus = "up-to-date"
-	ResourceStatusOutdated        ResourceStatus = "outdated"
-	ResourceStatusModifiedLocally ResourceStatus = "modified-locally"
-	ResourceStatusUnknownBaseline ResourceStatus = "unknown-baseline"
+	ResourceStatusUpToDate           ResourceStatus = "up-to-date"
+	ResourceStatusOutdated           ResourceStatus = "outdated"
+	ResourceStatusModifiedLocally    ResourceStatus = "modified-locally"
+	ResourceStatusPartiallyConverted ResourceStatus = "partially-converted"
+	ResourceStatusNotInstallable     ResourceStatus = "not-installable"
+	ResourceStatusUnknownBaseline    ResourceStatus = "unknown-baseline"
 )
 
 // DryRunChange describes a single file change that would be made by install/update.
@@ -105,16 +111,24 @@ type InstalledResourceStateV2 struct {
 // today TargetID defaults to "" which is equivalent to the historical
 // single-target ("claude") behavior.
 type InstalledResourceRecordV2 struct {
-	ResourceName    string          `json:"resource_name"`
-	ProviderID      string          `json:"provider_id"`
-	ResolvedVersion string          `json:"resolved_version"`
-	PreviousVersion string          `json:"previous_version"`
-	InstalledAt     string          `json:"installed_at"`
-	ManagedFiles    []ManagedFile   `json:"managed_files"`
-	ManagedRegions  []ManagedRegion `json:"managed_regions,omitempty"`
-	SourcePath      string          `json:"source_path,omitempty"`
-	TargetID        string          `json:"target_id,omitempty"`
-	ArtifactKind    string          `json:"artifact_kind,omitempty"`
+	ResourceName        string                       `json:"resource_name"`
+	ProviderID          string                       `json:"provider_id"`
+	ResolvedVersion     string                       `json:"resolved_version"`
+	PreviousVersion     string                       `json:"previous_version"`
+	InstalledAt         string                       `json:"installed_at"`
+	ManagedFiles        []ManagedFile                `json:"managed_files"`
+	ManagedRegions      []ManagedRegion              `json:"managed_regions,omitempty"`
+	SourcePath          string                       `json:"source_path,omitempty"`
+	TargetID            string                       `json:"target_id,omitempty"`
+	TargetKind          string                       `json:"target_kind,omitempty"`
+	Consumers           []string                     `json:"consumers,omitempty"`
+	ArtifactKind        string                       `json:"artifact_kind,omitempty"`
+	SourceDialect       string                       `json:"source_dialect,omitempty"`
+	SourceSHA256        string                       `json:"source_sha256,omitempty"`
+	TargetDialect       string                       `json:"target_dialect,omitempty"`
+	Compatibility       string                       `json:"compatibility,omitempty"`
+	CompatibilityReport artifact.CompatibilityReport `json:"compatibility_report,omitempty"`
+	TransformerVersion  string                       `json:"transformer_version,omitempty"`
 }
 
 // ManagedFile tracks a single file managed by an installed resource.

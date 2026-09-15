@@ -213,7 +213,7 @@ func TestInstallCursorSkillValidatesActualSharedHub(t *testing.T) {
 	if result.err != nil {
 		t.Fatalf("install error = %v\nstderr=%s", result.err, result.stderr)
 	}
-	installedContent, err := os.ReadFile(filepath.Join(projectDirectory, ".claude", "skills", "cursor-shared", "SKILL.md"))
+	installedContent, err := os.ReadFile(filepath.Join(projectDirectory, ".agents", "skills", "cursor-shared", "SKILL.md"))
 	if err != nil || !strings.Contains(string(installedContent), "SENTINEL_V1") {
 		t.Fatalf("installed content = %q, error = %v", installedContent, err)
 	}

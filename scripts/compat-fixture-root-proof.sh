@@ -141,7 +141,7 @@ for relative_path in expected_paths:
     managed_count += expected_kind == "managed"
     harness_count += expected_kind == "harness"
 
-if provenance.get("managed_file_count") != managed_count or managed_count != 23:
+if provenance.get("managed_file_count") != managed_count or managed_count != 28:
     raise SystemExit("nombre de fichiers gérés invalide")
 if provenance.get("harness_file_count") != harness_count or harness_count != 1:
     raise SystemExit("nombre de fichiers harness invalide")

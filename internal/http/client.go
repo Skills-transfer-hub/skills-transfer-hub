@@ -560,11 +560,18 @@ func (c *Client) downloadURLWithLimit(ctx context.Context, rawURL string, header
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		c.emitHTTP(stdhttp.MethodGet, rawURL, 0)
-		return nil, fmt.Errorf("request to %s failed: %w", rawURL, err)
+		return nil, fmt.Errorf("request to %s failed: %w; check your network connection and retry the command", rawURL, err)
 	}
 	defer resp.Body.Close()
 	c.emitHTTP(stdhttp.MethodGet, rawURL, resp.StatusCode)
 
+	if resp.StatusCode == stdhttp.StatusTooManyRequests || resp.StatusCode == stdhttp.StatusForbidden && resp.Header.Get("X-RateLimit-Remaining") == "0" {
+		nextAttempt := "wait until the provider quota resets"
+		if reset, parseErr := strconv.ParseInt(resp.Header.Get("X-RateLimit-Reset"), 10, 64); parseErr == nil {
+			nextAttempt = "retry after " + time.Unix(reset, 0).UTC().Format(time.RFC3339)
+		}
+		return nil, fmt.Errorf("remote rate limit reached (HTTP %d); %s; a public repository does not require a token", resp.StatusCode, nextAttempt)
+	}
 	switch resp.StatusCode {
 	case stdhttp.StatusOK:
 	case stdhttp.StatusUnauthorized, stdhttp.StatusForbidden:
@@ -898,7 +905,8 @@ func basicAuthorization(username, password string) string {
 }
 
 func decorateAccessError(err error, source AccessSource, provider string) error {
-	if source.Resolved {
+	_, authentication := IsAuthError(err)
+	if source.Resolved || !authentication {
 		return err
 	}
 

@@ -40,12 +40,18 @@ func (CursorWriter) Plan(artifactKind, artifactName, _ string, sources []string)
 		return PlanResult{}
 	}
 	switch artifactKind {
-	case "skill", "instruction":
-		return PlanResult{Files: []PlannedFile{{SourcePath: sources[0], RelativePath: ".cursor/rules/" + artifactName + ".mdc"}}}
+	case "skill":
+		return PlanResult{Files: relForSkillBundle(".agents/skills", artifactName, sources)}
+	case "instruction":
+		return PlanResult{Files: []PlannedFile{{SourcePath: sources[0], RelativePath: ".cursor/sth/instructions/" + artifactName + ".md"}}}
 	case "agent":
-		return PlanResult{Files: []PlannedFile{{SourcePath: sources[0], RelativePath: ".cursor/rules/agents/" + artifactName + ".mdc"}}}
+		return PlanResult{Files: []PlannedFile{{SourcePath: sources[0], RelativePath: ".cursor/agents/" + artifactName + ".md"}}}
+	case "rule":
+		return PlanResult{Files: []PlannedFile{{SourcePath: sources[0], RelativePath: ".cursor/rules/" + artifactName + ".mdc"}}}
 	case "command":
-		return PlanResult{Files: []PlannedFile{{SourcePath: sources[0], RelativePath: ".cursor/commands/" + artifactName + ".md"}}}
+		return PlanResult{Skipped: true, Reason: "Cursor commands are not advertised without a current certified contract"}
+	case "workflow":
+		return PlanResult{Skipped: true, Reason: "Cursor workflows are outside the V1 artifact contract"}
 	}
 	return PlanResult{Skipped: true, Reason: "unknown artifact kind: " + artifactKind}
 }

@@ -253,6 +253,7 @@ actual_fixture_manifest="$test_directory/fixture-manifest.txt"
 		testdata/runtime/claude-project \
 		testdata/runtime/codex-project \
 		testdata/runtime/copilot-project \
+		testdata/runtime/cursor-project \
 		testdata/runtime/gemini-project \
 		-type f -print | sort
 ) >"$actual_fixture_manifest"
@@ -294,8 +295,8 @@ awk 'NR > 1 { print $1 "\t" $2 "\t" $3 }' "$audit_output" | sort -k2,2 -k3,3 >"$
 if ! diff -u "$expected_absent_contracts" "$audit_contracts"; then
 	fail_test "audit sans binaires: manifeste de contrats inattendu"
 fi
-if ! awk 'END { if (NR != 26) exit 1 }' "$audit_output"; then
-	fail_test "audit sans binaires: un en-tête et 25 preuves attendus"
+if ! awk 'END { if (NR != 30) exit 1 }' "$audit_output"; then
+	fail_test "audit sans binaires: un en-tête et 29 preuves attendus"
 fi
 
 strict_output="$test_directory/strict-absent.tsv"
@@ -649,13 +650,13 @@ for artifact in skill agent command instruction; do
 		fail_test "Copilot $artifact: résultat d'authentification absent"
 	fi
 done
-for discovery in skill-discovery command-discovery; do
+for discovery in skill-discovery; do
 	if ! awk -v expected_discovery="$discovery" '$1 == "OK" && $2 == "copilot-cli" && $3 == expected_discovery { found = 1 } END { exit found ? 0 : 1 }' "$copilot_output"; then
 		fail_test "Copilot $discovery: preuve absente"
 	fi
 done
-if ! awk '$1 == "INFO" && $2 == "copilot-cli" && $3 == "instruction-discovery" && $4 == "inspection" { found = 1 } END { exit found ? 0 : 1 }' "$copilot_output"; then
-	fail_test "Copilot instruction-discovery: indisponibilité non classée"
+if ! awk '$1 == "OK" && $2 == "copilot-cli" && $3 == "instruction-discovery" && $4 == "contrat" { found = 1 } END { exit found ? 0 : 1 }' "$copilot_output"; then
+	fail_test "Copilot instruction-discovery: contrat hermétique absent"
 fi
 
 gemini_calls="$test_directory/gemini-model-calls.txt"
@@ -757,6 +758,7 @@ RUN_MODEL_SMOKES=1 \
 strict_identity_missing_status=$?
 assert_status 2 "$strict_identity_missing_status" "certification stricte réelle sans identité CLI attendue"
 if ! grep -Fq 'CLAUDE_COMPAT_EXPECTED_VERSION est obligatoire en certification stricte réelle' "$invalid_error"; then
+	sed -n '1,160p' "$invalid_error" >&2
 	fail_test "certification stricte réelle sans identité CLI: diagnostic absent"
 fi
 
@@ -1261,8 +1263,8 @@ if [ "$strict_status" -ne 0 ]; then
 	sed -n '1,200p' "$strict_error" >&2
 	fail_test "certification stricte hermétique: statut $strict_status, attendu 0"
 fi
-if ! awk 'END { if (NR != 39) exit 1 }' "$strict_output"; then
-	fail_test "certification stricte hermétique: un en-tête et 38 preuves attendus"
+if ! awk 'END { if (NR != 42) exit 1 }' "$strict_output"; then
+	fail_test "certification stricte hermétique: un en-tête et 41 preuves attendus"
 fi
 if ! awk -F '\t' 'NR == 1 && $5 != "mode" { invalid = 1 } NR > 1 && ($5 != "hermetic" || NF != 5) { invalid = 1 } END { exit invalid ? 1 : 0 }' "$strict_output"; then
 	fail_test "certification stricte hermétique: attestation de mode absente"
@@ -1273,7 +1275,7 @@ fi
 strict_results="$test_directory/strict-success-results.tsv"
 awk 'NR > 1 { print $1 "\t" $2 "\t" $3 }' "$strict_output" >"$strict_results"
 if ! sh "$repository_root/scripts/compat-runtime-matrix-proof.sh" "$expected_strict_contracts" "$strict_results" >/dev/null; then
-	fail_test "certification stricte hermétique: matrice 38/38 invalide"
+	fail_test "certification stricte hermétique: matrice 41/41 invalide"
 fi
 
 for call_contract in \

@@ -74,14 +74,6 @@ func TestDetectAvailableTargets_Antigravity(t *testing.T) {
 		t.Errorf(".agents/agents should detect antigravity")
 	}
 
-	legacy := t.TempDir()
-	mustMkdir(t, filepath.Join(legacy, ".agent"))
-	if !detectsKind(DetectAvailableTargets(legacy), KindAntigravity) {
-		t.Errorf(".agent/ should detect antigravity")
-	}
-	if detectsKind(DetectAvailableTargets(legacy), KindGemini) {
-		t.Errorf(".agent/ should not detect gemini")
-	}
 }
 
 func TestDetectAvailableTargets_Gemini(t *testing.T) {

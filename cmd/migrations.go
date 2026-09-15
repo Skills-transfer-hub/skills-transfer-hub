@@ -32,7 +32,7 @@ func (a *app) prepareStateAccess() (*fs.ProjectProfile, func(), error) {
 		a.verbose.Path("sth-state-v2.json", abs)
 	}
 
-	release, err := fs.AcquireStateLock(profile.TargetDir)
+	release, err := fs.AcquireStateLock(".sth")
 	if err != nil {
 		return nil, nil, err
 	}

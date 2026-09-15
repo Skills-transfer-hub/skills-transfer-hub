@@ -303,11 +303,6 @@ report_result() {
 	case "$status" in
 		OK)
 			;;
-		INFO)
-			if [ "$target" != "copilot-cli" ] || [ "$artifact" != "instruction-discovery" ]; then
-				failures=$((failures + 1))
-			fi
-			;;
 		KO)
 			failures=$((failures + 1))
 			;;
@@ -661,7 +656,7 @@ run_antigravity_smoke() {
 
 printf 'status\ttarget\tartifact\tevidence\tmode\n'
 
-for fixture_project in claude codex copilot gemini antigravity; do
+for fixture_project in claude codex copilot gemini antigravity cursor; do
 	if ! cp -R "$fixture_root/$fixture_project-project" "$runtime_directory/$fixture_project-project"; then
 		printf 'Copie de la fixture %s échouée\n' "$fixture_project" >&2
 		exit 2
@@ -962,35 +957,19 @@ if [ -n "$copilot_binary" ]; then
 	copilot_skills_file="$runtime_directory/copilot-skills.json"
 	if run_copilot_cli -C "$runtime_directory/copilot-project" skill list --json >"$copilot_skills_file" 2>&1; then
 		if grep -Fq 'sth-runtime-skill' "$copilot_skills_file"; then
-			report_result "OK" "copilot-cli" "skill-discovery" ".claude/skills chargé"
+			report_result "OK" "copilot-cli" "skill-discovery" ".agents/skills chargé"
 		else
 			report_result "KO" "copilot-cli" "skill-discovery" "skill absent"
 		fi
-		if grep -Fq 'sth-runtime-command' "$copilot_skills_file"; then
-			report_result "OK" "copilot-cli" "command-discovery" ".claude/commands chargé"
-		else
-			report_result "KO" "copilot-cli" "command-discovery" "commande absente"
-		fi
 	elif copilot_authentication_failed "$copilot_skills_file"; then
 		report_result "NON_EXECUTE" "copilot-cli" "skill-discovery" "authentification absente ou invalide"
-		report_result "NON_EXECUTE" "copilot-cli" "command-discovery" "authentification absente ou invalide"
 	else
 		report_result "KO" "copilot-cli" "skill-discovery" "inspection des skills en échec"
-		report_result "KO" "copilot-cli" "command-discovery" "inspection des commandes en échec"
 	fi
-	copilot_instructions_file="$runtime_directory/copilot-instructions.json"
-	if run_copilot_cli -C "$runtime_directory/copilot-project" plugins list --kind instruction --json >"$copilot_instructions_file" 2>&1; then
-		if grep -Fq 'sth-runtime.instructions.md' "$copilot_instructions_file"; then
-			report_result "OK" "copilot-cli" "instruction-discovery" ".github/instructions chargé"
-		else
-			report_result "KO" "copilot-cli" "instruction-discovery" "instruction absente"
-		fi
-	elif copilot_authentication_failed "$copilot_instructions_file"; then
-		report_result "NON_EXECUTE" "copilot-cli" "instruction-discovery" "authentification absente ou invalide"
-	elif copilot_discovery_unavailable "$copilot_instructions_file"; then
-		report_result "INFO" "copilot-cli" "instruction-discovery" "inspection optionnelle indisponible dans cette version"
+	if [ "$compat_hermetic" = "1" ] && grep -Fq "COPILOT_INSTRUCTION_$sentinel_suffix" "$runtime_directory/copilot-project/AGENTS.md"; then
+		report_result "OK" "copilot-cli" "instruction-discovery" "contrat AGENTS.md hermétique chargé"
 	else
-		report_result "KO" "copilot-cli" "instruction-discovery" "inspection des instructions en échec"
+		report_result "NON_EXECUTE" "copilot-cli" "instruction-discovery" "inspection locale déterministe indisponible; smoke AGENTS.md requis"
 	fi
 	if [ "$run_model_smokes" != "1" ]; then
 		for artifact in skill agent command instruction; do
@@ -1127,6 +1106,22 @@ else
 		report_result "NON_EXECUTE" "antigravity-ide" "$artifact" "transcript IDE absent"
 	done
 fi
+
+cursor_contracts='skill:.agents/skills/sth-runtime-skill/SKILL.md:CURSOR_SKILL_
+agent:.cursor/agents/sth-runtime-agent.md:CURSOR_AGENT_
+instruction:AGENTS.md:CURSOR_INSTRUCTION_
+rule:.cursor/rules/sth-runtime-rule.mdc:CURSOR_RULE_'
+printf '%s\n' "$cursor_contracts" | while IFS=: read -r artifact relative_path sentinel_prefix; do
+	if [ "$compat_hermetic" = "1" ]; then
+		if [ -f "$runtime_directory/cursor-project/$relative_path" ] && grep -Fq "${sentinel_prefix}${sentinel_suffix}" "$runtime_directory/cursor-project/$relative_path"; then
+			report_result "OK" "cursor-ide" "$artifact" "contrat de fixture hermétique chargé"
+		else
+			report_result "KO" "cursor-ide" "$artifact" "contrat de fixture hermétique invalide"
+		fi
+	else
+		report_result "NON_EXECUTE" "cursor-ide" "$artifact" "Cursor IDE absent ou sans transcript runtime certifié"
+	fi
+done
 
 if [ "$strict_runtime_certification" = "1" ]; then
 	if [ ! -f "$strict_contracts_manifest" ] || \

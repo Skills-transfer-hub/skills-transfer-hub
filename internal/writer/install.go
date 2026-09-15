@@ -64,7 +64,7 @@ func MaterializeArtifact(projectRoot string, target Target, artifactKind, artifa
 		if fetchErr != nil {
 			return MaterializeResult{}, fetchErr
 		}
-		request := WriteRequest{InstalledPath: installedPath, Content: content, ArtifactKind: artifactKind, ArtifactName: artifactName, AddManagedHeader: addManagedHeader}
+		request := WriteRequest{InstalledPath: installedPath, Content: content, SourcePath: planned.SourcePath, ArtifactKind: artifactKind, ArtifactName: artifactName, AddManagedHeader: addManagedHeader}
 		finalContent, renderErr := renderTargetContent(target, request)
 		if renderErr != nil {
 			return MaterializeResult{}, renderErr

@@ -45,7 +45,7 @@ func TestAntigravityPlanPaths(t *testing.T) {
 		sourcePath   string
 		expectedPath string
 	}{
-		{name: "agent", artifactKind: "agent", artifactName: "code-reviewer", sourcePath: "src/agent.md", expectedPath: ".agents/agents/code-reviewer.md"},
+		{name: "agent", artifactKind: "agent", artifactName: "code-reviewer", sourcePath: "src/agent.md", expectedPath: ".agents/agents/code-reviewer/agent.md"},
 		{name: "workflow", artifactKind: "command", artifactName: "deploy", sourcePath: "src/cmd.md", expectedPath: ".agents/workflows/deploy.md"},
 		{name: "rule", artifactKind: "instruction", artifactName: "style", sourcePath: "src/style.md", expectedPath: ".agents/rules/style.md"},
 	}

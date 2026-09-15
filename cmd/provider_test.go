@@ -14,7 +14,7 @@ func TestProviderListShowsSourcesAndDefault(t *testing.T) {
 	config.Providers = append(config.Providers, fs.ProviderEntry{ID: "broken", Provider: "github", CatalogRef: "main", CatalogPath: "SKILLS.md", TargetDir: ".sth"})
 	writeProjectConfigV2ForTest(t, projectDir, config)
 
-	installResult := runCLI(t, projectDir, t.TempDir(), "install", "internal:shared")
+	installResult := runCLI(t, projectDir, t.TempDir(), "install", "--allow", "exact,lossy", "internal:shared")
 	if installResult.err != nil {
 		t.Fatalf("install error = %v\nstderr=%s", installResult.err, installResult.stderr)
 	}
@@ -91,7 +91,7 @@ func TestProviderRemoveProtectsInstalledResources(t *testing.T) {
 	projectDir := t.TempDir()
 	writeProjectConfigV2ForTest(t, projectDir, multiProviderConfig())
 
-	installResult := runCLI(t, projectDir, t.TempDir(), "install", "internal:shared")
+	installResult := runCLI(t, projectDir, t.TempDir(), "install", "--allow", "exact,lossy", "internal:shared")
 	if installResult.err != nil {
 		t.Fatalf("install error = %v\nstderr=%s", installResult.err, installResult.stderr)
 	}

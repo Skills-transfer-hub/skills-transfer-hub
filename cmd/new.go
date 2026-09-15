@@ -3,6 +3,7 @@ package cmd
 import (
 	"errors"
 	"fmt"
+	"strings"
 
 	"sth/internal/fs"
 )
@@ -29,5 +30,8 @@ func (a *app) runNew(args []string) error {
 	}
 
 	a.writeStdout(fmt.Sprintf("Created %s/%s/SKILL.md", category, name))
+	if strings.Contains(name, "_") {
+		a.writeStdout(fmt.Sprintf("Suggestion: use %s for Agent Skills portability; the created folder remains %s.", strings.ReplaceAll(name, "_", "-"), name))
+	}
 	return nil
 }

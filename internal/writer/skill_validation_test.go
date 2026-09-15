@@ -46,6 +46,8 @@ func TestValidateSkillConsumerMetadataContracts(t *testing.T) {
 		{name: "antigravity invalid default name", target: AntigravityWriter{}, artifactName: "Runtime_Skill", content: "---\ndescription: ready\n---\nbody\n", expectedError: "from a-z, 0-9"},
 		{name: "antigravity mismatched name", target: AntigravityWriter{}, content: "---\nname: another-skill\ndescription: ready\n---\nbody\n", expectedError: "differs from directory"},
 		{name: "antigravity oversized description", target: AntigravityWriter{}, content: "---\nname: runtime-skill\ndescription: " + antigravityMaximumDescription + "x\n---\nbody\n", expectedError: "maximum 1024"},
+		{name: "cursor valid", target: CursorWriter{}, content: "---\nname: runtime-skill\ndescription: ready\n---\nbody\n"},
+		{name: "cursor invalid name", target: CursorWriter{}, content: "---\nname: runtime_skill\ndescription: ready\n---\nbody\n", expectedError: "from a-z, 0-9"},
 		{name: "claude unchanged", target: ClaudeWriter{}, content: "body without frontmatter\n"},
 	}
 

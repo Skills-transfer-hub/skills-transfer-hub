@@ -42,7 +42,7 @@ var providerGuides = map[string]providerGuide{
 		DocumentationURL:    "https://docs.gitlab.com/user/profile/personal_access_tokens/",
 		ActionURL:           "https://gitlab.com/-/user_settings/personal_access_tokens",
 		CredentialKind:      "pat",
-		MinimumPermission:   "read_repository",
+		MinimumPermission:   "read_api",
 		RepositoryIDFormat:  "group/project or group/subgroup/project",
 		RepositoryIDExample: "platform/ai/skills-catalog",
 		EnvVars:             []string{"GITLAB_TOKEN", "STH_TOKEN"},

@@ -13,10 +13,10 @@ func TestPlanSkillPlacement_HubRule(t *testing.T) {
 	}{
 		{"claude", []string{KindClaude}, []string{claudeSkillsDir}},
 		{"antigravity", []string{KindAntigravity}, []string{agentsSkillsDir}},
-		{"copilot", []string{KindCopilot}, []string{claudeSkillsDir}},
-		{"cursor+copilot", []string{KindCursor, KindCopilot}, []string{claudeSkillsDir}},
+		{"copilot", []string{KindCopilot}, []string{agentsSkillsDir}},
+		{"cursor+copilot", []string{KindCursor, KindCopilot}, []string{agentsSkillsDir}},
 		{"claude+antigravity", []string{KindClaude, KindAntigravity}, []string{claudeSkillsDir, agentsSkillsDir}},
-		{"cursor+copilot+antigravity", []string{KindCursor, KindCopilot, KindAntigravity}, []string{claudeSkillsDir, agentsSkillsDir}},
+		{"cursor+copilot+antigravity", []string{KindCursor, KindCopilot, KindAntigravity}, []string{agentsSkillsDir}},
 		{"codex", []string{KindCodex}, []string{agentsSkillsDir}},
 		{"gemini", []string{KindGemini}, []string{agentsSkillsDir}},
 		{"codex+antigravity", []string{KindCodex, KindAntigravity}, []string{agentsSkillsDir}},
@@ -36,8 +36,8 @@ func TestPlanSkillPlacement_HubRule(t *testing.T) {
 func TestPlanSkillPlacement_ReadsFrom(t *testing.T) {
 	placement := PlanSkillPlacement([]string{KindCursor, KindCopilot, KindCodex, KindAntigravity, KindGemini})
 	want := map[string]string{
-		KindCursor:      claudeSkillsDir,
-		KindCopilot:     claudeSkillsDir,
+		KindCursor:      agentsSkillsDir,
+		KindCopilot:     agentsSkillsDir,
 		KindCodex:       agentsSkillsDir,
 		KindAntigravity: agentsSkillsDir,
 		KindGemini:      agentsSkillsDir,

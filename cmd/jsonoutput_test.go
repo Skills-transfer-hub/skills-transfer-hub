@@ -60,7 +60,7 @@ func TestJSONOutput_ListEmitsInstalledArray(t *testing.T) {
 			},
 		},
 	})
-	res := runCLI(t, projectDir, t.TempDir(), "list", "--json")
+	res := runCLI(t, projectDir, t.TempDir(), "list", "--installed", "--json")
 	if res.err != nil {
 		t.Fatalf("err = %v\nstderr=%s", res.err, res.stderr)
 	}
@@ -82,7 +82,7 @@ func TestJSONOutput_ListEmitsInstalledArray(t *testing.T) {
 func TestJSONOutput_ListEmptyArrayWhenNoProviders(t *testing.T) {
 	projectDir := t.TempDir()
 	writeProjectConfigV2ForTest(t, projectDir, fs.ProjectConfigV2{SchemaVersion: 2})
-	res := runCLI(t, projectDir, t.TempDir(), "list", "--json")
+	res := runCLI(t, projectDir, t.TempDir(), "list", "--installed", "--json")
 	if res.err != nil {
 		t.Fatalf("err = %v", res.err)
 	}
@@ -101,7 +101,7 @@ func TestJSONOutput_ListErrorEmitsErrorObject(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dotSth, "project.json"), []byte("{not valid json"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	res := runCLI(t, projectDir, t.TempDir(), "list", "--json")
+	res := runCLI(t, projectDir, t.TempDir(), "list", "--installed", "--json")
 	if res.err == nil {
 		t.Fatal("expected non-zero exit")
 	}

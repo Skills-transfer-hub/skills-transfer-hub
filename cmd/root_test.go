@@ -212,7 +212,7 @@ func TestRun_noArgumentsNonInteractiveShowsNextStepGuidance(t *testing.T) {
 
 func TestRun_noArgumentsInteractiveShowsGuidedMenuAndAllowsQuit(t *testing.T) {
 	result := runCLIWithOptions(t, cliOptions{
-		input:       "3\n",
+		input:       "quit\n",
 		interactive: func() bool { return true },
 	})
 
@@ -220,7 +220,7 @@ func TestRun_noArgumentsInteractiveShowsGuidedMenuAndAllowsQuit(t *testing.T) {
 		t.Fatalf("Run() error = %v\nstdout=%s\nstderr=%s", result.err, result.stdout, result.stderr)
 	}
 	assertContains(t, result.stdout, "STH guided menu")
-	assertContains(t, result.stdout, "Configure this project (recommended)")
+	assertContains(t, result.stdout, "Installer un skill (recommended)")
 	assertContains(t, result.stdout, "Quit")
 	assertNotContains(t, result.stdout, "1.")
 	assertEmpty(t, result.stderr)

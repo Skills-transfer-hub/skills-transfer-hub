@@ -563,3 +563,21 @@ internal/http/      Accès provider-aware, lecture de SKILLS.md, téléchargemen
 specs/              Spécifications actives des fonctionnalités en cours ou de référence
 ```
 
+
+### First skill from the menu
+
+Run `sth` in your project, choose **Installer un skill**, select a skill and its assistant, inspect the file preview, then confirm. In an empty folder, the short setup asks for a public GitHub repository (default: `anthropics/skills`). Other repositories, credentials and configuration remain under **Réglages avancés**. After installation, the menu explains how to open a fresh assistant conversation and invoke the skill.
+
+**Mes skills** lists installed resources without network access. **Supprimer** previews the managed files before confirmation; personal modifications must be copied aside and the original restored before removal. **Diagnostic** checks configuration and access. A failed check leaves **connexion non vérifiée** visible. GitHub quota exhaustion is reported separately from authentication failure, without demanding a token for public access.
+
+`sth list` and `sth list --json` now return the same remote catalog. Scripts that previously used JSON to inspect installed resources must use `sth list --installed --json`; the text equivalent is `sth list --installed`. `sth status --local` inspects local state without fetching remote versions. A no-change skill install or update returns `unchanged` in JSON and **Déjà à jour** in text. Updating retains the assistant selection recorded at installation.
+
+Removal accepts `name`, `skills/name`, canonical IDs and source-qualified references; use `--provider <id>` when the name exists in more than one source. Both `sth remove` and `sth doctor` accept `--json`.
+
+### Contrôler les mises à jour des dépôts
+
+Le menu vérifie automatiquement les versions des skills installés, sans modifier leurs fichiers. Le résultat est conservé cinq minutes pendant la session ; « Vérifier les mises à jour » force un nouveau contrôle. « Mettre à jour » applique les changements à votre demande, en protégeant les éditions personnelles et les versions épinglées.
+
+`sth check-updates` donne le résultat par source ; `sth check-updates --json` fournit le même détail aux scripts. Une source inaccessible reste « non vérifiée » et ne masque pas les autres résultats.
+
+« Mes dépôts » permet d’ajouter une source publique ou privée et de retrouver le guide de création de clé. Pour plusieurs providers, configurez leurs variables dédiées (`GITHUB_TOKEN`, `GITLAB_TOKEN`, etc.) plutôt qu’une clé globale `STH_TOKEN`. Pour un dépôt GitLab privé, `read_api` permet la lecture du catalogue, de l’arborescence et des versions.

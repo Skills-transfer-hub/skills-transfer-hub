@@ -33,6 +33,10 @@ func (GeminiWriter) Plan(artifactKind, artifactName, _ string, sources []string)
 		return PlanResult{Files: []PlannedFile{{SourcePath: sources[0], RelativePath: ".gemini/commands/" + artifactName + ".toml"}}}
 	case "instruction":
 		return PlanResult{Files: []PlannedFile{{SourcePath: sources[0], RelativePath: ".gemini/sth/instructions/" + artifactName + ".md"}}}
+	case "rule":
+		return PlanResult{Skipped: true, Reason: "Gemini CLI has no project rule contract distinct from GEMINI.md"}
+	case "workflow":
+		return PlanResult{Skipped: true, Reason: "Gemini CLI has no project workflow file contract"}
 	}
 
 	return PlanResult{Skipped: true, Reason: "unknown artifact kind: " + artifactKind}
@@ -88,6 +92,9 @@ func renderGeminiContent(request WriteRequest) ([]byte, error) {
 	}
 	content := request.Content
 	if strings.EqualFold(filepath.Ext(request.InstalledPath), ".toml") {
+		if strings.HasPrefix(filepath.ToSlash(request.SourcePath), ".gemini/commands/") && strings.EqualFold(filepath.Ext(request.SourcePath), ".toml") {
+			return append([]byte(nil), content...), nil
+		}
 		if bytes.HasPrefix(content, []byte(geminiManagedTOMLMarker)) {
 			return content, nil
 		}

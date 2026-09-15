@@ -16,14 +16,14 @@ func PlanSkillPlacement(selectedKinds []string) SkillPlacement {
 		selected[kind] = true
 	}
 
-	hasClaudeSkills := selected[KindClaude] || selected[KindCursor] || selected[KindCopilot]
-	hasAgentSkills := selected[KindCodex] || selected[KindAntigravity] || selected[KindGemini]
+	hasClaudeSkills := selected[KindClaude]
+	hasAgentSkills := selected[KindCodex] || selected[KindAntigravity] || selected[KindGemini] || selected[KindCursor] || selected[KindCopilot]
 
 	placement := SkillPlacement{ReadsFrom: map[string]string{}}
 
 	if hasClaudeSkills {
 		placement.Folders = append(placement.Folders, claudeSkillsDir)
-		for _, kind := range []string{KindClaude, KindCursor, KindCopilot} {
+		for _, kind := range []string{KindClaude} {
 			if selected[kind] {
 				placement.ReadsFrom[kind] = claudeSkillsDir
 			}
@@ -31,7 +31,7 @@ func PlanSkillPlacement(selectedKinds []string) SkillPlacement {
 	}
 	if hasAgentSkills {
 		placement.Folders = append(placement.Folders, agentsSkillsDir)
-		for _, kind := range []string{KindCodex, KindAntigravity, KindGemini} {
+		for _, kind := range []string{KindCodex, KindAntigravity, KindGemini, KindCursor, KindCopilot} {
 			if selected[kind] {
 				placement.ReadsFrom[kind] = agentsSkillsDir
 			}
