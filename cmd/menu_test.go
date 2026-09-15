@@ -117,7 +117,7 @@ func TestLoadGuidedStartupState_unconfiguredProject(t *testing.T) {
 	if state.ProjectState != projectStateUnconfigured {
 		t.Fatalf("state.ProjectState = %q, want %q", state.ProjectState, projectStateUnconfigured)
 	}
-	if state.PrimaryAction != "init" {
+	if state.PrimaryAction != "install" {
 		t.Fatalf("state.PrimaryAction = %q, want init", state.PrimaryAction)
 	}
 }
@@ -148,7 +148,7 @@ func TestLoadGuidedStartupState_configuredReadyProject(t *testing.T) {
 	if state.ProjectState != projectStateConfiguredReady {
 		t.Fatalf("state.ProjectState = %q, want %q", state.ProjectState, projectStateConfiguredReady)
 	}
-	if state.PrimaryAction != "list" {
+	if state.PrimaryAction != "install" {
 		t.Fatalf("state.PrimaryAction = %q, want list", state.PrimaryAction)
 	}
 	assertStartupState(t, state.Detail, "Configured provider: github")
@@ -278,7 +278,7 @@ func TestRunGuidedMenu_configuredReadyShowsProviderGuidance(t *testing.T) {
 
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
-	a := newApp(strings.NewReader("5\n8\n"), &stdout, &stderr, nil)
+	a := newApp(strings.NewReader("advanced\nprovider-guide\nquit\n"), &stdout, &stderr, nil)
 	a.interactive = func() bool { return true }
 
 	if err := a.runGuidedMenu(); err != nil {
@@ -335,7 +335,7 @@ func TestRunGuidedMenu_releaseMetadataNeverBlocksLocalUse(t *testing.T) {
 	options := cliOptions{
 		workDir:      projectDir,
 		homeDir:      t.TempDir(),
-		input:        "9\n",
+		input:        "quit\n",
 		client:       sthhttp.NewClient(server.Client()),
 		interactive:  func() bool { return true },
 		userCacheDir: cacheDir,

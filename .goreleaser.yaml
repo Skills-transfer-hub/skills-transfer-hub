@@ -29,6 +29,8 @@ before:
     - go mod download
     - go vet ./...
     - sh scripts/write-sth-code-engine-manifest.sh "{{ .Version }}" .release/sth-code-engine.json
+    - sh scripts/write-capabilities-manifest.sh "{{ .Version }}" .release/sth-capabilities-v1.json
+    - sh scripts/write-capabilities-documentation.sh .release/sth-capabilities-v1.json .release/sth-capabilities-v1.md
 
 builds:
   - id: sth
@@ -91,6 +93,12 @@ checksum:
   extra_files:
     - glob: ".release/sth-code-engine.json"
       name_template: "sth-code-engine.json"
+    - glob: ".release/sth-capabilities-v1.json"
+      name_template: "sth-capabilities-v1.json"
+    - glob: ".release/sth-capabilities-v1.json.sha256"
+      name_template: "sth-capabilities-v1.json.sha256"
+    - glob: ".release/sth-capabilities-v1.md"
+      name_template: "sth-capabilities-v1.md"
 
 # Detached ed25519 signature of SHA256SUMS, uploaded as SHA256SUMS.sig. The CLI
 # verifies it (internal/fs/signing.go) before trusting any checksum, so a
@@ -146,6 +154,12 @@ release:
   extra_files:
     - glob: ".release/sth-code-engine.json"
       name_template: "sth-code-engine.json"
+    - glob: ".release/sth-capabilities-v1.json"
+      name_template: "sth-capabilities-v1.json"
+    - glob: ".release/sth-capabilities-v1.json.sha256"
+      name_template: "sth-capabilities-v1.json.sha256"
+    - glob: ".release/sth-capabilities-v1.md"
+      name_template: "sth-capabilities-v1.md"
 
 # The formula publisher is intentionally retained instead of homebrew_casks:
 # the existing tap supports both macOS and Linuxbrew, and changing package type

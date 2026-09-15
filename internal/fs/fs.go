@@ -67,6 +67,7 @@ type ProjectProfile struct {
 // interpreted as "skill" by downstream consumers.
 type CatalogEntry struct {
 	CatalogID    string   `json:"catalog_id"`
+	ProviderID   string   `json:"provider_id,omitempty"`
 	ResourceType string   `json:"resource_type"`
 	Name         string   `json:"name"`
 	FolderName   string   `json:"folder_name"`
@@ -291,29 +292,27 @@ func ReadProjectProfileIfPresent() (*ProjectProfile, error) {
 		}
 	}
 
-	// Try v2 fallback — return first provider as ProjectProfile so that
-	// list/install/update continue to work after init writes v2 format.
 	var v2cfg ProjectConfigV2
 	if jsonErr := json.Unmarshal(data, &v2cfg); jsonErr == nil && len(v2cfg.Providers) > 0 {
-		p := v2cfg.Providers[0]
-		profile = ProjectProfile{
-			Provider:     p.Provider,
-			RepositoryID: p.RepositoryID,
-			Ref:          p.CatalogRef,
-			CatalogPath:  p.CatalogPath,
-			TargetDir:    p.TargetDir,
-		}
-		if validateErr := validateProjectProfile(profile); validateErr == nil {
-			profile.Provider = normalizeProvider(profile.Provider)
-			profile.RepositoryID = strings.TrimSpace(profile.RepositoryID)
-			profile.Ref = normalizeRef(profile.Ref)
-			profile.CatalogPath = normalizeCatalogPath(profile.CatalogPath)
-			profile.TargetDir = filepath.Clean(strings.TrimSpace(profile.TargetDir))
-			return &profile, nil
+		for _, provider := range v2cfg.Providers {
+			candidate := ProjectProfileFromProvider(provider, defaultTargetDir)
+			if validateErr := validateProjectProfile(candidate); validateErr != nil {
+				continue
+			}
+			return NormalizeProjectProfile(candidate), nil
 		}
 	}
 
 	return nil, fmt.Errorf("malformed project profile (%s)", path)
+}
+
+func NormalizeProjectProfile(profile ProjectProfile) *ProjectProfile {
+	profile.Provider = normalizeProvider(profile.Provider)
+	profile.RepositoryID = strings.TrimSpace(profile.RepositoryID)
+	profile.Ref = normalizeRef(profile.Ref)
+	profile.CatalogPath = normalizeCatalogPath(profile.CatalogPath)
+	profile.TargetDir = filepath.Clean(strings.TrimSpace(profile.TargetDir))
+	return &profile
 }
 
 // ReadProjectProfile loads the current project profile or returns a user-facing error when absent.
@@ -424,69 +423,29 @@ func ParseCatalogID(id string) (resourceType, folderName, name string, ok bool) 
 	return strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1]), strings.TrimSpace(parts[2]), true
 }
 
-// ProjectProfileFromProvider builds a ProjectProfile from a ProviderEntry.
-// If the entry's TargetDir is empty, fallbackTargetDir is used instead.
-func ProjectProfileFromProvider(p ProviderEntry, fallbackTargetDir string) ProjectProfile {
-	ref := p.CatalogRef
+func ProjectProfileFromProvider(provider ProviderEntry, fallbackTargetDir string) ProjectProfile {
+	ref := provider.CatalogRef
 	if ref == "" {
 		ref = defaultRef
 	}
-	targetDir := p.TargetDir
+	targetDir := provider.TargetDir
 	if targetDir == "" {
 		targetDir = fallbackTargetDir
 	}
+	if targetDir == "" {
+		targetDir = defaultTargetDir
+	}
 	return ProjectProfile{
-		Provider:     p.Provider,
-		RepositoryID: p.RepositoryID,
+		Provider:     provider.Provider,
+		RepositoryID: provider.RepositoryID,
 		Ref:          ref,
-		CatalogPath:  p.CatalogPath,
+		CatalogPath:  provider.CatalogPath,
 		TargetDir:    targetDir,
 	}
 }
 
-// ResolveCatalogEntry resolves a user-facing resource reference from the catalog.
 func ResolveCatalogEntry(entries []CatalogEntry, resourceRef string) (CatalogEntry, error) {
-	trimmed := strings.TrimSpace(resourceRef)
-	if trimmed == "" {
-		return CatalogEntry{}, errors.New("the resource to install is required")
-	}
-
-	if strings.Contains(trimmed, "/") || strings.Contains(trimmed, "\\") {
-		normalized := strings.ReplaceAll(trimmed, "\\", "/")
-		parts := strings.Split(normalized, "/")
-		if len(parts) != 2 || strings.TrimSpace(parts[0]) == "" || strings.TrimSpace(parts[1]) == "" {
-			return CatalogEntry{}, fmt.Errorf("invalid resource reference: %q", resourceRef)
-		}
-
-		for _, entry := range entries {
-			if strings.EqualFold(entry.FolderName, parts[0]) && strings.EqualFold(entry.Name, parts[1]) {
-				return entry, nil
-			}
-		}
-
-		return CatalogEntry{}, fmt.Errorf("resource not found: %q", resourceRef)
-	}
-
-	matches := make([]CatalogEntry, 0, 2)
-	for _, entry := range entries {
-		if strings.EqualFold(entry.Name, trimmed) {
-			matches = append(matches, entry)
-		}
-	}
-
-	switch len(matches) {
-	case 0:
-		return CatalogEntry{}, fmt.Errorf("resource not found: %q", resourceRef)
-	case 1:
-		return matches[0], nil
-	default:
-		folders := make([]string, 0, len(matches))
-		for _, entry := range matches {
-			folders = append(folders, entry.FolderName)
-		}
-		sort.Strings(folders)
-		return CatalogEntry{}, fmt.Errorf("ambiguous resource: %q (specify folder/name from %s)", resourceRef, strings.Join(folders, ", "))
-	}
+	return ResolveCatalogEntryForProvider(entries, resourceRef, "")
 }
 
 // EnsureTargetDir creates the configured target directory in the current project.
@@ -982,6 +941,8 @@ func validateProjectProfile(profile ProjectProfile) error {
 	}
 	switch provider {
 	case "github", "gitlab", "azure-devops", "bitbucket":
+	case CloudProviderName:
+		return validateTargetDir(profile.TargetDir)
 	default:
 		return fmt.Errorf("unsupported provider: %s", profile.Provider)
 	}
@@ -1428,7 +1389,10 @@ func WriteInstalledStateV2(targetDir string, state InstalledResourceStateV2) err
 		return fmt.Errorf("failed to serialize v2 state: %w", err)
 	}
 	statePath := filepath.Join(filepath.Clean(targetDir), stateFileNameV2)
-	return atomicWriteFile(statePath, append(data, '\n'), 0o644)
+	if err := atomicWriteFile(statePath, append(data, '\n'), 0o644); err != nil {
+		return err
+	}
+	return MergeInstalledStateV3FromV2(".", targetDir, state)
 }
 
 // InstallCatalogEntryV2 writes the catalog entry to disk and records it in sth-state-v2.json.

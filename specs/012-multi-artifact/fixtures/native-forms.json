@@ -1,0 +1,27 @@
+{
+  "fixture_date": "2026-08-25",
+  "forms": [
+    { "path": ".claude/skills/review/SKILL.md", "kind": "skill", "dialect": "agent-skills.v1" },
+    { "path": ".claude/agents/team/reviewer.md", "kind": "agent", "dialect": "claude.agent.v1" },
+    { "path": "CLAUDE.md", "kind": "instruction", "dialect": "claude.instruction.v1" },
+    { "path": ".claude/rules/team/go.md", "kind": "rule", "dialect": "claude.rule.v1" },
+    { "path": ".claude/commands/team/deploy.md", "kind": "command", "dialect": "claude.command.v1" },
+    { "path": ".claude/workflows/release.js", "kind": "workflow", "dialect": "claude.workflow.v1" },
+    { "path": ".codex/agents/reviewer.toml", "kind": "agent", "dialect": "codex.agent.v1" },
+    { "path": "AGENTS.md", "kind": "instruction", "dialect": "agents-md.v1" },
+    { "path": ".codex/rules/safe.rules", "kind": "rule", "dialect": "codex.execution-rule.v1" },
+    { "path": "GEMINI.md", "kind": "instruction", "dialect": "gemini.instruction.v1" },
+    { "path": ".gemini/agents/reviewer.md", "kind": "agent", "dialect": "gemini.agent.v1" },
+    { "path": ".gemini/commands/team/deploy.toml", "kind": "command", "dialect": "gemini.command.v1" },
+    { "path": ".agents/agents/reviewer/agent.md", "kind": "agent", "dialect": "antigravity.agent.v1" },
+    { "path": ".agents/agents.md", "kind": "agent", "dialect": "antigravity.team.v1" },
+    { "path": ".agents/rules/team/go.md", "kind": "rule", "dialect": "antigravity.rule.v1" },
+    { "path": ".agents/workflows/team/release.md", "kind": "workflow", "dialect": "antigravity.workflow.v1" },
+    { "path": ".github/copilot-instructions.md", "kind": "instruction", "dialect": "copilot.instruction.v1" },
+    { "path": ".github/instructions/go.instructions.md", "kind": "rule", "dialect": "copilot.rule.v1" },
+    { "path": ".github/agents/reviewer.agent.md", "kind": "agent", "dialect": "copilot.agent.v1" },
+    { "path": ".github/prompts/deploy.prompt.md", "kind": "command", "dialect": "copilot.prompt.v1" },
+    { "path": ".cursor/rules/go.mdc", "kind": "rule", "dialect": "cursor.rule.v1" },
+    { "path": ".cursor/agents/reviewer.md", "kind": "agent", "dialect": "cursor.agent.v1" }
+  ]
+}

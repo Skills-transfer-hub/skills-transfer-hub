@@ -26,7 +26,7 @@ with open(expected_path, encoding="utf-8") as expected_stream:
         if key in expected:
             raise SystemExit(f"contrat strict dupliqué: {target}/{artifact}")
         statuses = set(allowed_statuses.split(","))
-        if not statuses or not statuses <= {"OK", "INFO"}:
+        if not statuses or not statuses <= {"OK"}:
             raise SystemExit(f"statuts stricts invalides: {target}/{artifact}")
         expected[key] = statuses
 

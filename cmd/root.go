@@ -11,6 +11,7 @@ import (
 
 	"golang.org/x/term"
 
+	"sth/internal/artifact"
 	sthfs "sth/internal/fs"
 	sthhttp "sth/internal/http"
 	sthlog "sth/internal/log"
@@ -31,6 +32,7 @@ type commandSpec struct {
 }
 
 var commandCatalog = []commandSpec{
+	{name: "check-updates", usage: "sth check-updates [--json]", summary: "Vérifier les mises à jour des skills, source par source, sans modifier les fichiers", flags: []string{"--json"}},
 	{
 		name:    "init",
 		usage:   "sth init [--no-cloud-prompt]",
@@ -39,8 +41,8 @@ var commandCatalog = []commandSpec{
 			"Supported hosted providers: github.com, gitlab.com, dev.azure.com, and bitbucket.org.",
 			"The wizard shows the official token or API-token URLs, the minimum required permission, and the supported environment variables.",
 			"repository_id accepts a canonical identifier or a supported hosted URL. Self-hosted domains are rejected.",
-			"The wizard asks which AI tools and agents to target (Claude Code, GitHub Copilot, OpenAI Codex, Cursor, Google Antigravity), preselects detected tools, and derives the installation directory automatically.",
-			"Skills are deduplicated: .claude/skills is the shared hub read by Claude, Cursor, and Copilot; .agents/skills is used by Codex and Gemini/Antigravity. init also updates .gitignore for STH state files.",
+			"The wizard asks which AI tools and agents to target (Claude Code, GitHub Copilot, OpenAI Codex, Cursor, Gemini, Google Antigravity), preselects detected tools, and derives the installation directory automatically.",
+			"Skills are deduplicated: Claude uses .claude/skills and compatible Agent Skills consumers share .agents/skills. init also updates .gitignore for STH state files.",
 			"Provider guidance remains available throughout the wizard, and no secret is stored in .sth/project.json.",
 			"On first init, the wizard offers telemetry modes off, anonymous, and connected. Connected mode then opens an `sth login` prompt.",
 			"--no-cloud-prompt skips the login prompt even when connected mode is selected (CI and wrappers).",
@@ -53,33 +55,57 @@ var commandCatalog = []commandSpec{
 	},
 	{
 		name:    "list",
-		usage:   "sth list [--json]",
+		usage:   "sth list [--installed] [--type <kind>] [--scope <scope>] [--target <target>] [--status <status>] [--json]",
 		summary: "List the configured remote provider repository catalog (requires `sth init`)",
 		details: []string{
 			"Text mode reads SKILLS.md from the remote provider repository (GitHub, GitLab, and others). If it is missing, STH scans the remote tree and infers category/folder bundles. Requires `sth init` and network access.",
 			"To generate a local SKILLS.md from the current repository, use `catalog init` instead.",
-			"With --json, returns the state of locally installed resources (resource_name, provider_id, status, resolved_version, pinned_version). This differs from text mode.",
+			"Text and JSON list the same remote catalog. Add --installed for local installed resources in either format.",
+			"When an artifact filter is present, scans local native artifacts and reports their dialect, scope, state, and compatibility plans.",
 		},
 		examples: []string{
 			"sth list",
 			"sth list --json",
+			"sth list --type agent --target codex --json",
 		},
-		flags: []string{"--json"},
+		flags: []string{"--installed", "--type", "--scope", "--target", "--status", "--json"},
 	},
 	{
 		name:    "install",
-		usage:   "sth install <resource-ref> [--dry-run] [--force]",
+		usage:   "sth install <resource-ref> [--provider <id>] [--kind <kind>] [--target <target>] [--allow exact,lossy] [--dry-run] [--force]",
 		summary: "Install a remote catalog resource or compatible bundle in the current project",
 		details: []string{
 			"Accepts a standard catalog name or a canonical category/folder bundle reference.",
 			"For a bundle discovered by scanning, STH synchronizes every file in the source directory and tracks its manifest in sth-state.json.",
+			"With several providers configured, qualify the source with --provider <id> or the provider:folder/name form; STH asks in a TTY when a name exists in several catalogs.",
+			"Without a resource reference, --kind installs every catalog artifact of that kind. --target accepts target IDs or kinds.",
+			"Non-interactive installs accept exact conversions only unless --allow exact,lossy is supplied.",
 		},
 		examples: []string{
 			"sth install react/form-wizard",
 			"sth install skills/analyse-risque",
+			"sth install internal:skills/analyse-risque",
+			"sth install skills/analyse-risque --provider internal",
 			"sth install skills/analyse-risque --dry-run",
+			"sth install agents/reviewer --target codex --allow exact,lossy",
 		},
-		flags: []string{"--dry-run", "--force", "--json"},
+		flags: []string{"--dry-run", "--force", "--json", "--provider", "--kind", "--target", "--allow"},
+	},
+	{
+		name:    "provider",
+		usage:   "sth provider <list|add|remove>",
+		summary: "Inspect and manage the catalog sources of the current project",
+		details: []string{
+			"`list` shows every configured source, its health and how many resources it owns. The default source is marked with *.",
+			"`add <id> --type <github|gitlab|azure-devops|bitbucket|sth-cloud> --repo <repository>` appends a source and validates its access (--skip-check bypasses the check).",
+			"`remove <id>` drops a source; it refuses to leave installed resources orphaned unless --force is passed.",
+		},
+		examples: []string{
+			"sth provider list",
+			"sth provider add internal --type gitlab --repo group/skills",
+			"sth provider remove internal",
+		},
+		flags: []string{"--type", "--repo", "--ref", "--catalog", "--target-dir", "--private", "--skip-check", "--force"},
 	},
 	{
 		name:    "update",
@@ -107,14 +133,43 @@ var commandCatalog = []commandSpec{
 		flags: []string{"--json"},
 	},
 	{
+		name:    "inspect",
+		usage:   "sth inspect <selector|path> [--target <target>] [--json]",
+		summary: "Inspect a local agentic artifact and its compatibility plans",
+		examples: []string{
+			"sth inspect agent::reviewer --target codex",
+			"sth inspect .claude/agents/reviewer.md --json",
+		},
+		flags: []string{"--target", "--json"},
+	},
+	{
+		name:    "validate",
+		usage:   "sth validate [selector|path] [--target <target>] [--strict] [--json]",
+		summary: "Validate local artifacts and target compatibility without writing files",
+		examples: []string{
+			"sth validate",
+			"sth validate skill::code-review --target claude,codex --strict --json",
+		},
+		flags: []string{"--target", "--strict", "--json"},
+	},
+	{
+		name:    "capabilities",
+		usage:   "sth capabilities [--json]",
+		summary: "Print the implemented targets, dialects, artifact kinds, and compatibility matrix",
+		examples: []string{
+			"sth capabilities --json",
+		},
+		flags: []string{"--json"},
+	},
+	{
 		name:    "remove",
-		usage:   "sth remove <resource-name> [--yes]",
+		usage:   "sth remove <resource-ref> [--provider <id>] [--yes] [--json]",
 		summary: "Remove an installed resource and its managed files",
 		examples: []string{
 			"sth remove skills/analyse-risque",
 			"sth remove skills/analyse-risque --yes",
 		},
-		flags: []string{"--yes"},
+		flags: []string{"--yes", "--provider", "--json"},
 	},
 	{
 		name:    "buddy",
@@ -151,7 +206,7 @@ var commandCatalog = []commandSpec{
 	},
 	{
 		name:    "doctor",
-		usage:   "sth doctor",
+		usage:   "sth doctor [--json]",
 		summary: "Diagnose the current project's STH setup (token, config, state, and provider access)",
 		details: []string{
 			"Shows pass or fail for every check, with a remediation step after each failure.",
@@ -304,17 +359,22 @@ var commandCatalog = []commandSpec{
 }
 
 type app struct {
-	stdin       io.Reader
-	stdout      io.Writer
-	stderr      io.Writer
-	client      *sthhttp.Client
-	interactive func() bool
-	verbose     sthlog.Verbose
-	verboseMode bool
-	progress    *installProgress
-	fanoutJSON  *fanoutJSONAccumulator
+	stdin                io.Reader
+	stdout               io.Writer
+	stderr               io.Writer
+	client               *sthhttp.Client
+	interactive          func() bool
+	verbose              sthlog.Verbose
+	verboseMode          bool
+	progress             *installProgress
+	fanoutJSON           *fanoutJSONAccumulator
+	installTargets       map[string]bool
+	installAllowed       map[artifact.CompatibilityLevel]bool
+	installKind          string
+	installApprovedLossy map[string]bool
 
 	updateRefreshOnce sync.Once
+	repositoryUpdates *repositoryUpdateReport
 }
 
 func newApp(stdin io.Reader, stdout, stderr io.Writer, client *sthhttp.Client) *app {
@@ -430,12 +490,36 @@ func (a *app) run(args []string) error {
 				a.recordOperationResult("update", "", err)
 			}
 		}
+	case "check-updates":
+		if len(args) >= 2 && isHelpFlag(args[1]) {
+			a.writeStdout(commandHelpText("check-updates"))
+			return nil
+		}
+		err = a.runCheckUpdates(args[1:])
 	case "status":
 		if len(args) >= 2 && isHelpFlag(args[1]) {
 			a.writeStdout(commandHelpText("status"))
 			return nil
 		}
 		err = a.runStatus(args[1:])
+	case "inspect":
+		if len(args) >= 2 && isHelpFlag(args[1]) {
+			a.writeStdout(commandHelpText("inspect"))
+			return nil
+		}
+		err = a.runInspect(args[1:])
+	case "validate":
+		if len(args) >= 2 && isHelpFlag(args[1]) {
+			a.writeStdout(commandHelpText("validate"))
+			return nil
+		}
+		err = a.runValidate(args[1:])
+	case "capabilities":
+		if len(args) >= 2 && isHelpFlag(args[1]) {
+			a.writeStdout(commandHelpText("capabilities"))
+			return nil
+		}
+		err = a.runCapabilities(args[1:])
 	case "bridge":
 		err = a.runBridge(args[1:])
 	case "remove":
@@ -522,6 +606,12 @@ func (a *app) run(args []string) error {
 			return nil
 		}
 		err = a.runAlpha(args[1:])
+	case "provider", "providers":
+		if len(args) >= 2 && isHelpFlag(args[1]) {
+			a.writeStdout(commandHelpText("provider"))
+			return nil
+		}
+		err = a.runProvider(args[1:])
 	case "org":
 		err = a.runOrg(args[1:])
 	case "mcp":
@@ -770,6 +860,32 @@ func resourceFromArgs(args []string) string {
 
 // parseFlags strips bool flags from args and returns the remainder as positional.
 // knownFlags examples: "--dry-run", "--yes", "--force", "--json"
+func parseValueFlag(args []string, name string) (string, []string, error) {
+	value := ""
+	rest := make([]string, 0, len(args))
+	for index := 0; index < len(args); index++ {
+		argument := args[index]
+		if argument == name {
+			if index+1 >= len(args) {
+				return "", nil, fmt.Errorf("%s requires a value", name)
+			}
+			value = args[index+1]
+			index++
+			continue
+		}
+		if strings.HasPrefix(argument, name+"=") {
+			value = strings.TrimPrefix(argument, name+"=")
+			if strings.TrimSpace(value) == "" {
+				return "", nil, fmt.Errorf("%s requires a value", name)
+			}
+			continue
+		}
+		rest = append(rest, argument)
+	}
+	value = strings.TrimSpace(value)
+	return value, rest, nil
+}
+
 func parseFlags(args []string, knownFlags ...string) (flags map[string]bool, positional []string) {
 	flags = make(map[string]bool)
 	for _, arg := range args {

@@ -72,6 +72,24 @@ func (a *app) runUpdate(args []string) error {
 		}
 		return err
 	}
+	if failOnChanges {
+		modifiedErr := a.reportModifiedResources(profile.TargetDir, cfg, jsonOut)
+		if modifiedErr != nil {
+			return modifiedErr
+		}
+	}
+	if !dryRun {
+		currentState, stateErr := fs.ReadInstalledStateV2(profile.TargetDir)
+		if stateErr != nil {
+			return stateErr
+		}
+		if driftErr := refuseModifiedResources(currentState, cfg, ""); driftErr != nil {
+			if jsonOut {
+				emitJSONError(a.stdout, driftErr, 1)
+			}
+			return driftErr
+		}
+	}
 
 	if len(cfg.Targets) > 0 {
 		if !dryRun && !jsonOut {
@@ -86,33 +104,6 @@ func (a *app) runUpdate(args []string) error {
 			a.progress.complete()
 		}
 		return updateErr
-	}
-
-	if failOnChanges {
-		if state, stateErr := fs.ReadInstalledStateV2(profile.TargetDir); stateErr == nil {
-			projectRoot, _ := filepath.Abs(".")
-			results := fs.ComputeAllStatuses(state, cfg, nil, projectRoot)
-			modified := []fs.StatusResult{}
-			for _, result := range results {
-				if result.Status == fs.ResourceStatusModifiedLocally {
-					modified = append(modified, result)
-				}
-			}
-			if len(modified) > 0 {
-				changeErr := fmt.Errorf("%d resource(s) have local modifications", len(modified))
-				if jsonOut {
-					emitJSONError(a.stdout, changeErr, 1)
-					return changeErr
-				}
-				a.writeStdout("Modified files detected (--fail-on-changes):")
-				for _, result := range modified {
-					for _, file := range result.ModifiedFiles {
-						a.writeStdout(fmt.Sprintf("  %s — %s", result.ResourceName, file))
-					}
-				}
-				return changeErr
-			}
-		}
 	}
 
 	if dryRun {
@@ -240,14 +231,15 @@ func (a *app) runUpdate(args []string) error {
 		if queryPath == "" {
 			return ""
 		}
-		if cached, ok := latestByPath[queryPath]; ok {
+		cacheKey := fs.LatestVersionKey(providerID, queryPath)
+		if cached, ok := latestByPath[cacheKey]; ok {
 			return cached
 		}
 		sha, shaErr := a.client.GetLatestCommitSHAForPath(context.Background(), cfg, providerID, queryPath)
 		if shaErr != nil {
 			return ""
 		}
-		latestByPath[queryPath] = sha
+		latestByPath[cacheKey] = sha
 		return sha
 	}
 
@@ -417,6 +409,36 @@ func (a *app) runUpdate(args []string) error {
 
 	a.progress.complete()
 	return nil
+}
+
+func (a *app) reportModifiedResources(targetDirectory string, config fs.ProjectConfigV2, jsonOut bool) error {
+	state, err := fs.ReadInstalledStateV2(targetDirectory)
+	if err != nil {
+		return err
+	}
+	projectRoot, _ := filepath.Abs(".")
+	results := fs.ComputeAllStatuses(state, config, nil, projectRoot)
+	modified := make([]fs.StatusResult, 0)
+	for _, result := range results {
+		if result.Status == fs.ResourceStatusModifiedLocally {
+			modified = append(modified, result)
+		}
+	}
+	if len(modified) == 0 {
+		return nil
+	}
+	changeErr := fmt.Errorf("%d resource(s) have local modifications", len(modified))
+	if jsonOut {
+		emitJSONError(a.stdout, changeErr, 1)
+		return changeErr
+	}
+	a.writeStdout("Modified files detected (--fail-on-changes):")
+	for _, result := range modified {
+		for _, file := range result.ModifiedFiles {
+			a.writeStdout(fmt.Sprintf("  %s — %s", result.ResourceName, file))
+		}
+	}
+	return changeErr
 }
 
 func installedVersionOf(v2State fs.InstalledResourceStateV2, v2StateErr error, resourceName string) string {

@@ -64,19 +64,18 @@ func TestEffectiveTargets_SynthesizesClaudeWhenEmpty(t *testing.T) {
 		},
 	}
 	got := EffectiveTargets(cfg)
-	if len(got) != 2 {
-		t.Fatalf("got %d targets, want 2", len(got))
+	if len(got) != 1 {
+		t.Fatalf("got %d targets, want a single destination independent of the provider count", len(got))
 	}
-	for i, te := range got {
-		if te.Kind != TargetKindClaude {
-			t.Errorf("[%d] Kind = %q, want %q", i, te.Kind, TargetKindClaude)
-		}
-		if !te.Enabled {
-			t.Errorf("[%d] synthesized targets must be enabled", i)
-		}
+	target := got[0]
+	if target.Kind != TargetKindClaude || target.ID != TargetKindClaude {
+		t.Errorf("target = %+v, want kind and id %q", target, TargetKindClaude)
 	}
-	if got[0].ID != "default" || got[0].RootDir != ".claude/skills" {
-		t.Errorf("[0] = %+v, want id=default rootdir=.claude/skills", got[0])
+	if !target.Enabled {
+		t.Error("synthesized target must be enabled")
+	}
+	if target.RootDir != ".claude/skills" {
+		t.Errorf("RootDir = %q, want .claude/skills", target.RootDir)
 	}
 }
 

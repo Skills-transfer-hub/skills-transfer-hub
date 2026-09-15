@@ -751,10 +751,7 @@ func TestRunUpdate_pinnedNewerVersionNotice(t *testing.T) {
 	assertContains(t, result.stdout, alphaCatalogIDNotice)
 }
 
-// TestRunUpdate_ownershipConflictSkipsResourceContinuesOthers verifies that when
-// a resource's path is already owned by a different resource in v2 state, the
-// update for the conflicting resource is skipped but continues for other resources.
-func TestRunUpdate_ownershipConflictSkipsResourceContinuesOthers(t *testing.T) {
+func TestRunUpdateLocalDriftBlocksCompleteTransaction(t *testing.T) {
 	projectDir := t.TempDir()
 
 	server := httptest.NewServer(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
@@ -787,7 +784,6 @@ func TestRunUpdate_ownershipConflictSkipsResourceContinuesOthers(t *testing.T) {
 		},
 	})
 
-	// gamma (different resource) owns alpha's path → conflict for alpha; beta is uncontested.
 	writeV2StateForUpdatePinTest(t, projectDir, ".claude/resources", fs.InstalledResourceStateV2{
 		SchemaVersion: 2,
 		Entries: []fs.InstalledResourceRecordV2{
@@ -815,19 +811,19 @@ func TestRunUpdate_ownershipConflictSkipsResourceContinuesOthers(t *testing.T) {
 
 	result := runCLI(t, projectDir, t.TempDir(), "update")
 
-	if !strings.Contains(result.stderr, "conflict") && !strings.Contains(result.stderr, "Conflit") {
-		t.Fatalf("stderr %q does not contain conflict message for alpha", result.stderr)
+	if !strings.Contains(result.stderr, "local modifications") {
+		t.Fatalf("stderr %q does not contain drift message", result.stderr)
 	}
 
 	betaData, err := os.ReadFile(betaPath)
 	if err != nil {
 		t.Fatalf("ReadFile(beta): %v", err)
 	}
-	if !strings.Contains(string(betaData), "Beta updated") {
-		t.Fatalf("beta.md was not updated; content=%q", string(betaData))
+	if string(betaData) != "# Beta old\n" {
+		t.Fatalf("beta.md changed despite transaction preflight; content=%q", string(betaData))
 	}
 
 	if result.err == nil {
-		t.Fatal("expected non-zero exit due to alpha conflict, got nil error")
+		t.Fatal("expected non-zero exit due to local drift, got nil error")
 	}
 }

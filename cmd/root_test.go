@@ -173,6 +173,20 @@ func writeInstalledStateForCommandTest(t *testing.T, projectDir, targetDir strin
 	}
 }
 
+func readProjectConfigForTest(t *testing.T, projectDir string) fs.ProjectConfigV2 {
+	t.Helper()
+
+	data, err := os.ReadFile(filepath.Join(projectDir, ".sth", "project.json"))
+	if err != nil {
+		t.Fatalf("ReadFile(project.json): %v", err)
+	}
+	var config fs.ProjectConfigV2
+	if err := json.Unmarshal(data, &config); err != nil {
+		t.Fatalf("json.Unmarshal(project.json): %v", err)
+	}
+	return config
+}
+
 func testCatalogMarkdown(rows ...string) string {
 	lines := []string{
 		"# SKILLS",
@@ -198,7 +212,7 @@ func TestRun_noArgumentsNonInteractiveShowsNextStepGuidance(t *testing.T) {
 
 func TestRun_noArgumentsInteractiveShowsGuidedMenuAndAllowsQuit(t *testing.T) {
 	result := runCLIWithOptions(t, cliOptions{
-		input:       "3\n",
+		input:       "quit\n",
 		interactive: func() bool { return true },
 	})
 
@@ -206,7 +220,7 @@ func TestRun_noArgumentsInteractiveShowsGuidedMenuAndAllowsQuit(t *testing.T) {
 		t.Fatalf("Run() error = %v\nstdout=%s\nstderr=%s", result.err, result.stdout, result.stderr)
 	}
 	assertContains(t, result.stdout, "STH guided menu")
-	assertContains(t, result.stdout, "Configure this project (recommended)")
+	assertContains(t, result.stdout, "Installer un skill (recommended)")
 	assertContains(t, result.stdout, "Quit")
 	assertNotContains(t, result.stdout, "1.")
 	assertEmpty(t, result.stderr)

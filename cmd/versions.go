@@ -11,28 +11,34 @@ func (a *app) resolveCommitForEntry(ctx context.Context, cfg fs.ProjectConfigV2,
 	if queryPath == "" {
 		return ""
 	}
-	if cached, ok := cache[queryPath]; ok {
+	cacheKey := fs.LatestVersionKey(providerID, queryPath)
+	if cached, ok := cache[cacheKey]; ok {
 		return cached
 	}
 	sha, err := a.client.GetLatestCommitSHAForPath(ctx, cfg, providerID, queryPath)
 	if err != nil {
 		return ""
 	}
-	cache[queryPath] = sha
+	cache[cacheKey] = sha
 	return sha
 }
 
 func (a *app) latestVersionsByPath(ctx context.Context, cfg fs.ProjectConfigV2, state fs.InstalledResourceStateV2) (map[string]string, error) {
-	latestByPath := make(map[string]string)
+	latestVersions := make(map[string]string)
 	attempted := make(map[string]bool)
 	var firstErr error
 	for _, record := range state.Entries {
 		queryPath := fs.CommitQueryPath(record.SourcePath, record.ArtifactKind)
-		if queryPath == "" || attempted[queryPath] {
+		if queryPath == "" {
 			continue
 		}
-		attempted[queryPath] = true
-		sha, err := a.client.GetLatestCommitSHAForPath(ctx, cfg, record.ProviderID, queryPath)
+		providerID := fs.RecordProviderID(cfg, record)
+		cacheKey := fs.LatestVersionKey(providerID, queryPath)
+		if attempted[cacheKey] {
+			continue
+		}
+		attempted[cacheKey] = true
+		sha, err := a.client.GetLatestCommitSHAForPath(ctx, cfg, providerID, queryPath)
 		if err != nil {
 			if isProviderConfigError(err) {
 				continue
@@ -42,7 +48,7 @@ func (a *app) latestVersionsByPath(ctx context.Context, cfg fs.ProjectConfigV2, 
 			}
 			continue
 		}
-		latestByPath[queryPath] = sha
+		latestVersions[cacheKey] = sha
 	}
-	return latestByPath, firstErr
+	return latestVersions, firstErr
 }

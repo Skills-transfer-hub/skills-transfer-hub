@@ -14,6 +14,7 @@ type WriteRequest struct {
 	InstalledPath string
 	// Content is the raw file content as fetched from the source repository.
 	Content      []byte
+	SourcePath   string
 	ArtifactKind string
 	ArtifactName string
 	// AddManagedHeader requests that the writer prepend its managed-file

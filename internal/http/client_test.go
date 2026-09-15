@@ -395,9 +395,81 @@ func TestClient_GetLatestCommitSHAForPath_emptyArray(t *testing.T) {
 	}
 }
 
-func TestClient_GetLatestCommitSHAForPath_nonGithubIsConfigError(t *testing.T) {
+func TestClient_GetLatestCommitSHAForPath_everyGitProvider(t *testing.T) {
+	cases := []struct {
+		providerName string
+		repositoryID string
+		envVar       string
+		requestPath  string
+		body         string
+	}{
+		{
+			providerName: "gitlab",
+			repositoryID: "group/skills",
+			envVar:       "STH_GITLAB_API_BASE_URL",
+			requestPath:  "/projects/group%2Fskills/repository/commits",
+			body:         `[{"id":"deadbeef"}]`,
+		},
+		{
+			providerName: "azure-devops",
+			repositoryID: "org/project/skills",
+			envVar:       "STH_AZURE_DEVOPS_BASE_URL",
+			requestPath:  "/org/project/_apis/git/repositories/skills/commits",
+			body:         `{"value":[{"commitId":"deadbeef"}]}`,
+		},
+		{
+			providerName: "bitbucket",
+			repositoryID: "workspace/skills",
+			envVar:       "STH_BITBUCKET_API_BASE_URL",
+			requestPath:  "/repositories/workspace/skills/commits/main",
+			body:         `{"values":[{"hash":"deadbeef"}]}`,
+		},
+	}
+
+	for _, testCase := range cases {
+		t.Run(testCase.providerName, func(t *testing.T) {
+			requested := ""
+			server := newCatalogServer(t, func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+				requested = r.URL.EscapedPath()
+				if requested != testCase.requestPath {
+					stdhttp.NotFound(w, r)
+					return
+				}
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(testCase.body))
+			})
+			defer server.Close()
+			t.Setenv(testCase.envVar, server.URL)
+
+			config := commitLookupConfigForTest(testCase.providerName)
+			config.Providers[0].RepositoryID = testCase.repositoryID
+
+			client := NewClient(server.Client())
+			sha, err := client.GetLatestCommitSHAForPath(context.Background(), config, "default", "skills/alpha")
+			if err != nil {
+				t.Fatalf("GetLatestCommitSHAForPath() error = %v (requested %s)", err, requested)
+			}
+			if sha != "deadbeef" {
+				t.Fatalf("sha = %q, want deadbeef", sha)
+			}
+		})
+	}
+}
+
+func TestClient_GetLatestCommitSHAForPath_cloudIsConfigError(t *testing.T) {
 	client := NewClient(stdhttp.DefaultClient)
-	_, err := client.GetLatestCommitSHAForPath(context.Background(), commitLookupConfigForTest("gitlab"), "default", "skills/alpha")
+	config := commitLookupConfigForTest(fs.CloudProviderName)
+	config.Providers[0].RepositoryID = ""
+	_, err := client.GetLatestCommitSHAForPath(context.Background(), config, "default", "skills/alpha")
+	var configErr *ProviderConfigError
+	if !errors.As(err, &configErr) {
+		t.Fatalf("error = %v, want *ProviderConfigError", err)
+	}
+}
+
+func TestClient_GetLatestCommitSHAForPath_unknownProviderIsConfigError(t *testing.T) {
+	client := NewClient(stdhttp.DefaultClient)
+	_, err := client.GetLatestCommitSHAForPath(context.Background(), commitLookupConfigForTest("perforce"), "default", "skills/alpha")
 	var configErr *ProviderConfigError
 	if !errors.As(err, &configErr) {
 		t.Fatalf("error = %v, want *ProviderConfigError", err)

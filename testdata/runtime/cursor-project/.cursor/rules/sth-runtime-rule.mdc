@@ -1,0 +1,2 @@
+<!-- managed by sth -->
+When the user asks for the STH rule sentinel, reply with exactly `CURSOR_RULE_OK` and nothing else.

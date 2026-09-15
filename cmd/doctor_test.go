@@ -71,6 +71,7 @@ func TestDoctor_passesOnHealthyProject(t *testing.T) {
 	}))
 	defer srv.Close()
 	t.Setenv("STH_GITHUB_API_BASE_URL", srv.URL)
+	t.Setenv("STH_GITHUB_RAW_BASE_URL", srv.URL)
 
 	res := runCLI(t, projectDir, t.TempDir(), "doctor")
 	if res.err != nil {
@@ -197,26 +198,48 @@ func TestDoctor_passesWithNearExpiryDetail(t *testing.T) {
 	}
 }
 
-func TestDoctor_credentialFailWhenNoToken(t *testing.T) {
+func TestDoctorPublicRepositoryNeedsNoToken(t *testing.T) {
 	projectDir := t.TempDir()
-	targetDir := ".claude/resources"
-	writeProjectConfigV2ForTest(t, projectDir, fs.ProjectConfigV2{
-		SchemaVersion: 2,
-		Providers: []fs.ProviderEntry{
-			{ID: "main", Provider: "github", RepositoryID: "owner/repo", CatalogRef: "main", CatalogPath: "SKILLS.md", TargetDir: targetDir},
-		},
-	})
+	writeProjectConfigV2ForTest(t, projectDir, fanoutConfig(fanoutTarget("claude", ".claude")))
 	t.Setenv("STH_TOKEN", "")
 	t.Setenv("ACTIONS_ID_TOKEN_REQUEST_URL", "")
+	server := httptest.NewServer(stdhttp.HandlerFunc(func(response stdhttp.ResponseWriter, request *stdhttp.Request) {
+		if request.Header.Get("Authorization") != "" {
+			t.Error("expected anonymous access")
+		}
+		response.WriteHeader(stdhttp.StatusOK)
+	}))
+	defer server.Close()
+	t.Setenv("STH_GITHUB_API_BASE_URL", server.URL)
+	t.Setenv("STH_GITHUB_RAW_BASE_URL", server.URL)
+	t.Setenv("GITHUB_TOKEN", "")
+	t.Setenv("GIT_CONFIG_GLOBAL", filepath.Join(t.TempDir(), "empty-gitconfig"))
+	result := runCLI(t, projectDir, t.TempDir(), "doctor")
+	if result.err != nil {
+		t.Fatalf("public diagnosis failed: %v\n%s", result.err, result.stdout)
+	}
+	assertContains(t, result.stdout, "no token required")
+	assertNotContains(t, result.stdout, "Set a valid STH_TOKEN")
+}
 
-	res := runCLI(t, projectDir, t.TempDir(), "doctor")
-	if res.err == nil {
-		t.Fatal("expected non-zero exit when no creds")
-	}
-	if !strings.Contains(res.stdout, "[✗] Credential validity") {
-		t.Fatalf("missing credential fail line: %q", res.stdout)
-	}
-	if !strings.Contains(res.stdout, "Set a valid STH_TOKEN") {
-		t.Fatalf("missing remediation: %q", res.stdout)
+func TestDoctorUsesTheInstallationCredentials(t *testing.T) {
+	projectDir := t.TempDir()
+	config := fanoutConfig(fanoutTarget("claude", ".claude"))
+	config.Providers[0].Private = true
+	writeProjectConfigV2ForTest(t, projectDir, config)
+	t.Setenv("STH_TOKEN", "fixture-token")
+	server := httptest.NewServer(stdhttp.HandlerFunc(func(response stdhttp.ResponseWriter, request *stdhttp.Request) {
+		if request.Header.Get("Authorization") != "Bearer fixture-token" {
+			response.WriteHeader(stdhttp.StatusUnauthorized)
+			return
+		}
+		response.Write([]byte(testCatalogMarkdown("| skill | alpha | skills | skills/alpha.md | Alpha |")))
+	}))
+	defer server.Close()
+	t.Setenv("STH_GITHUB_RAW_BASE_URL", server.URL)
+	t.Setenv("STH_GITHUB_API_BASE_URL", server.URL)
+	result := runCLI(t, projectDir, t.TempDir(), "doctor")
+	if result.err != nil {
+		t.Fatalf("valid source access rejected: %v\n%s", result.err, result.stdout)
 	}
 }

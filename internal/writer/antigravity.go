@@ -43,11 +43,15 @@ func (AntigravityWriter) Plan(artifactKind, artifactName, _ string, sources []st
 	case "skill":
 		return PlanResult{Files: relForSkillBundle(".agents/skills", artifactName, sources)}
 	case "agent":
-		return PlanResult{Files: []PlannedFile{{SourcePath: sources[0], RelativePath: ".agents/agents/" + artifactName + ".md"}}}
+		return PlanResult{Files: []PlannedFile{{SourcePath: sources[0], RelativePath: ".agents/agents/" + artifactName + "/agent.md"}}}
 	case "command":
 		return PlanResult{Files: []PlannedFile{{SourcePath: sources[0], RelativePath: ".agents/workflows/" + artifactName + ".md"}}}
 	case "instruction":
 		return PlanResult{Files: []PlannedFile{{SourcePath: sources[0], RelativePath: ".agents/rules/" + artifactName + ".md"}}}
+	case "rule":
+		return PlanResult{Files: []PlannedFile{{SourcePath: sources[0], RelativePath: ".agents/rules/" + artifactName + ".md"}}}
+	case "workflow":
+		return PlanResult{Files: []PlannedFile{{SourcePath: sources[0], RelativePath: ".agents/workflows/" + artifactName + ".md"}}}
 	}
 	return PlanResult{Skipped: true, Reason: "unknown artifact kind: " + artifactKind}
 }

@@ -22,7 +22,7 @@ func TestCopilotWriterPlansNativeSingleFileArtifacts(t *testing.T) {
 		expectedPath string
 	}{
 		{artifactKind: "agent", artifactName: "reviewer", sourcePath: "agents/reviewer.md", expectedPath: ".github/agents/reviewer.agent.md"},
-		{artifactKind: "instruction", artifactName: "go", sourcePath: "instructions/go.md", expectedPath: ".github/instructions/go.instructions.md"},
+		{artifactKind: "instruction", artifactName: "go", sourcePath: "instructions/go.md", expectedPath: ".github/sth/instructions/go.md"},
 	}
 
 	for _, testCase := range testCases {
@@ -44,10 +44,9 @@ func TestCopilotWriterPlansNativeSingleFileArtifacts(t *testing.T) {
 	}
 }
 
-func TestCopilotWriterPlansCommandForCLIAndIDE(t *testing.T) {
+func TestCopilotWriterPlansCommandPrompt(t *testing.T) {
 	result := (CopilotWriter{}).Plan("command", "deploy", "", []string{"commands/deploy.md"})
 	expectedFiles := []PlannedFile{
-		{SourcePath: "commands/deploy.md", RelativePath: ".claude/commands/deploy.md"},
 		{SourcePath: "commands/deploy.md", RelativePath: ".github/prompts/deploy.prompt.md"},
 	}
 	if !reflect.DeepEqual(result.Files, expectedFiles) {
@@ -62,9 +61,9 @@ func TestCopilotWriterPlansNativeSkillBundle(t *testing.T) {
 		"react/form-wizard/scripts/check.sh",
 	}
 	expectedFiles := []PlannedFile{
-		{SourcePath: sources[0], RelativePath: ".claude/skills/form-wizard/SKILL.md"},
-		{SourcePath: sources[1], RelativePath: ".claude/skills/form-wizard/references/component-patterns.md"},
-		{SourcePath: sources[2], RelativePath: ".claude/skills/form-wizard/scripts/check.sh"},
+		{SourcePath: sources[0], RelativePath: ".agents/skills/form-wizard/SKILL.md"},
+		{SourcePath: sources[1], RelativePath: ".agents/skills/form-wizard/references/component-patterns.md"},
+		{SourcePath: sources[2], RelativePath: ".agents/skills/form-wizard/scripts/check.sh"},
 	}
 
 	result := (CopilotWriter{}).Plan("skill", "form-wizard", "react", sources)

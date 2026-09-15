@@ -32,7 +32,7 @@ func (a *app) prepareStateAccess() (*fs.ProjectProfile, func(), error) {
 		a.verbose.Path("sth-state-v2.json", abs)
 	}
 
-	release, err := fs.AcquireStateLock(profile.TargetDir)
+	release, err := fs.AcquireStateLock(".sth")
 	if err != nil {
 		return nil, nil, err
 	}
@@ -62,4 +62,19 @@ func (a *app) prepareStateReadAccess() (*fs.ProjectProfile, error) {
 		a.verbose.Path("sth-state-v2.json", absolutePath)
 	}
 	return profile, nil
+}
+
+func (a *app) prepareProviderStateAccess(stateDir, primaryStateDir string) (func(), error) {
+	if filepath.Clean(stateDir) == filepath.Clean(primaryStateDir) {
+		return func() {}, nil
+	}
+	release, err := fs.AcquireStateLock(stateDir)
+	if err != nil {
+		return nil, err
+	}
+	if err := fs.PromoteInstalledState(stateDir, a.stderr); err != nil {
+		release()
+		return nil, err
+	}
+	return release, nil
 }

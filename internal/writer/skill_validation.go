@@ -13,9 +13,11 @@ func validateSkillConsumerMetadata(targetKind, artifactName string, content []by
 	case KindCodex:
 		return validateCodexSkillConsumerMetadata(artifactName, content)
 	case KindCopilot:
-		return validateCopilotSkillConsumerMetadata(artifactName, content)
+		return validateRequiredAgentSkillMetadata("Copilot", artifactName, content)
+	case KindCursor:
+		return validateRequiredAgentSkillMetadata("Cursor", artifactName, content)
 	case KindGemini:
-		return validateGeminiSkillConsumerMetadata(artifactName, content)
+		return validateRequiredAgentSkillMetadata("Gemini", artifactName, content)
 	case KindAntigravity:
 		return validateAntigravitySkillConsumerMetadata(artifactName, content)
 	default:
@@ -32,40 +34,22 @@ func validateCodexSkillConsumerMetadata(artifactName string, content []byte) err
 	return err
 }
 
-func validateCopilotSkillConsumerMetadata(artifactName string, content []byte) error {
-	name, nameErr := requiredSkillMetadataString(content, "Copilot", "name")
+func validateRequiredAgentSkillMetadata(consumerName, artifactName string, content []byte) error {
+	name, nameErr := requiredSkillMetadataString(content, consumerName, "name")
 	if nameErr != nil {
 		return nameErr
 	}
-	if nameErr := validateAgentSkillName("Copilot", name); nameErr != nil {
+	if nameErr := validateAgentSkillName(consumerName, name); nameErr != nil {
 		return nameErr
 	}
 	if name != artifactName {
-		return fmt.Errorf("invalid Copilot skill: frontmatter name %q differs from directory %q", name, artifactName)
+		return fmt.Errorf("invalid %s skill: frontmatter name %q differs from directory %q", consumerName, name, artifactName)
 	}
-	description, descriptionErr := requiredSkillMetadataString(content, "Copilot", "description")
+	description, descriptionErr := requiredSkillMetadataString(content, consumerName, "description")
 	if descriptionErr != nil {
 		return descriptionErr
 	}
-	return validateAgentSkillDescription("Copilot", description)
-}
-
-func validateGeminiSkillConsumerMetadata(artifactName string, content []byte) error {
-	name, nameErr := requiredSkillMetadataString(content, "Gemini", "name")
-	if nameErr != nil {
-		return nameErr
-	}
-	if name != artifactName {
-		return fmt.Errorf("invalid Gemini skill: frontmatter name %q differs from directory %q", name, artifactName)
-	}
-	if nameErr := validateAgentSkillName("Gemini", name); nameErr != nil {
-		return nameErr
-	}
-	description, descriptionErr := requiredSkillMetadataString(content, "Gemini", "description")
-	if descriptionErr != nil {
-		return descriptionErr
-	}
-	return validateAgentSkillDescription("Gemini", description)
+	return validateAgentSkillDescription(consumerName, description)
 }
 
 func validateAntigravitySkillConsumerMetadata(artifactName string, content []byte) error {

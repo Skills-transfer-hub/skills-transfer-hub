@@ -128,7 +128,7 @@ func readStateV2(t *testing.T, projectDir string) fs.InstalledResourceStateV2 {
 	return state
 }
 
-func TestInstallFanout_SkillDedupToClaudeHub(t *testing.T) {
+func TestInstallFanout_SkillDedupToNativeHubs(t *testing.T) {
 	projectDir := t.TempDir()
 	server := skillBundleServer(t)
 	defer server.Close()
@@ -147,6 +147,7 @@ func TestInstallFanout_SkillDedupToClaudeHub(t *testing.T) {
 	}
 
 	assertFileExists(t, filepath.Join(projectDir, ".claude", "skills", "alpha", "SKILL.md"))
+	assertFileExists(t, filepath.Join(projectDir, ".agents", "skills", "alpha", "SKILL.md"))
 	assertNoFile(t, filepath.Join(projectDir, ".cursor", "skills", "alpha", "SKILL.md"))
 	assertNoFile(t, filepath.Join(projectDir, ".github", "skills", "alpha", "SKILL.md"))
 	assertContains(t, result.stdout, ".claude/skills/alpha")
@@ -155,11 +156,8 @@ func TestInstallFanout_SkillDedupToClaudeHub(t *testing.T) {
 	if len(state.Entries) != 1 {
 		t.Fatalf("state entries = %d, want 1", len(state.Entries))
 	}
-	if len(state.Entries[0].ManagedFiles) != 1 {
-		t.Fatalf("managed files = %d, want 1", len(state.Entries[0].ManagedFiles))
-	}
-	if got := state.Entries[0].ManagedFiles[0].Path; got != ".claude/skills/alpha/SKILL.md" {
-		t.Fatalf("managed path = %q, want .claude/skills/alpha/SKILL.md", got)
+	if len(state.Entries[0].ManagedFiles) != 2 {
+		t.Fatalf("managed files = %d, want 2", len(state.Entries[0].ManagedFiles))
 	}
 }
 
@@ -295,20 +293,40 @@ func TestInstallFanout_AgentAcrossTargets(t *testing.T) {
 		fanoutTarget("gemini", ".gemini"),
 	))
 
-	result := runCLI(t, projectDir, t.TempDir(), "install", "reviewer")
+	result := runCLI(t, projectDir, t.TempDir(), "install", "reviewer", "--allow", "exact,lossy")
 	if result.err != nil {
 		t.Fatalf("Run() error = %v\nstderr=%s", result.err, result.stderr)
 	}
 
 	assertFileExists(t, filepath.Join(projectDir, ".claude", "agents", "reviewer.md"))
-	assertFileExists(t, filepath.Join(projectDir, ".cursor", "rules", "agents", "reviewer.mdc"))
+	assertFileExists(t, filepath.Join(projectDir, ".cursor", "agents", "reviewer.md"))
 	assertFileExists(t, filepath.Join(projectDir, ".github", "agents", "reviewer.agent.md"))
-	assertFileExists(t, filepath.Join(projectDir, ".agents", "agents", "reviewer.md"))
+	assertFileExists(t, filepath.Join(projectDir, ".agents", "agents", "reviewer", "agent.md"))
 	assertFileExists(t, filepath.Join(projectDir, ".gemini", "agents", "reviewer.md"))
 
 	state := readStateV2(t, projectDir)
 	if len(state.Entries) != 5 {
 		t.Fatalf("state entries = %d, want 5 (one per target)", len(state.Entries))
+	}
+}
+
+func TestInstallKindJSONReturnsOneStableArray(t *testing.T) {
+	projectDir := t.TempDir()
+	server := singleArtifactServer(t, "agent", "reviewer", "agents", "agents/reviewer.md", "Reviewer", "# Reviewer\n", nil)
+	defer server.Close()
+	t.Setenv("STH_GITHUB_RAW_BASE_URL", server.URL)
+	writeProjectConfigV2ForTest(t, projectDir, fanoutConfig(fanoutTarget("claude", ".claude")))
+
+	result := runCLI(t, projectDir, t.TempDir(), "install", "--kind", "agent", "--target", "claude", "--allow", "exact,lossy", "--json")
+	if result.err != nil {
+		t.Fatalf("bulk JSON install error = %v\nstderr=%s", result.err, result.stderr)
+	}
+	var entries []updateJSONResult
+	if err := json.Unmarshal([]byte(result.stdout), &entries); err != nil {
+		t.Fatalf("bulk install emitted invalid JSON: %v\n%s", err, result.stdout)
+	}
+	if len(entries) != 1 || entries[0].ResourceName != "agent::agents::reviewer" || entries[0].Outcome != "installed" {
+		t.Fatalf("bulk JSON result = %+v", entries)
 	}
 }
 
@@ -349,7 +367,7 @@ func TestInstallFanout_ForcedDryRunDoesNotTransferOwnership(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	result := runCLI(t, projectDir, t.TempDir(), "install", "reviewer", "--dry-run", "--json", "--force")
+	result := runCLI(t, projectDir, t.TempDir(), "install", "reviewer", "--dry-run", "--json", "--force", "--allow", "exact,lossy")
 	if result.err != nil {
 		t.Fatalf("forced dry-run: %v\nstderr=%s", result.err, result.stderr)
 	}
@@ -404,7 +422,7 @@ func TestInstallFanout_RollsBackFilesAndOwnershipWhenSecondTargetFails(t *testin
 	}
 	before := transactionalProjectFileSnapshot(t, projectDir)
 
-	result := runCLI(t, projectDir, t.TempDir(), "install", "reviewer", "--force")
+	result := runCLI(t, projectDir, t.TempDir(), "install", "reviewer", "--force", "--allow", "exact,lossy")
 	if result.err == nil {
 		t.Fatalf("install succeeded despite blocked second target\nstdout=%s", result.stdout)
 	}
@@ -452,6 +470,21 @@ func TestFanoutProjectPathRejectsParentSymlinkOutsideProject(t *testing.T) {
 	}
 	if string(content) != "outside" {
 		t.Fatalf("outside victim changed: %q", content)
+	}
+}
+
+func TestFanoutTransactionPathsIncludeCentralV3State(t *testing.T) {
+	paths := fanoutTransactionPaths(".sth/provider", []fs.ManagedFile{{Path: ".cursor/agents/reviewer.md"}}, nil)
+	expected := filepath.ToSlash(filepath.Join(".sth", fs.StateFileNameV3))
+	found := false
+	for _, path := range paths {
+		if path == expected {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("transaction paths = %v", paths)
 	}
 }
 
@@ -607,7 +640,7 @@ func TestAppendFanoutManagedFileRejectsCaseCollision(t *testing.T) {
 	}
 }
 
-func TestInstallFanout_CommandSupportsCopilotCLI(t *testing.T) {
+func TestInstallFanout_CommandSupportsCopilotPrompt(t *testing.T) {
 	projectDir := t.TempDir()
 	server := httptest.NewServer(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		switch r.URL.Path {
@@ -626,12 +659,12 @@ func TestInstallFanout_CommandSupportsCopilotCLI(t *testing.T) {
 		fanoutTarget("copilot", ".github"),
 	))
 
-	result := runCLI(t, projectDir, t.TempDir(), "install", "deploy")
+	result := runCLI(t, projectDir, t.TempDir(), "install", "deploy", "--allow", "exact,lossy")
 	if result.err != nil {
 		t.Fatalf("Run() error = %v\nstderr=%s", result.err, result.stderr)
 	}
 
-	assertFileExists(t, filepath.Join(projectDir, ".claude", "commands", "deploy.md"))
+	assertFileExists(t, filepath.Join(projectDir, ".github", "prompts", "deploy.prompt.md"))
 
 	state := readStateV2(t, projectDir)
 	if len(state.Entries) != 1 {
@@ -669,7 +702,7 @@ func TestInstallFanout_ConsumerArtifactContracts(t *testing.T) {
 		{
 			name:       "copilot instruction",
 			targetKind: "copilot", targetRoot: ".github", artifactKind: "instruction", artifactName: "typescript", folderName: "instructions", sourcePath: "instructions/typescript.md",
-			content: "---\ndescription: TypeScript rules\napplyTo: '**/*.ts'\n---\nUse strict mode.\n", expectedPath: ".github/instructions/typescript.instructions.md", expectedText: "applyTo: '**/*.ts'",
+			content: "---\ndescription: TypeScript rules\napplyTo: '**/*.ts'\n---\nUse strict mode.\n", expectedPath: ".github/sth/instructions/typescript.md", expectedText: "applyTo: '**/*.ts'",
 		},
 		{
 			name:       "antigravity instruction",
@@ -696,7 +729,7 @@ func TestInstallFanout_ConsumerArtifactContracts(t *testing.T) {
 			t.Setenv("STH_GITHUB_RAW_BASE_URL", server.URL)
 			writeProjectConfigV2ForTest(t, projectDir, fanoutConfig(fanoutTarget(testCase.targetKind, testCase.targetRoot)))
 
-			result := runCLI(t, projectDir, t.TempDir(), "install", testCase.artifactName)
+			result := runCLI(t, projectDir, t.TempDir(), "install", testCase.artifactName, "--allow", "exact,lossy")
 			if result.err != nil {
 				t.Fatalf("install error = %v\nstderr=%s", result.err, result.stderr)
 			}
@@ -722,13 +755,13 @@ func TestInstallFanout_ConsumerArtifactContracts(t *testing.T) {
 }
 
 func TestInstallFanout_AllConsumerContractsImplemented(t *testing.T) {
-	consumerKinds := make(map[string]struct{})
-	for _, targetKind := range writer.ConsumerTargetKinds() {
-		consumerKinds[targetKind] = struct{}{}
+	capabilities := writer.ArtifactCapabilities()
+	if len(capabilities) != len(writer.ConsumerTargetKinds())*6 {
+		t.Fatalf("capabilities = %d, want %d", len(capabilities), len(writer.ConsumerTargetKinds())*6)
 	}
-	for _, capability := range writer.ArtifactCapabilities() {
-		if _, consumer := consumerKinds[capability.TargetKind]; consumer && !capability.Implemented {
-			t.Errorf("contract %s/%s is not implemented: %s", capability.TargetKind, capability.ArtifactKind, capability.Reason)
+	for _, capability := range capabilities {
+		if capability.Level == "" {
+			t.Errorf("contract %s/%s has no compatibility level", capability.TargetKind, capability.ArtifactKind)
 		}
 	}
 }
@@ -755,7 +788,7 @@ func TestGeminiCommandLifecycle(t *testing.T) {
 	t.Setenv("STH_GITHUB_API_BASE_URL", server.URL)
 	writeProjectConfigV2ForTest(t, projectDir, fanoutConfig(fanoutTarget("gemini", ".gemini")))
 
-	installResult := runCLI(t, projectDir, t.TempDir(), "install", "deploy")
+	installResult := runCLI(t, projectDir, t.TempDir(), "install", "deploy", "--allow", "exact,lossy")
 	if installResult.err != nil {
 		t.Fatalf("install error = %v\nstderr=%s", installResult.err, installResult.stderr)
 	}
@@ -891,12 +924,12 @@ func TestInstallUpdateStatusRemoveMatrix(t *testing.T) {
 		{name: "codex agent", targetKind: "codex", targetRoot: ".codex", artifactKind: "agent", artifactName: "lifecycle-agent", folderName: "agents", expectedPath: ".codex/agents/lifecycle-agent.toml"},
 		{name: "codex command", targetKind: "codex", targetRoot: ".codex", artifactKind: "command", artifactName: "lifecycle-command", folderName: "commands", expectedPath: ".agents/skills/lifecycle-command/SKILL.md"},
 		{name: "codex instruction", targetKind: "codex", targetRoot: ".codex", artifactKind: "instruction", artifactName: "lifecycle-instruction", folderName: "instructions", expectedPath: ".codex/sth/instructions/lifecycle-instruction.md", rootPath: "AGENTS.md", rootExpected: "$SENTINEL"},
-		{name: "copilot skill", targetKind: "copilot", targetRoot: ".github", artifactKind: "skill", artifactName: "lifecycle-skill", folderName: "skills", expectedPath: ".claude/skills/lifecycle-skill/SKILL.md"},
+		{name: "copilot skill", targetKind: "copilot", targetRoot: ".github", artifactKind: "skill", artifactName: "lifecycle-skill", folderName: "skills", expectedPath: ".agents/skills/lifecycle-skill/SKILL.md"},
 		{name: "copilot agent", targetKind: "copilot", targetRoot: ".github", artifactKind: "agent", artifactName: "lifecycle-agent", folderName: "agents", expectedPath: ".github/agents/lifecycle-agent.agent.md"},
-		{name: "copilot command", targetKind: "copilot", targetRoot: ".github", artifactKind: "command", artifactName: "lifecycle-command", folderName: "commands", expectedPath: ".claude/commands/lifecycle-command.md", additionalPaths: []string{".github/prompts/lifecycle-command.prompt.md"}},
-		{name: "copilot instruction", targetKind: "copilot", targetRoot: ".github", artifactKind: "instruction", artifactName: "lifecycle-instruction", folderName: "instructions", expectedPath: ".github/instructions/lifecycle-instruction.instructions.md"},
+		{name: "copilot command", targetKind: "copilot", targetRoot: ".github", artifactKind: "command", artifactName: "lifecycle-command", folderName: "commands", expectedPath: ".github/prompts/lifecycle-command.prompt.md"},
+		{name: "copilot instruction", targetKind: "copilot", targetRoot: ".github", artifactKind: "instruction", artifactName: "lifecycle-instruction", folderName: "instructions", expectedPath: ".github/sth/instructions/lifecycle-instruction.md", rootPath: "AGENTS.md", rootExpected: "$SENTINEL"},
 		{name: "antigravity skill", targetKind: "antigravity", targetRoot: ".agents", artifactKind: "skill", artifactName: "lifecycle-skill", folderName: "skills", expectedPath: ".agents/skills/lifecycle-skill/SKILL.md"},
-		{name: "antigravity agent", targetKind: "antigravity", targetRoot: ".agents", artifactKind: "agent", artifactName: "lifecycle-agent", folderName: "agents", expectedPath: ".agents/agents/lifecycle-agent.md"},
+		{name: "antigravity agent", targetKind: "antigravity", targetRoot: ".agents", artifactKind: "agent", artifactName: "lifecycle-agent", folderName: "agents", expectedPath: ".agents/agents/lifecycle-agent/agent.md"},
 		{name: "antigravity command", targetKind: "antigravity", targetRoot: ".agents", artifactKind: "command", artifactName: "lifecycle-command", folderName: "commands", expectedPath: ".agents/workflows/lifecycle-command.md"},
 		{name: "antigravity instruction", targetKind: "antigravity", targetRoot: ".agents", artifactKind: "instruction", artifactName: "lifecycle-instruction", folderName: "instructions", expectedPath: ".agents/rules/lifecycle-instruction.md"},
 		{name: "gemini skill", targetKind: "gemini", targetRoot: ".gemini", artifactKind: "skill", artifactName: "lifecycle-skill", folderName: "skills", expectedPath: ".agents/skills/lifecycle-skill/SKILL.md"},
@@ -913,7 +946,7 @@ func TestInstallUpdateStatusRemoveMatrix(t *testing.T) {
 			t.Setenv("STH_GITHUB_API_BASE_URL", fixture.server.URL)
 			writeProjectConfigV2ForTest(t, projectDir, fanoutConfig(fanoutTarget(testCase.targetKind, testCase.targetRoot)))
 
-			installResult := runCLI(t, projectDir, t.TempDir(), "install", testCase.artifactName)
+			installResult := runCLI(t, projectDir, t.TempDir(), "install", testCase.artifactName, "--allow", "exact,lossy")
 			if installResult.err != nil {
 				t.Fatalf("install error = %v\nstderr=%s", installResult.err, installResult.stderr)
 			}
@@ -993,7 +1026,11 @@ func TestInstallUpdateStatusRemoveMatrix(t *testing.T) {
 			}
 
 			statusResult := runCLI(t, projectDir, t.TempDir(), "status", "--json")
-			if statusResult.err != nil || !strings.Contains(statusResult.stdout, `"status": "up-to-date"`) {
+			expectedStatus := `"status": "partially-converted"`
+			if testCase.artifactKind == "skill" {
+				expectedStatus = `"status": "up-to-date"`
+			}
+			if statusResult.err != nil || !strings.Contains(statusResult.stdout, expectedStatus) {
 				t.Fatalf("status error=%v stdout=%s stderr=%s", statusResult.err, statusResult.stdout, statusResult.stderr)
 			}
 
@@ -1094,7 +1131,7 @@ func TestRemoveFanout_DeletesAllCopies(t *testing.T) {
 		fanoutTarget("antigravity", ".agents"),
 	))
 
-	install := runCLI(t, projectDir, t.TempDir(), "install", "reviewer")
+	install := runCLI(t, projectDir, t.TempDir(), "install", "reviewer", "--allow", "exact,lossy")
 	if install.err != nil {
 		t.Fatalf("install error = %v\nstderr=%s", install.err, install.stderr)
 	}
@@ -1105,8 +1142,8 @@ func TestRemoveFanout_DeletesAllCopies(t *testing.T) {
 	}
 
 	assertNoFile(t, filepath.Join(projectDir, ".claude", "agents", "reviewer.md"))
-	assertNoFile(t, filepath.Join(projectDir, ".cursor", "rules", "agents", "reviewer.mdc"))
-	assertNoFile(t, filepath.Join(projectDir, ".agents", "agents", "reviewer.md"))
+	assertNoFile(t, filepath.Join(projectDir, ".cursor", "agents", "reviewer.md"))
+	assertNoFile(t, filepath.Join(projectDir, ".agents", "agents", "reviewer", "agent.md"))
 
 	state := readStateV2(t, projectDir)
 	if len(state.Entries) != 0 {
