@@ -898,6 +898,21 @@ func (a *app) updateFanout(profile *fs.ProjectProfile, cfg fs.ProjectConfigV2, d
 		}
 		return nil
 	}
+	resolvedProfile, resolveErr := a.client.ResolveGitHubProfile(context.Background(), *profile)
+	if resolveErr != nil {
+		if jsonOut {
+			emitJSONError(a.stdout, resolveErr, 1)
+		}
+		return fmt.Errorf("unable to resolve update source: %w", resolveErr)
+	}
+	profile = &resolvedProfile
+	if strings.EqualFold(profile.Provider, "github") && len(profile.Ref) == 40 {
+		for providerIndex := range cfg.Providers {
+			if cfg.Providers[providerIndex].RepositoryID == profile.RepositoryID {
+				cfg.Providers[providerIndex].CatalogRef = profile.Ref
+			}
+		}
+	}
 
 	var entries []fs.CatalogEntry
 	if err := a.withAuthRecovery(context.Background(), func() error {

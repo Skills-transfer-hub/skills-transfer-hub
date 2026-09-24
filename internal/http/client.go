@@ -435,6 +435,46 @@ func (c *Client) GetLatestCommitSHAForPath(ctx context.Context, cfg fs.ProjectCo
 	return commits[0].SHA, nil
 }
 
+func (c *Client) ResolveGitHubProfile(ctx context.Context, profile fs.ProjectProfile) (fs.ProjectProfile, error) {
+	if !strings.EqualFold(strings.TrimSpace(profile.Provider), "github") {
+		return profile, nil
+	}
+	apiOverride := strings.TrimSpace(os.Getenv("STH_GITHUB_API_BASE_URL"))
+	if apiOverride == "" && strings.TrimSpace(os.Getenv("STH_GITHUB_RAW_BASE_URL")) != "" {
+		return profile, nil
+	}
+	baseURL := strings.TrimRight(getEnvOrDefault("STH_GITHUB_API_BASE_URL", "https://api.github.com"), "/")
+	requestURL := fmt.Sprintf("%s/repos/%s/commits/%s", baseURL, strings.TrimSpace(profile.RepositoryID), neturl.PathEscape(strings.TrimSpace(profile.Ref)))
+	headers, err := resolveCredentialHeaders(ctx, profile)
+	if err != nil {
+		return profile, err
+	}
+	data, err := c.downloadURL(ctx, requestURL, headers.headers)
+	if err != nil {
+		if apiOverride != "" && strings.Contains(err.Error(), "HTTP 404") {
+			return profile, nil
+		}
+		return profile, decorateAccessError(err, headers.source, profile.Provider)
+	}
+	var commit struct {
+		SHA string `json:"sha"`
+	}
+	if err := json.Unmarshal(data, &commit); err != nil {
+		if apiOverride != "" {
+			return profile, nil
+		}
+		return profile, fmt.Errorf("invalid GitHub commit response: %w", err)
+	}
+	if len(commit.SHA) != 40 {
+		if apiOverride != "" {
+			return profile, nil
+		}
+		return profile, fmt.Errorf("invalid GitHub commit SHA for %s@%s", profile.RepositoryID, profile.Ref)
+	}
+	profile.Ref = commit.SHA
+	return profile, nil
+}
+
 func (c *Client) fetchCatalogBytes(ctx context.Context, profile fs.ProjectProfile) ([]byte, error) {
 	if err := validateProfile(profile); err != nil {
 		return nil, err
