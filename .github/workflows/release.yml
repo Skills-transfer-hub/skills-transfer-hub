@@ -239,6 +239,35 @@ jobs:
           gh release download "$RELEASE_TAG" -R Skills-transfer-hub/sth-releases --dir "$asset_directory"
           sh scripts/verify-release-assets.sh "$asset_directory" "$RELEASE_TAG"
 
+  dashboard-sync:
+    name: Sync the capabilities manifest to the dashboard
+    needs: goreleaser
+    if: needs.goreleaser.outputs.prerelease == 'false'
+    runs-on: ubuntu-latest
+    steps:
+      # The release already carries sth-capabilities-v1.json and its .sha256
+      # (see the `release.extra_files` blocks in .goreleaser.yaml). This only
+      # tells the dashboard a new one exists; the dashboard downloads and
+      # verifies it itself, from a repository hard-coded on its side. The
+      # payload deliberately carries the tag and nothing else — no URL a
+      # consumer could be steered by.
+      #
+      # DASHBOARD_SYNC_TOKEN needs Contents: R/W and Pull requests: R/W on the
+      # dashboard repository, and nothing else.
+      - name: Dispatch the capabilities synchronization event
+        uses: actions/github-script@v8
+        env:
+          RELEASE_TAG: ${{ needs.goreleaser.outputs.tag }}
+        with:
+          github-token: ${{ secrets.DASHBOARD_SYNC_TOKEN }}
+          script: |
+            await github.rest.repos.createDispatchEvent({
+              owner: 'Grandpied33',
+              repo: 'sth-dashboard',
+              event_type: 'sth-capabilities-updated',
+              client_payload: { tag: process.env.RELEASE_TAG },
+            });
+
   chocolatey:
     name: Publish to Chocolatey
     needs: goreleaser

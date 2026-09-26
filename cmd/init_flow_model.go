@@ -61,6 +61,7 @@ type cloudLoginDoneMsg struct {
 	organization string
 	plan         string
 	expiresAt    string
+	sourceLines  []string
 	warning      string
 	loginErr     error
 }
@@ -378,8 +379,9 @@ func (model initFlowModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		lines := []string{
 			fmt.Sprintf("Connected to %s (plan %s, expires %s).", loginDone.organization, loginDone.plan, loginDone.expiresAt),
 			"Key stored in the OS keychain.",
-			"",
 		}
+		lines = append(lines, loginDone.sourceLines...)
+		lines = append(lines, "")
 		if loginDone.warning != "" {
 			lines = append(lines, loginDone.warning)
 		}
@@ -642,6 +644,9 @@ func (model initFlowModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			return model, nil
 		}
 		model.completeAccessAndToken()
+		if model.draft.IsPrivate {
+			return model, printInitLinesCmd(privateCreationGuide(model.draft.Provider)...)
+		}
 		return model, nil
 
 	case stepPrivateDetailsAsk:
@@ -809,12 +814,13 @@ func (model *initFlowModel) existingCloudKeyState(available bool) (bool, bool, [
 	cfg, _ := fs.ReadProjectConfigV2()
 	_, attached := findCloudProviderProfile(cfg)
 	if !attached {
-		if ensureErr := ensureCloudProviderEntry(); ensureErr != nil {
+		attachment, ensureErr := ensureCloudProviderEntry()
+		if ensureErr != nil {
 			lines := []string{"Warning: could not attach the sth-cloud provider."}
 			lines = append(lines, model.switchToAnonymous("STH Cloud unavailable")...)
 			return false, true, lines
 		}
-		return true, false, []string{"The sth-cloud provider is now attached to this project.", ""}
+		return true, false, append(attachment.announcement(), "")
 	}
 	return true, false, nil
 }
@@ -928,13 +934,15 @@ func saveCloudLoginCmd(accessDone cloudAccessCheckDoneMsg) tea.Cmd {
 			return cloudLoginDoneMsg{loginErr: newInitUserError("could not store the key in the OS keychain", err)}
 		}
 		warning := ""
-		if err := ensureCloudProviderEntry(); err != nil {
+		attachment, attachErr := ensureCloudProviderEntry()
+		if attachErr != nil {
 			warning = "Warning: could not write the project configuration."
 		}
 		return cloudLoginDoneMsg{
 			organization: accessDone.organization,
 			plan:         accessDone.plan,
 			expiresAt:    accessDone.expiresAt,
+			sourceLines:  attachment.announcement(),
 			warning:      warning,
 		}
 	}

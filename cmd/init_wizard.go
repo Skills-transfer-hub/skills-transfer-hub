@@ -279,6 +279,7 @@ func (a *app) askAccessAndToken(session *tui.Session, draft *wizardProfile, exis
 		draft.TokenSource = ""
 		return nil
 	}
+	a.writeStdout(privateCreationGuide(draft.Provider)...)
 
 	if envVar, value := detectProviderToken(draft.Provider); value != "" {
 		a.narrateMood(session, tui.MoodHappy,
@@ -592,7 +593,9 @@ func (a *app) collectInitDraftOutput(draft wizardProfile, validationErr error) (
 	if err != nil {
 		return nil, newInitUserError("could not save the project configuration", err)
 	}
+	a.recordOperationResult("init", draft.Alias, validationErr)
 	lines := []string{fmt.Sprintf("✓ Configuration saved: %s", path)}
+	lines = append(lines, providerAddedLines(currentCfg, entry)...)
 	if workingDir, wdErr := os.Getwd(); wdErr == nil {
 		if changed, gitErr := fs.EnsureManagedGitignore(workingDir); gitErr == nil && changed {
 			lines = append(lines, "✓ .gitignore updated (STH state files ignored)")

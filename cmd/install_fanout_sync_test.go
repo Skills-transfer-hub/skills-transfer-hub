@@ -34,7 +34,7 @@ func TestArtifactSynchronizationAcrossAllConsumers(t *testing.T) {
 				"claude":      {".claude/agents/synchronized-agent.md"},
 				"codex":       {".codex/agents/synchronized-agent.toml"},
 				"copilot":     {".github/agents/synchronized-agent.agent.md"},
-				"antigravity": {".agents/agents/synchronized-agent.md"},
+				"antigravity": {".agents/agents/synchronized-agent/agent.md"},
 				"gemini":      {".gemini/agents/synchronized-agent.md"},
 			},
 			forbiddenPaths: []string{
@@ -48,12 +48,9 @@ func TestArtifactSynchronizationAcrossAllConsumers(t *testing.T) {
 			artifactName: "synchronized-command",
 			folderName:   "commands",
 			expectedByTarget: map[string][]string{
-				"claude": {".claude/commands/synchronized-command.md"},
-				"codex":  {".agents/skills/synchronized-command/SKILL.md"},
-				"copilot": {
-					".claude/commands/synchronized-command.md",
-					".github/prompts/synchronized-command.prompt.md",
-				},
+				"claude":      {".claude/commands/synchronized-command.md"},
+				"codex":       {".agents/skills/synchronized-command/SKILL.md"},
+				"copilot":     {".github/prompts/synchronized-command.prompt.md"},
 				"antigravity": {".agents/workflows/synchronized-command.md"},
 				"gemini":      {".gemini/commands/synchronized-command.toml"},
 			},
@@ -69,13 +66,14 @@ func TestArtifactSynchronizationAcrossAllConsumers(t *testing.T) {
 			expectedByTarget: map[string][]string{
 				"claude":      {".claude/rules/synchronized-instruction.md"},
 				"codex":       {".codex/sth/instructions/synchronized-instruction.md"},
-				"copilot":     {".github/instructions/synchronized-instruction.instructions.md"},
+				"copilot":     {".github/sth/instructions/synchronized-instruction.md"},
 				"antigravity": {".agents/rules/synchronized-instruction.md"},
 				"gemini":      {".gemini/sth/instructions/synchronized-instruction.md"},
 			},
 			expectedRegions: map[string]fs.ManagedRegion{
-				"codex":  {Path: "AGENTS.md", ID: codexInstructionRegionID},
-				"gemini": {Path: "GEMINI.md", ID: geminiInstructionRegionID},
+				"codex":   {Path: "AGENTS.md", ID: codexInstructionRegionID},
+				"copilot": {Path: "AGENTS.md", ID: codexInstructionRegionID},
+				"gemini":  {Path: "GEMINI.md", ID: geminiInstructionRegionID},
 			},
 			rootAssertions: map[string][]string{
 				"AGENTS.md": {codexInstructionRegionID, "SENTINEL_V1"},
@@ -104,7 +102,7 @@ func TestArtifactSynchronizationAcrossAllConsumers(t *testing.T) {
 				fanoutTarget("gemini", ".gemini"),
 			))
 
-			installResult := runCLI(t, projectDir, t.TempDir(), "install", testCase.artifactName)
+			installResult := runCLI(t, projectDir, t.TempDir(), "install", testCase.artifactName, "--allow", "exact,lossy")
 			if installResult.err != nil {
 				t.Fatalf("install error = %v\nstderr=%s", installResult.err, installResult.stderr)
 			}
@@ -312,23 +310,23 @@ func assertDryRunChanges(t *testing.T, output string, expectedPaths []string) {
 
 func assertSynchronizedStatus(t *testing.T, output string, testCase artifactSynchronizationCase, expectedVersion string) {
 	t.Helper()
-	var statuses []fs.StatusResult
+	var statuses []fs.StatusResultV3
 	if err := json.Unmarshal([]byte(output), &statuses); err != nil {
 		t.Fatalf("status output is not valid JSON: %v\n%s", err, output)
 	}
-	if len(statuses) != len(testCase.expectedByTarget) {
-		t.Fatalf("status entries = %d, want %d: %+v", len(statuses), len(testCase.expectedByTarget), statuses)
+	if len(statuses) != 1 {
+		t.Fatalf("status entries = %d, want 1 grouped entry for the %d targets: %+v", len(statuses), len(testCase.expectedByTarget), statuses)
 	}
 	expectedResourceName := fs.CatalogID(testCase.artifactKind, testCase.folderName, testCase.artifactName)
 	for _, status := range statuses {
-		if status.ResourceName != expectedResourceName {
-			t.Errorf("status resource = %q, want %q", status.ResourceName, expectedResourceName)
+		if status.ResourceID != expectedResourceName {
+			t.Errorf("status resource = %q, want %q", status.ResourceID, expectedResourceName)
 		}
 		if status.InstalledVersion != expectedVersion || status.LatestVersion != expectedVersion {
 			t.Errorf("status versions = %q/%q, want %q", status.InstalledVersion, status.LatestVersion, expectedVersion)
 		}
-		if status.Status != fs.ResourceStatusUpToDate {
-			t.Errorf("status = %q, want %q: %+v", status.Status, fs.ResourceStatusUpToDate, status)
+		if status.Status != fs.ResourceStatusPartiallyConverted {
+			t.Errorf("status = %q, want %q: %+v", status.Status, fs.ResourceStatusPartiallyConverted, status)
 		}
 	}
 }

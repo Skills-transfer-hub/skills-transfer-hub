@@ -73,7 +73,7 @@ func (MultiStackScanner) Scan(tree []TreeEntry) ([]Artifact, error) {
 			if len(parts) != 2 {
 				continue
 			}
-			name := strings.TrimSuffix(parts[1], ".md")
+			name := strings.TrimSuffix(strings.TrimSuffix(parts[1], ".md"), ".agent")
 			if name == "" {
 				continue
 			}

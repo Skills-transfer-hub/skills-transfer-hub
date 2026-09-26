@@ -22,6 +22,8 @@ import (
 	sthlog "sth/internal/log"
 )
 
+const defaultCommitLookupTargetDir = ".claude/skills"
+
 type Client struct {
 	httpClient *stdhttp.Client
 	verbose    sthlog.Verbose
@@ -371,37 +373,123 @@ func (c *Client) DownloadURL(ctx context.Context, rawURL string, headers map[str
 	return c.downloadURLWithLimit(ctx, rawURL, headers, limitBytes)
 }
 
-func resolveGithubCatalogRef(cfg fs.ProjectConfigV2, providerID string) (string, string, error) {
-	var provider *fs.ProviderEntry
-	for index := range cfg.Providers {
-		if cfg.Providers[index].ID == providerID {
-			provider = &cfg.Providers[index]
-			break
-		}
+func providerForCommitLookup(cfg fs.ProjectConfigV2, providerID string) (fs.ProviderEntry, error) {
+	provider, found := fs.ProviderByID(cfg, providerID)
+	if !found {
+		return fs.ProviderEntry{}, &ProviderConfigError{Msg: fmt.Sprintf("provider %q not found in project config", providerID)}
 	}
-	if provider == nil {
-		return "", "", &ProviderConfigError{Msg: fmt.Sprintf("provider %q not found in project config", providerID)}
+	if fs.IsCloudProviderName(provider.Provider) {
+		return fs.ProviderEntry{}, &ProviderConfigError{Msg: "commit lookup: STH Cloud resources are versioned by the backend"}
 	}
+	if strings.TrimSpace(provider.RepositoryID) == "" {
+		return fs.ProviderEntry{}, &ProviderConfigError{Msg: "commit lookup: provider repository ID is required"}
+	}
+	if strings.TrimSpace(provider.CatalogRef) == "" {
+		return fs.ProviderEntry{}, &ProviderConfigError{Msg: "commit lookup: provider catalog ref is required"}
+	}
+	return provider, nil
+}
 
-	if strings.ToLower(strings.TrimSpace(provider.Provider)) != "github" {
-		return "", "", &ProviderConfigError{Msg: fmt.Sprintf("commit lookup: unsupported provider %q", provider.Provider)}
-	}
-
+func commitLookupURL(provider fs.ProviderEntry, repoPath string) (string, error) {
 	repositoryID := strings.TrimSpace(provider.RepositoryID)
-	if repositoryID == "" {
-		return "", "", &ProviderConfigError{Msg: "commit lookup: provider repository ID is required"}
-	}
-
 	catalogRef := strings.TrimSpace(provider.CatalogRef)
-	if catalogRef == "" {
-		return "", "", &ProviderConfigError{Msg: "commit lookup: provider catalog ref is required"}
-	}
+	cleanPath := strings.TrimPrefix(repoPath, "/")
 
-	return repositoryID, catalogRef, nil
+	switch strings.ToLower(strings.TrimSpace(provider.Provider)) {
+	case "github":
+		baseURL := strings.TrimRight(getEnvOrDefault("STH_GITHUB_API_BASE_URL", "https://api.github.com"), "/")
+		query := neturl.Values{}
+		query.Set("sha", catalogRef)
+		query.Set("path", cleanPath)
+		query.Set("per_page", "1")
+		return fmt.Sprintf("%s/repos/%s/commits?%s", baseURL, repositoryID, query.Encode()), nil
+	case "gitlab":
+		baseURL := strings.TrimRight(getEnvOrDefault("STH_GITLAB_API_BASE_URL", "https://gitlab.com/api/v4"), "/")
+		query := neturl.Values{}
+		query.Set("ref_name", catalogRef)
+		query.Set("path", cleanPath)
+		query.Set("per_page", "1")
+		return fmt.Sprintf("%s/projects/%s/repository/commits?%s", baseURL, neturl.PathEscape(repositoryID), query.Encode()), nil
+	case "azure-devops":
+		parts := strings.Split(repositoryID, "/")
+		if len(parts) != 3 {
+			return "", &ProviderConfigError{Msg: fmt.Sprintf("invalid Azure DevOps repository_id: %q (expected: organization/project/repo)", provider.RepositoryID)}
+		}
+		baseURL := strings.TrimRight(getEnvOrDefault("STH_AZURE_DEVOPS_BASE_URL", "https://dev.azure.com"), "/")
+		query := neturl.Values{}
+		query.Set("searchCriteria.itemPath", "/"+cleanPath)
+		query.Set("searchCriteria.itemVersion.version", catalogRef)
+		query.Set("searchCriteria.$top", "1")
+		query.Set("api-version", "7.1")
+		return fmt.Sprintf("%s/%s/%s/_apis/git/repositories/%s/commits?%s", baseURL, neturl.PathEscape(parts[0]), neturl.PathEscape(parts[1]), neturl.PathEscape(parts[2]), query.Encode()), nil
+	case "bitbucket":
+		baseURL := strings.TrimRight(getEnvOrDefault("STH_BITBUCKET_API_BASE_URL", "https://api.bitbucket.org/2.0"), "/")
+		query := neturl.Values{}
+		query.Set("path", cleanPath)
+		query.Set("pagelen", "1")
+		return fmt.Sprintf("%s/repositories/%s/commits/%s?%s", baseURL, repositoryID, neturl.PathEscape(catalogRef), query.Encode()), nil
+	default:
+		return "", &ProviderConfigError{Msg: fmt.Sprintf("commit lookup: unsupported provider %q", provider.Provider)}
+	}
+}
+
+func parseCommitLookupResponse(provider string, data []byte) (string, error) {
+	switch strings.ToLower(strings.TrimSpace(provider)) {
+	case "github":
+		var commits []struct {
+			SHA string `json:"sha"`
+		}
+		if err := json.Unmarshal(data, &commits); err != nil {
+			return "", fmt.Errorf("invalid JSON from commits API: %w", err)
+		}
+		if len(commits) == 0 {
+			return "", nil
+		}
+		return strings.TrimSpace(commits[0].SHA), nil
+	case "gitlab":
+		var commits []struct {
+			ID string `json:"id"`
+		}
+		if err := json.Unmarshal(data, &commits); err != nil {
+			return "", fmt.Errorf("invalid JSON from commits API: %w", err)
+		}
+		if len(commits) == 0 {
+			return "", nil
+		}
+		return strings.TrimSpace(commits[0].ID), nil
+	case "azure-devops":
+		var response struct {
+			Value []struct {
+				CommitID string `json:"commitId"`
+			} `json:"value"`
+		}
+		if err := json.Unmarshal(data, &response); err != nil {
+			return "", fmt.Errorf("invalid JSON from commits API: %w", err)
+		}
+		if len(response.Value) == 0 {
+			return "", nil
+		}
+		return strings.TrimSpace(response.Value[0].CommitID), nil
+	case "bitbucket":
+		var response struct {
+			Values []struct {
+				Hash string `json:"hash"`
+			} `json:"values"`
+		}
+		if err := json.Unmarshal(data, &response); err != nil {
+			return "", fmt.Errorf("invalid JSON from commits API: %w", err)
+		}
+		if len(response.Values) == 0 {
+			return "", nil
+		}
+		return strings.TrimSpace(response.Values[0].Hash), nil
+	default:
+		return "", &ProviderConfigError{Msg: fmt.Sprintf("commit lookup: unsupported provider %q", provider)}
+	}
 }
 
 func (c *Client) GetLatestCommitSHAForPath(ctx context.Context, cfg fs.ProjectConfigV2, providerID, repoPath string) (string, error) {
-	repositoryID, catalogRef, err := resolveGithubCatalogRef(cfg, providerID)
+	provider, err := providerForCommitLookup(cfg, providerID)
 	if err != nil {
 		return "", err
 	}
@@ -411,28 +499,23 @@ func (c *Client) GetLatestCommitSHAForPath(ctx context.Context, cfg fs.ProjectCo
 		return "", &ProviderConfigError{Msg: "commit lookup: repository path is required"}
 	}
 
-	baseURL := strings.TrimRight(getEnvOrDefault("STH_GITHUB_API_BASE_URL", "https://api.github.com"), "/")
-	query := neturl.Values{}
-	query.Set("sha", catalogRef)
-	query.Set("path", trimmedPath)
-	query.Set("per_page", "1")
-	apiURL := fmt.Sprintf("%s/repos/%s/commits?%s", baseURL, repositoryID, query.Encode())
-
-	data, err := c.downloadURL(ctx, apiURL, nil)
+	apiURL, err := commitLookupURL(provider, trimmedPath)
 	if err != nil {
 		return "", err
 	}
 
-	var commits []struct {
-		SHA string `json:"sha"`
+	profile := fs.ProjectProfileFromProvider(provider, defaultCommitLookupTargetDir)
+	headers, err := resolveCredentialHeaders(ctx, profile)
+	if err != nil {
+		return "", err
 	}
-	if err := json.Unmarshal(data, &commits); err != nil {
-		return "", fmt.Errorf("invalid JSON from commits API: %w", err)
+
+	data, err := c.downloadURL(ctx, apiURL, headers.headers)
+	if err != nil {
+		return "", decorateAccessError(err, headers.source, provider.Provider)
 	}
-	if len(commits) == 0 {
-		return "", nil
-	}
-	return commits[0].SHA, nil
+
+	return parseCommitLookupResponse(provider.Provider, data)
 }
 
 func (c *Client) ResolveGitHubProfile(ctx context.Context, profile fs.ProjectProfile) (fs.ProjectProfile, error) {
@@ -517,11 +600,18 @@ func (c *Client) downloadURLWithLimit(ctx context.Context, rawURL string, header
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		c.emitHTTP(stdhttp.MethodGet, rawURL, 0)
-		return nil, fmt.Errorf("request to %s failed: %w", rawURL, err)
+		return nil, fmt.Errorf("request to %s failed: %w; check your network connection and retry the command", rawURL, err)
 	}
 	defer resp.Body.Close()
 	c.emitHTTP(stdhttp.MethodGet, rawURL, resp.StatusCode)
 
+	if resp.StatusCode == stdhttp.StatusTooManyRequests || resp.StatusCode == stdhttp.StatusForbidden && resp.Header.Get("X-RateLimit-Remaining") == "0" {
+		nextAttempt := "wait until the provider quota resets"
+		if reset, parseErr := strconv.ParseInt(resp.Header.Get("X-RateLimit-Reset"), 10, 64); parseErr == nil {
+			nextAttempt = "retry after " + time.Unix(reset, 0).UTC().Format(time.RFC3339)
+		}
+		return nil, fmt.Errorf("remote rate limit reached (HTTP %d); %s; a public repository does not require a token", resp.StatusCode, nextAttempt)
+	}
 	switch resp.StatusCode {
 	case stdhttp.StatusOK:
 	case stdhttp.StatusUnauthorized, stdhttp.StatusForbidden:
@@ -855,7 +945,8 @@ func basicAuthorization(username, password string) string {
 }
 
 func decorateAccessError(err error, source AccessSource, provider string) error {
-	if source.Resolved {
+	_, authentication := IsAuthError(err)
+	if source.Resolved || !authentication {
 		return err
 	}
 

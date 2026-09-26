@@ -4,8 +4,11 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"sort"
+	"strings"
 	"sync"
 
+	"sth/internal/artifact"
 	"sth/internal/fs"
 )
 
@@ -17,32 +20,118 @@ type resolvedVersion struct {
 }
 
 func (a *app) runInstall(args []string) error {
-	flags, positional := parseFlags(args, "--dry-run", "--json", "--force")
-	dryRun := flags["--dry-run"]
-	jsonOut := flags["--json"]
-	force := flags["--force"]
+	options, optionErr := parseCommandOptions(args, []string{"--dry-run", "--json", "--force"}, []string{"--kind", "--target", "--allow", "--provider"})
+	if optionErr != nil {
+		return optionErr
+	}
+	dryRun := options.flags["--dry-run"]
+	jsonOut := options.flags["--json"]
+	force := options.flags["--force"]
+	kinds := optionValues(options, "--kind")
+	if len(kinds) > 1 {
+		return fmt.Errorf("--kind accepts one artifact kind")
+	}
+	a.installKind = ""
+	if len(kinds) == 1 {
+		a.installKind = kinds[0]
+	}
+	a.installTargets = stringSet(optionValues(options, "--target"))
+	a.installAllowed = map[artifact.CompatibilityLevel]bool{artifact.CompatibilityExact: true}
+	for _, level := range optionValues(options, "--allow") {
+		switch artifact.CompatibilityLevel(level) {
+		case artifact.CompatibilityExact, artifact.CompatibilityLossy:
+			a.installAllowed[artifact.CompatibilityLevel(level)] = true
+		default:
+			return fmt.Errorf("unsupported compatibility level for --allow: %s", level)
+		}
+	}
+	a.installApprovedLossy = map[string]bool{}
+	defer func() {
+		a.installKind = ""
+		a.installTargets = nil
+		a.installAllowed = nil
+		a.installApprovedLossy = nil
+	}()
+	providers := optionValues(options, "--provider")
+	if len(providers) > 1 {
+		return fmt.Errorf("--provider accepts one source ID")
+	}
+	providerFlag := ""
+	if len(providers) == 1 {
+		providerFlag = providers[0]
+	}
+	positional := options.positional
+	if len(positional) == 0 && a.installKind != "" {
+		return a.installKindResources(a.installKind, providerFlag, dryRun, force, jsonOut)
+	}
 
-	err := a.installResource(dryRun, jsonOut, force, positional)
+	err := a.installResource(dryRun, jsonOut, force, providerFlag, positional)
 	if err != nil && jsonOut {
 		emitJSONError(a.stdout, err, 1)
 	}
 	return err
 }
 
-func (a *app) installResource(dryRun, jsonOut, force bool, positional []string) error {
+func (a *app) installKindResources(kind, providerFlag string, dryRun, force, jsonOut bool) error {
+	config, err := fs.ReadProjectConfigV2ReadOnly()
+	if err != nil {
+		return err
+	}
+	catalog, err := a.aggregateCatalog(context.Background(), config)
+	if err != nil {
+		return err
+	}
+	matchingReferences := make([]string, 0)
+	for _, entry := range catalog.entries {
+		if artifactKindOf(entry) == kind && (providerFlag == "" || fs.CatalogEntryProviderID(entry) == providerFlag) {
+			matchingReferences = append(matchingReferences, fs.CatalogEntryProviderID(entry)+":"+catalogDisplayRef(entry))
+		}
+	}
+	if len(matchingReferences) == 0 {
+		return fmt.Errorf("no catalog artifacts found for kind %s", kind)
+	}
+	sort.Strings(matchingReferences)
+	if jsonOut {
+		a.fanoutJSON = &fanoutJSONAccumulator{outcome: "installed"}
+		defer func() { a.fanoutJSON = nil }()
+	}
+	for _, resourceReference := range matchingReferences {
+		if err := a.installResource(dryRun, jsonOut, force, providerFlag, []string{resourceReference}); err != nil {
+			return err
+		}
+	}
+	if jsonOut {
+		if dryRun {
+			data, formatErr := fs.FormatDryRunJSON(a.fanoutJSON.changes)
+			if formatErr != nil {
+				return formatErr
+			}
+			a.writeStdout(string(data))
+			return nil
+		}
+		payload, marshalErr := marshalUpdateResults(a.fanoutJSON.results)
+		if marshalErr != nil {
+			return marshalErr
+		}
+		a.writeStdout(payload)
+	}
+	return nil
+}
+
+func (a *app) installResource(dryRun, jsonOut, force bool, providerFlag string, positional []string) error {
 	if len(positional) != 1 {
-		return fmt.Errorf("usage: sth install <resource-ref> [--dry-run] [--force]")
+		return fmt.Errorf("usage: sth install <resource-ref> [--provider <id>] [--dry-run] [--force]")
 	}
 	resourceRef := positional[0]
 
-	var profile *fs.ProjectProfile
+	var primaryProfile *fs.ProjectProfile
 	var release func()
 	var err error
 	if dryRun {
-		profile, err = a.prepareStateReadAccess()
+		primaryProfile, err = a.prepareStateReadAccess()
 		release = func() {}
 	} else {
-		profile, release, err = a.prepareStateAccess()
+		primaryProfile, release, err = a.prepareStateAccess()
 	}
 	if err != nil {
 		return err
@@ -58,9 +147,10 @@ func (a *app) installResource(dryRun, jsonOut, force bool, positional []string) 
 	if err != nil {
 		return err
 	}
-	providerID := "default"
-	if len(cfg.Providers) > 0 {
-		providerID = cfg.Providers[0].ID
+	if providerFlag != "" {
+		if _, found := fs.ProviderByID(cfg, providerFlag); !found && len(cfg.Providers) > 0 {
+			return fmt.Errorf("unknown provider: %q (configured: %s)", providerFlag, strings.Join(fs.ProviderIDs(cfg), ", "))
+		}
 	}
 
 	if !dryRun && !jsonOut {
@@ -72,24 +162,38 @@ func (a *app) installResource(dryRun, jsonOut, force bool, positional []string) 
 		}()
 	}
 
-	if jsonOut && !dryRun {
+	ownsJSONAccumulator := false
+	if jsonOut && !dryRun && a.fanoutJSON == nil {
 		a.fanoutJSON = &fanoutJSONAccumulator{outcome: "installed"}
+		ownsJSONAccumulator = true
 		defer func() { a.fanoutJSON = nil }()
 	}
 
 	a.progress.step("Fetching catalog…")
-	var entries []fs.CatalogEntry
-	if err := a.withAuthRecovery(context.Background(), func() error {
-		var listErr error
-		entries, listErr = a.client.ListCatalog(context.Background(), *profile)
-		return listErr
-	}); err != nil {
-		return err
-	}
-
-	entry, err := fs.ResolveCatalogEntry(entries, resourceRef)
+	catalog, err := a.aggregateCatalog(context.Background(), cfg)
 	if err != nil {
 		return err
+	}
+	a.reportProviderFailures(catalog.failures)
+
+	entry, err := a.resolveCatalogEntry(catalog, resourceRef, providerFlag)
+	if err != nil {
+		return err
+	}
+	providerID := fs.CatalogEntryProviderID(entry)
+	sourceProfile, err := a.sourceProfile(cfg, providerID)
+	if err != nil {
+		return err
+	}
+	if !dryRun {
+		providerRelease, lockErr := a.prepareProviderStateAccess(sourceProfile.TargetDir, primaryProfile.TargetDir)
+		if lockErr != nil {
+			return lockErr
+		}
+		defer providerRelease()
+	}
+	if a.installKind != "" && artifactKindOf(entry) != a.installKind {
+		return fmt.Errorf("resource %s is %s, not requested kind %s", resourceRef, artifactKindOf(entry), a.installKind)
 	}
 
 	if len(cfg.Targets) > 0 {
@@ -97,16 +201,19 @@ func (a *app) installResource(dryRun, jsonOut, force bool, positional []string) 
 		if !dryRun {
 			resolvedVersion = a.resolveCommitForEntry(context.Background(), cfg, providerID, entry, make(map[string]string))
 		}
-		if fanoutErr := a.installFanout(*profile, cfg, entry, providerID, resolvedVersion, dryRun, jsonOut, force); fanoutErr != nil {
+		if fanoutErr := a.installFanout(sourceProfile, sourceProfile.TargetDir, cfg, entry, providerID, resolvedVersion, dryRun, jsonOut, force); fanoutErr != nil {
 			return fanoutErr
 		}
 	} else {
-		if legacyErr := a.installLegacy(*profile, entry, providerID, dryRun, jsonOut, force); legacyErr != nil {
+		if len(a.installTargets) > 0 && !a.targetSelected("claude", "claude") {
+			return fmt.Errorf("legacy project configuration only supports the Claude target")
+		}
+		if legacyErr := a.installLegacy(sourceProfile, entry, providerID, dryRun, jsonOut, force); legacyErr != nil {
 			return legacyErr
 		}
 	}
 
-	if a.fanoutJSON != nil {
+	if ownsJSONAccumulator {
 		payload, marshalErr := marshalUpdateResults(a.fanoutJSON.results)
 		if marshalErr != nil {
 			return marshalErr
@@ -211,6 +318,9 @@ func (a *app) installLegacy(profile fs.ProjectProfile, entry fs.CatalogEntry, pr
 	}
 
 	state, _ := fs.ReadInstalledStateV2(profile.TargetDir)
+	if driftErr := refuseModifiedResources(state, fs.ProjectConfigV2{}, entry.CatalogID); driftErr != nil {
+		return driftErr
+	}
 	if !force {
 		for _, mf := range incomingRecord.ManagedFiles {
 			if conflict := fs.CheckOwnershipConflict(&state, entry.CatalogID, mf.Path); conflict != nil {

@@ -51,7 +51,7 @@ func TestInstructionRegionsPreserveUserContentAndOtherContributors(t *testing.T)
 	))
 
 	for _, artifactName := range []string{"instruction-alpha", "instruction-beta"} {
-		result := runCLI(t, projectDir, t.TempDir(), "install", artifactName)
+		result := runCLI(t, projectDir, t.TempDir(), "install", artifactName, "--allow", "exact,lossy")
 		if result.err != nil {
 			t.Fatalf("install %s: %v\nstderr=%s", artifactName, result.err, result.stderr)
 		}
@@ -141,7 +141,7 @@ func TestInstructionRegionInstallRollsBackOnMalformedMarkers(t *testing.T) {
 	writeProjectConfigV2ForTest(t, projectDir, fanoutConfig(fanoutTarget("codex", ".codex")))
 	beforeInstall := transactionalProjectFileSnapshot(t, projectDir)
 
-	result := runCLI(t, projectDir, t.TempDir(), "install", "instruction-alpha")
+	result := runCLI(t, projectDir, t.TempDir(), "install", "instruction-alpha", "--allow", "exact,lossy")
 	if result.err == nil {
 		t.Fatalf("install succeeded with malformed markers\nstdout=%s\nstderr=%s", result.stdout, result.stderr)
 	}
@@ -207,15 +207,15 @@ func TestInstructionForceTransferPreservesNewRegionOwner(t *testing.T) {
 	t.Setenv("STH_GITHUB_API_BASE_URL", server.URL)
 	writeProjectConfigV2ForTest(t, projectDir, fanoutConfig(fanoutTarget("codex", ".codex")))
 
-	firstInstall := runCLI(t, projectDir, t.TempDir(), "install", "alpha/shared")
+	firstInstall := runCLI(t, projectDir, t.TempDir(), "install", "alpha/shared", "--allow", "exact,lossy")
 	if firstInstall.err != nil {
 		t.Fatalf("first install: %v\nstderr=%s", firstInstall.err, firstInstall.stderr)
 	}
-	blockedInstall := runCLI(t, projectDir, t.TempDir(), "install", "beta/shared")
+	blockedInstall := runCLI(t, projectDir, t.TempDir(), "install", "beta/shared", "--allow", "exact,lossy")
 	if blockedInstall.err == nil {
 		t.Fatal("second owner install succeeded without --force")
 	}
-	forcedInstall := runCLI(t, projectDir, t.TempDir(), "install", "beta/shared", "--force")
+	forcedInstall := runCLI(t, projectDir, t.TempDir(), "install", "beta/shared", "--force", "--allow", "exact,lossy")
 	if forcedInstall.err != nil {
 		t.Fatalf("forced install: %v\nstderr=%s", forcedInstall.err, forcedInstall.stderr)
 	}
@@ -261,6 +261,13 @@ func TestInstructionForceTransferPreservesNewRegionOwner(t *testing.T) {
 	}
 	if agentsContent = readProjectFile(t, projectDir, "AGENTS.md"); !strings.Contains(agentsContent, "SECOND_OWNER_SENTINEL") {
 		t.Fatalf("new region changed after old owner removal: %q", agentsContent)
+	}
+}
+
+func TestNormalizedInstructionBodyRemovesFrontmatterAndManagedMarker(t *testing.T) {
+	content := []byte("---\r\ndescription: Runtime\r\napplyTo: '**/*.go'\r\n---\r\n<!-- managed by sth -->\nRuntime body\n")
+	if actual := normalizedInstructionBody(content); actual != "Runtime body" {
+		t.Fatalf("body = %q", actual)
 	}
 }
 

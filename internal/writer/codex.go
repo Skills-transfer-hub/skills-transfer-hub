@@ -48,6 +48,9 @@ func (CodexWriter) Render(request WriteRequest) ([]byte, error) {
 	if request.ArtifactKind == "instruction" {
 		return renderInstructionFragment(request, "Codex")
 	}
+	if request.ArtifactKind == "agent" && strings.HasPrefix(filepath.ToSlash(request.SourcePath), ".codex/agents/") && strings.EqualFold(filepath.Ext(request.SourcePath), ".toml") {
+		return append([]byte(nil), request.Content...), nil
+	}
 	if strings.EqualFold(filepath.Ext(request.InstalledPath), ".toml") {
 		return renderCodexAgent(request)
 	}
@@ -74,6 +77,10 @@ func (CodexWriter) Plan(artifactKind, artifactName, _ string, sources []string) 
 		return PlanResult{Files: []PlannedFile{{SourcePath: sources[0], RelativePath: ".agents/skills/" + artifactName + "/SKILL.md"}}}
 	case "instruction":
 		return PlanResult{Files: []PlannedFile{{SourcePath: sources[0], RelativePath: ".codex/sth/instructions/" + artifactName + ".md"}}}
+	case "rule":
+		return PlanResult{Files: []PlannedFile{{SourcePath: sources[0], RelativePath: ".codex/rules/" + artifactName + ".rules"}}}
+	case "workflow":
+		return PlanResult{Skipped: true, Reason: "Codex has no project workflow file contract"}
 	}
 	return PlanResult{Skipped: true, Reason: "unknown artifact kind: " + artifactKind}
 }

@@ -5,15 +5,27 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
 
+	"sth/internal/artifact"
 	"sth/internal/fs"
 	"sth/internal/writer"
 )
 
-func (a *app) installFanout(profile fs.ProjectProfile, cfg fs.ProjectConfigV2, entry fs.CatalogEntry, providerID, resolvedVersion string, dryRun, jsonOut, force bool) error {
+func (a *app) installFanout(profile fs.ProjectProfile, stateDir string, cfg fs.ProjectConfigV2, entry fs.CatalogEntry, providerID, resolvedVersion string, dryRun, jsonOut, force bool) error {
+	filteredTargets := make([]fs.TargetEntry, 0, len(cfg.Targets))
+	for _, target := range fs.EffectiveTargets(cfg) {
+		if target.Enabled && a.targetSelected(target.ID, target.Kind) {
+			filteredTargets = append(filteredTargets, target)
+		}
+	}
+	if len(filteredTargets) == 0 {
+		return fmt.Errorf("no configured target matched --target")
+	}
+	cfg.Targets = filteredTargets
 	if validationErr := validateFanoutTargetRoots(cfg); validationErr != nil {
 		return validationErr
 	}
@@ -23,9 +35,9 @@ func (a *app) installFanout(profile fs.ProjectProfile, cfg fs.ProjectConfigV2, e
 	}
 
 	if artifactKindOf(entry) == "skill" {
-		return a.installSkillFanout(profile, entry, providerID, resolvedVersion, projectRoot, enabledTargetKinds(cfg), dryRun, jsonOut, force)
+		return a.installSkillFanout(profile, stateDir, entry, providerID, resolvedVersion, projectRoot, enabledTargetKinds(cfg), dryRun, jsonOut, force)
 	}
-	return a.installArtifactFanout(profile, cfg, entry, providerID, resolvedVersion, projectRoot, artifactKindOf(entry), dryRun, jsonOut, force)
+	return a.installArtifactFanout(profile, stateDir, cfg, entry, providerID, resolvedVersion, projectRoot, artifactKindOf(entry), dryRun, jsonOut, force)
 }
 
 func artifactKindOf(entry fs.CatalogEntry) string {
@@ -83,7 +95,7 @@ func enabledTargetKinds(cfg fs.ProjectConfigV2) []string {
 	return kinds
 }
 
-func (a *app) installSkillFanout(profile fs.ProjectProfile, entry fs.CatalogEntry, providerID, resolvedVersion, projectRoot string, kinds []string, dryRun, jsonOut, force bool) error {
+func (a *app) installSkillFanout(profile fs.ProjectProfile, stateDir string, entry fs.CatalogEntry, providerID, resolvedVersion, projectRoot string, kinds []string, dryRun, jsonOut, force bool) error {
 	a.progress.step(fmt.Sprintf("Downloading %s…", entry.Name))
 	sources, fetch, err := a.resolveSkillSources(profile, entry)
 	if err != nil {
@@ -92,6 +104,15 @@ func (a *app) installSkillFanout(profile fs.ProjectProfile, entry fs.CatalogEntr
 	if validationErr := validateSkillConsumerContracts(projectRoot, entry.Name, sources, kinds, fetch); validationErr != nil {
 		return validationErr
 	}
+	sourceFiles := make([]artifact.File, 0, len(sources))
+	for _, sourcePath := range sources {
+		content, fetchErr := fetch(sourcePath)
+		if fetchErr != nil {
+			return fetchErr
+		}
+		sourceFiles = append(sourceFiles, artifact.File{Path: sourcePath, Content: content})
+	}
+	sourceSHA256 := artifact.HashFiles(sourceFiles)
 
 	placement := writer.PlanSkillPlacement(kinds)
 	if len(placement.Folders) == 0 {
@@ -106,7 +127,7 @@ func (a *app) installSkillFanout(profile fs.ProjectProfile, entry fs.CatalogEntr
 		if !ok {
 			continue
 		}
-		result, matErr := writer.MaterializeArtifact(projectRoot, target, "skill", entry.Name, entry.Lang, sources, fetch, true, false)
+		result, matErr := writer.MaterializeArtifact(projectRoot, target, "skill", entry.Name, entry.Lang, sources, fetch, false, false)
 		if matErr != nil {
 			return matErr
 		}
@@ -123,9 +144,14 @@ func (a *app) installSkillFanout(profile fs.ProjectProfile, entry fs.CatalogEntr
 		return fmt.Errorf("no skill destination for the selected targets")
 	}
 
-	state, stateErr := fs.ReadInstalledStateV2(profile.TargetDir)
+	state, stateErr := fs.ReadInstalledStateV2(stateDir)
 	if stateErr != nil {
 		return stateErr
+	}
+	if !dryRun {
+		if driftErr := refuseModifiedResources(state, fs.ProjectConfigV2{}, entry.CatalogID); driftErr != nil {
+			return driftErr
+		}
 	}
 	if !force {
 		for _, file := range plannedFiles {
@@ -135,11 +161,16 @@ func (a *app) installSkillFanout(profile fs.ProjectProfile, entry fs.CatalogEntr
 		}
 	}
 	if dryRun {
-		return a.renderFanoutDryRun(projectRoot, profile.TargetDir, entry.CatalogID, plannedFiles, nil, nil, jsonOut)
+		return a.renderFanoutDryRun(projectRoot, stateDir, entry.CatalogID, plannedFiles, nil, nil, jsonOut)
 	}
 
+	previousConsumers, _ := fanoutInstalledRecord(state, entry.CatalogID, "")
+	if slices.Equal(previousConsumers.Consumers, kinds) && fanoutFilesUnchanged(state, entry.CatalogID, providerID, resolvedVersion, projectRoot, plannedFiles) {
+		a.reportUnchanged(entry.CatalogID, resolvedVersion)
+		return nil
+	}
 	previous, _ := fanoutInstalledRecord(state, entry.CatalogID, "")
-	transactionPaths := fanoutTransactionPaths(profile.TargetDir, plannedFiles, previous.ManagedFiles)
+	transactionPaths := fanoutTransactionPaths(stateDir, plannedFiles, previous.ManagedFiles)
 	transaction, transactionErr := newFanoutFileTransaction(projectRoot, transactionPaths)
 	if transactionErr != nil {
 		return transactionErr
@@ -148,7 +179,7 @@ func (a *app) installSkillFanout(profile fs.ProjectProfile, entry fs.CatalogEntr
 	a.progress.step("Installing files…")
 	managedFiles := make([]fs.ManagedFile, 0, len(plannedFiles))
 	for _, plan := range plans {
-		result, matErr := writer.MaterializeArtifact(projectRoot, plan.target, "skill", entry.Name, entry.Lang, sources, fetch, true, true)
+		result, matErr := writer.MaterializeArtifact(projectRoot, plan.target, "skill", entry.Name, entry.Lang, sources, fetch, false, true)
 		if matErr != nil {
 			return transaction.rollback(matErr)
 		}
@@ -163,14 +194,21 @@ func (a *app) installSkillFanout(profile fs.ProjectProfile, entry fs.CatalogEntr
 		effectiveVersion = previous.ResolvedVersion
 	}
 	record := fs.InstalledResourceRecordV2{
-		ResourceName:    entry.CatalogID,
-		ProviderID:      providerID,
-		ResolvedVersion: effectiveVersion,
-		PreviousVersion: previous.ResolvedVersion,
-		InstalledAt:     time.Now().UTC().Format(time.RFC3339),
-		ManagedFiles:    managedFiles,
-		SourcePath:      entry.SourcePath,
-		ArtifactKind:    "skill",
+		ResourceName:        entry.CatalogID,
+		ProviderID:          providerID,
+		ResolvedVersion:     effectiveVersion,
+		PreviousVersion:     previous.ResolvedVersion,
+		InstalledAt:         time.Now().UTC().Format(time.RFC3339),
+		ManagedFiles:        managedFiles,
+		SourcePath:          entry.SourcePath,
+		ArtifactKind:        "skill",
+		SourceDialect:       string(artifact.DialectAgentSkills),
+		SourceSHA256:        sourceSHA256,
+		TargetDialect:       string(artifact.DialectAgentSkills),
+		Compatibility:       string(artifact.CompatibilityExact),
+		CompatibilityReport: artifact.CompatibilityReport{Preserved: []string{"name", "body", "files"}},
+		TransformerVersion:  "1",
+		Consumers:           append([]string(nil), kinds...),
 	}
 	recordPlan := fanoutRecordPlan{record: record, previous: previous}
 	ownershipMessages := make([]string, 0)
@@ -181,10 +219,10 @@ func (a *app) installSkillFanout(profile fs.ProjectProfile, entry fs.CatalogEntr
 		return transaction.rollback(removeErr)
 	}
 	upsertFanoutRecord(&state, record)
-	if ensureErr := fs.EnsureTargetDir(profile.TargetDir); ensureErr != nil {
+	if ensureErr := fs.EnsureTargetDir(stateDir); ensureErr != nil {
 		return transaction.rollback(ensureErr)
 	}
-	if writeErr := fs.WriteInstalledStateV2(profile.TargetDir, state); writeErr != nil {
+	if writeErr := fs.WriteInstalledStateV2(stateDir, state); writeErr != nil {
 		return transaction.rollback(writeErr)
 	}
 	a.writeFanoutOwnershipMessages(ownershipMessages, jsonOut)
@@ -203,9 +241,12 @@ func (a *app) installSkillFanout(profile fs.ProjectProfile, entry fs.CatalogEntr
 }
 
 type fanoutTargetPlan struct {
-	target  fs.TargetEntry
-	tool    writer.Target
-	preview writer.MaterializeResult
+	target           fs.TargetEntry
+	tool             writer.Target
+	preview          writer.MaterializeResult
+	compatibility    artifact.CompatibilityLevel
+	report           artifact.CompatibilityReport
+	addManagedHeader bool
 }
 
 type fanoutSkillPlan struct {
@@ -449,7 +490,7 @@ func fanoutInstalledRecord(state fs.InstalledResourceStateV2, resourceName, targ
 }
 
 func fanoutTransactionPaths(targetDir string, plannedFiles, previousFiles []fs.ManagedFile) []string {
-	paths := make([]string, 0, len(plannedFiles)+len(previousFiles)+1)
+	paths := make([]string, 0, len(plannedFiles)+len(previousFiles)+2)
 	for _, file := range plannedFiles {
 		paths = append(paths, file.Path)
 	}
@@ -457,6 +498,7 @@ func fanoutTransactionPaths(targetDir string, plannedFiles, previousFiles []fs.M
 		paths = append(paths, file.Path)
 	}
 	paths = append(paths, filepath.ToSlash(filepath.Join(targetDir, "sth-state-v2.json")))
+	paths = append(paths, filepath.ToSlash(filepath.Join(".sth", fs.StateFileNameV3)))
 	return paths
 }
 
@@ -610,7 +652,7 @@ func (a *app) writeFanoutOwnershipMessages(messages []string, jsonOut bool) {
 	a.writeStdout(messages...)
 }
 
-func (a *app) installArtifactFanout(profile fs.ProjectProfile, cfg fs.ProjectConfigV2, entry fs.CatalogEntry, providerID, resolvedVersion, projectRoot, kind string, dryRun, jsonOut, force bool) error {
+func (a *app) installArtifactFanout(profile fs.ProjectProfile, stateDir string, cfg fs.ProjectConfigV2, entry fs.CatalogEntry, providerID, resolvedVersion, projectRoot, kind string, dryRun, jsonOut, force bool) error {
 	sources := []string{entry.SourcePath}
 	eligiblePlans := make([]fanoutTargetPlan, 0)
 	for _, target := range fs.EffectiveTargets(cfg) {
@@ -632,7 +674,7 @@ func (a *app) installArtifactFanout(profile fs.ProjectProfile, cfg fs.ProjectCon
 			a.writeFanoutSkip(target.Kind, preliminaryPlan.Reason, jsonOut)
 			continue
 		}
-		eligiblePlans = append(eligiblePlans, fanoutTargetPlan{target: target, tool: tool})
+		eligiblePlans = append(eligiblePlans, fanoutTargetPlan{target: target, tool: tool, compatibility: capability.Level, addManagedHeader: capability.Level != artifact.CompatibilityExact})
 	}
 	if len(eligiblePlans) == 0 {
 		return fmt.Errorf("no compatible target for artifact %s (%s)", entry.Name, kind)
@@ -643,13 +685,41 @@ func (a *app) installArtifactFanout(profile fs.ProjectProfile, cfg fs.ProjectCon
 	if err != nil {
 		return err
 	}
+	definition := artifact.DefinitionFromContent(artifact.Kind(kind), entry.Name, entry.SourcePath, content)
+	if definition.Common.Description == "" {
+		definition.Common.Description = entry.Description
+	}
+	diagnostics := writer.ValidateForKind(eligiblePlans[0].target.Kind, definition)
+	for _, diagnostic := range diagnostics {
+		a.writeStderr(fmt.Sprintf("%s %s %s: %s", diagnostic.Severity, diagnostic.Path, diagnostic.Code, diagnostic.Message))
+	}
+	if artifact.HasErrors(diagnostics, false) {
+		return fmt.Errorf("artifact validation failed for %s", entry.Name)
+	}
+	approvedPlans := make([]fanoutTargetPlan, 0, len(eligiblePlans))
+	for _, eligiblePlan := range eligiblePlans {
+		compatibilityPlan := writer.PlanCompatibility(definition, eligiblePlan.target.Kind)
+		capability, _ := writer.CapabilityFor(eligiblePlan.target.Kind, kind)
+		if !a.allowInstallPlan(compatibilityPlan, capability, eligiblePlan.target.Kind, entry.SourcePath, jsonOut) {
+			a.writeFanoutSkip(eligiblePlan.target.Kind, fmt.Sprintf("compatibility %s requires explicit approval", compatibilityPlan.Level), jsonOut)
+			continue
+		}
+		eligiblePlan.compatibility = compatibilityPlan.Level
+		eligiblePlan.report = compatibilityPlan.Report
+		eligiblePlan.addManagedHeader = compatibilityPlan.Level != artifact.CompatibilityExact
+		approvedPlans = append(approvedPlans, eligiblePlan)
+	}
+	eligiblePlans = approvedPlans
+	if len(eligiblePlans) == 0 {
+		return fmt.Errorf("no compatible target for artifact %s (%s)", entry.Name, kind)
+	}
 	fetch := func(string) ([]byte, error) { return content, nil }
 
 	plans := make([]fanoutTargetPlan, 0)
 	plannedFiles := make([]fs.ManagedFile, 0)
 	plannedFileIndexes := make(map[string]int)
 	for _, eligiblePlan := range eligiblePlans {
-		preview, matErr := writer.MaterializeArtifact(projectRoot, eligiblePlan.tool, kind, entry.Name, entry.Lang, sources, fetch, true, false)
+		preview, matErr := writer.MaterializeArtifact(projectRoot, eligiblePlan.tool, kind, entry.Name, entry.Lang, sources, fetch, eligiblePlan.addManagedHeader, false)
 		if matErr != nil {
 			return matErr
 		}
@@ -664,15 +734,21 @@ func (a *app) installArtifactFanout(profile fs.ProjectProfile, cfg fs.ProjectCon
 				return appendErr
 			}
 		}
-		plans = append(plans, fanoutTargetPlan{target: eligiblePlan.target, tool: eligiblePlan.tool, preview: preview})
+		preview.Compatibility = eligiblePlan.compatibility
+		plans = append(plans, fanoutTargetPlan{target: eligiblePlan.target, tool: eligiblePlan.tool, preview: preview, compatibility: eligiblePlan.compatibility, addManagedHeader: eligiblePlan.addManagedHeader})
 	}
 	if len(plans) == 0 {
 		return fmt.Errorf("no compatible target for artifact %s (%s)", entry.Name, kind)
 	}
 
-	state, stateErr := fs.ReadInstalledStateV2(profile.TargetDir)
+	state, stateErr := fs.ReadInstalledStateV2(stateDir)
 	if stateErr != nil {
 		return stateErr
+	}
+	if !dryRun {
+		if driftErr := refuseModifiedResources(state, cfg, entry.CatalogID); driftErr != nil {
+			return driftErr
+		}
 	}
 	if !force {
 		for _, file := range plannedFiles {
@@ -692,9 +768,13 @@ func (a *app) installArtifactFanout(profile fs.ProjectProfile, cfg fs.ProjectCon
 				return regionErr
 			}
 		}
-		return a.renderFanoutDryRun(projectRoot, profile.TargetDir, entry.CatalogID, plannedFiles, derivedCurrentFiles, derivedIncomingFiles, jsonOut)
+		return a.renderFanoutDryRun(projectRoot, stateDir, entry.CatalogID, plannedFiles, derivedCurrentFiles, derivedIncomingFiles, jsonOut)
 	}
 
+	if fanoutFilesUnchanged(state, entry.CatalogID, providerID, resolvedVersion, projectRoot, plannedFiles) {
+		a.reportUnchanged(entry.CatalogID, resolvedVersion)
+		return nil
+	}
 	previousRecords := make(map[string]fs.InstalledResourceRecordV2, len(plans))
 	previousFiles := make([]fs.ManagedFile, 0)
 	for _, plan := range plans {
@@ -702,7 +782,7 @@ func (a *app) installArtifactFanout(profile fs.ProjectProfile, cfg fs.ProjectCon
 		previousRecords[plan.target.ID] = previous
 		previousFiles = append(previousFiles, previous.ManagedFiles...)
 	}
-	transactionPaths := fanoutTransactionPaths(profile.TargetDir, plannedFiles, previousFiles)
+	transactionPaths := fanoutTransactionPaths(stateDir, plannedFiles, previousFiles)
 	if kind == "instruction" {
 		for _, definition := range instructionRegionDefinitionsForPlans(plans) {
 			transactionPaths = append(transactionPaths, definition.path)
@@ -717,13 +797,14 @@ func (a *app) installArtifactFanout(profile fs.ProjectProfile, cfg fs.ProjectCon
 	installedCount := 0
 	recordPlans := make([]fanoutRecordPlan, 0, len(plans))
 	for _, plan := range plans {
-		result, matErr := writer.MaterializeArtifact(projectRoot, plan.tool, kind, entry.Name, entry.Lang, sources, fetch, true, true)
+		result, matErr := writer.MaterializeArtifact(projectRoot, plan.tool, kind, entry.Name, entry.Lang, sources, fetch, plan.addManagedHeader, true)
 		if matErr != nil {
 			return transaction.rollback(matErr)
 		}
 		if result.Skipped {
 			continue
 		}
+		result.Compatibility = plan.compatibility
 		files := make([]fs.ManagedFile, 0, len(result.Files))
 		for _, file := range result.Files {
 			files = append(files, fs.ManagedFile{Path: file.RelativePath, SHA256: file.SHA256})
@@ -734,16 +815,23 @@ func (a *app) installArtifactFanout(profile fs.ProjectProfile, cfg fs.ProjectCon
 			effectiveVersion = previous.ResolvedVersion
 		}
 		record := fs.InstalledResourceRecordV2{
-			ResourceName:    entry.CatalogID,
-			ProviderID:      providerID,
-			ResolvedVersion: effectiveVersion,
-			PreviousVersion: previous.ResolvedVersion,
-			InstalledAt:     time.Now().UTC().Format(time.RFC3339),
-			ManagedFiles:    files,
-			ManagedRegions:  nil,
-			SourcePath:      entry.SourcePath,
-			TargetID:        plan.target.ID,
-			ArtifactKind:    kind,
+			ResourceName:        entry.CatalogID,
+			ProviderID:          providerID,
+			ResolvedVersion:     effectiveVersion,
+			PreviousVersion:     previous.ResolvedVersion,
+			InstalledAt:         time.Now().UTC().Format(time.RFC3339),
+			ManagedFiles:        files,
+			ManagedRegions:      nil,
+			SourcePath:          entry.SourcePath,
+			TargetID:            plan.target.ID,
+			TargetKind:          plan.target.Kind,
+			ArtifactKind:        kind,
+			SourceDialect:       "sth.catalog.v1",
+			SourceSHA256:        fs.ComputeSHA256(content),
+			TargetDialect:       string(writer.DialectForTargetKind(plan.target.Kind, artifact.Kind(kind))),
+			Compatibility:       string(result.Compatibility),
+			CompatibilityReport: plan.report,
+			TransformerVersion:  "1",
 		}
 		if kind == "instruction" {
 			record.ManagedRegions = managedRegionForInstructionTarget(plan.target)
@@ -770,10 +858,10 @@ func (a *app) installArtifactFanout(profile fs.ProjectProfile, cfg fs.ProjectCon
 			}
 		}
 	}
-	if ensureErr := fs.EnsureTargetDir(profile.TargetDir); ensureErr != nil {
+	if ensureErr := fs.EnsureTargetDir(stateDir); ensureErr != nil {
 		return transaction.rollback(ensureErr)
 	}
-	if writeErr := fs.WriteInstalledStateV2(profile.TargetDir, state); writeErr != nil {
+	if writeErr := fs.WriteInstalledStateV2(stateDir, state); writeErr != nil {
 		return transaction.rollback(writeErr)
 	}
 	a.writeFanoutOwnershipMessages(ownershipMessages, jsonOut)
@@ -847,22 +935,107 @@ func invertReadsFrom(readsFrom map[string]string) map[string][]string {
 	return out
 }
 
-func (a *app) updateFanout(profile *fs.ProjectProfile, cfg fs.ProjectConfigV2, dryRun, jsonOut, failOnChanges bool) error {
-	state, err := fs.ReadInstalledStateV2(profile.TargetDir)
-	if err != nil {
-		if jsonOut {
-			emitJSONError(a.stdout, err, 1)
+type updateGroup struct {
+	stateDir   string
+	providerID string
+	names      []string
+}
+
+func updateStateDirs(cfg fs.ProjectConfigV2, primaryStateDir string) []string {
+	dirs := make([]string, 0, len(cfg.Providers)+1)
+	seen := make(map[string]struct{})
+	for _, candidate := range append([]string{primaryStateDir}, fs.StateTargetDirs(cfg)...) {
+		cleaned := filepath.Clean(strings.TrimSpace(candidate))
+		if cleaned == "" || cleaned == "." {
+			continue
 		}
-		return err
+		if _, exists := seen[cleaned]; exists {
+			continue
+		}
+		seen[cleaned] = struct{}{}
+		dirs = append(dirs, cleaned)
+	}
+	return dirs
+}
+
+func groupUpdateTargets(cfg fs.ProjectConfigV2, stateDirs []string, states map[string]fs.InstalledResourceStateV2) []updateGroup {
+	defaultProviderID := fs.DefaultProviderID(cfg)
+	groups := make([]updateGroup, 0)
+	indexes := make(map[string]int)
+	seenNames := make(map[string]struct{})
+	for _, stateDir := range stateDirs {
+		for _, record := range states[stateDir].Entries {
+			providerID := strings.TrimSpace(record.ProviderID)
+			if providerID == "" {
+				providerID = defaultProviderID
+			}
+			nameKey := stateDir + "\x00" + providerID + "\x00" + record.ResourceName
+			if _, exists := seenNames[nameKey]; exists {
+				continue
+			}
+			seenNames[nameKey] = struct{}{}
+			groupKey := stateDir + "\x00" + providerID
+			groupIndex, exists := indexes[groupKey]
+			if !exists {
+				groups = append(groups, updateGroup{stateDir: stateDir, providerID: providerID})
+				groupIndex = len(groups) - 1
+				indexes[groupKey] = groupIndex
+			}
+			groups[groupIndex].names = append(groups[groupIndex].names, record.ResourceName)
+		}
+	}
+	return groups
+}
+
+func (a *app) reportUpdateFailure(accumulator *fanoutJSONAccumulator, name, outcome string, cause error) {
+	if accumulator != nil {
+		accumulator.results = append(accumulator.results, updateJSONResult{ResourceName: name, Outcome: outcome, Error: cause.Error()})
+		return
+	}
+	a.writeStderr(fmt.Sprintf("Failed to update '%s': %v", name, cause))
+}
+
+func (a *app) updateFanout(primaryProfile *fs.ProjectProfile, cfg fs.ProjectConfigV2, dryRun, jsonOut, failOnChanges bool) error {
+	stateDirs := updateStateDirs(cfg, primaryProfile.TargetDir)
+	states := make(map[string]fs.InstalledResourceStateV2, len(stateDirs))
+	for _, stateDir := range stateDirs {
+		state, err := fs.ReadInstalledStateV2(stateDir)
+		if err != nil {
+			if jsonOut {
+				emitJSONError(a.stdout, err, 1)
+			}
+			return err
+		}
+		states[stateDir] = state
+		if !dryRun {
+			if err := refuseModifiedResources(state, cfg, ""); err != nil {
+				if jsonOut {
+					emitJSONError(a.stdout, err, 1)
+				}
+				return err
+			}
+		}
+		if dryRun {
+			continue
+		}
+		release, lockErr := a.prepareProviderStateAccess(stateDir, primaryProfile.TargetDir)
+		if lockErr != nil {
+			if jsonOut {
+				emitJSONError(a.stdout, lockErr, 1)
+			}
+			return lockErr
+		}
+		defer release()
 	}
 
 	if failOnChanges {
 		projectRoot, _ := filepath.Abs(".")
-		results := fs.ComputeAllStatuses(state, cfg, nil, projectRoot)
 		modified := make([]fs.StatusResult, 0)
-		for _, result := range results {
-			if result.Status == fs.ResourceStatusModifiedLocally {
-				modified = append(modified, result)
+		for _, stateDir := range stateDirs {
+			for _, result := range fs.ComputeAllStatuses(states[stateDir], cfg, nil, projectRoot) {
+				if result.Status == fs.ResourceStatusModifiedLocally {
+					modified = append(modified, result)
+				}
 			}
 		}
 		if len(modified) > 0 {
@@ -881,72 +1054,22 @@ func (a *app) updateFanout(profile *fs.ProjectProfile, cfg fs.ProjectConfigV2, d
 		}
 	}
 
-	installedNames := make([]string, 0, len(state.Entries))
-	seen := make(map[string]bool)
-	for _, record := range state.Entries {
-		if seen[record.ResourceName] {
-			continue
+	groups := groupUpdateTargets(cfg, stateDirs, states)
+	updatableCount := 0
+	for _, group := range groups {
+		for _, name := range group.names {
+			if fs.PinnedVersion(cfg, name) == "" {
+				updatableCount++
+			}
 		}
-		seen[record.ResourceName] = true
-		installedNames = append(installedNames, record.ResourceName)
 	}
-	if len(installedNames) == 0 {
+	if len(groups) == 0 {
 		if jsonOut {
 			a.writeStdout("[]")
 		} else {
 			a.writeStdout("No resources to update.")
 		}
 		return nil
-	}
-	resolvedProfile, resolveErr := a.client.ResolveGitHubProfile(context.Background(), *profile)
-	if resolveErr != nil {
-		if jsonOut {
-			emitJSONError(a.stdout, resolveErr, 1)
-		}
-		return fmt.Errorf("unable to resolve update source: %w", resolveErr)
-	}
-	profile = &resolvedProfile
-	if strings.EqualFold(profile.Provider, "github") && len(profile.Ref) == 40 {
-		for providerIndex := range cfg.Providers {
-			if cfg.Providers[providerIndex].RepositoryID == profile.RepositoryID {
-				cfg.Providers[providerIndex].CatalogRef = profile.Ref
-			}
-		}
-	}
-
-	var entries []fs.CatalogEntry
-	if err := a.withAuthRecovery(context.Background(), func() error {
-		var listErr error
-		entries, listErr = a.client.ListCatalog(context.Background(), *profile)
-		return listErr
-	}); err != nil {
-		if jsonOut {
-			emitJSONError(a.stdout, err, 1)
-		}
-		return err
-	}
-	byID := make(map[string]fs.CatalogEntry, len(entries))
-	for _, entry := range entries {
-		byID[entry.CatalogID] = entry
-	}
-	if !dryRun && !jsonOut {
-		updateCount := 0
-		for _, name := range installedNames {
-			if fs.PinnedVersion(cfg, name) != "" {
-				continue
-			}
-			if _, found := byID[name]; found {
-				updateCount++
-			}
-		}
-		if updateCount > 0 {
-			a.progress.start(updateCount * 3)
-		}
-	}
-
-	providerID := "default"
-	if len(cfg.Providers) > 0 {
-		providerID = cfg.Providers[0].ID
 	}
 
 	var accumulator *fanoutJSONAccumulator
@@ -956,38 +1079,87 @@ func (a *app) updateFanout(profile *fs.ProjectProfile, cfg fs.ProjectConfigV2, d
 		defer func() { a.fanoutJSON = nil }()
 	}
 
+	if !dryRun && !jsonOut && updatableCount > 0 {
+		a.progress.start(updatableCount * 3)
+	}
+
 	failures := 0
-	latestCache := make(map[string]string)
-	for _, name := range installedNames {
-		if pinned := fs.PinnedVersion(cfg, name); pinned != "" {
-			if accumulator != nil {
-				accumulator.results = append(accumulator.results, updateJSONResult{ResourceName: name, Outcome: "pinned", PreviousVersion: pinned})
-				continue
+	for _, group := range groups {
+		profile, profileErr := a.sourceProfile(cfg, group.providerID)
+		if profileErr != nil {
+			failures += len(group.names)
+			for _, name := range group.names {
+				a.reportUpdateFailure(accumulator, name, "failed", profileErr)
 			}
-			a.writeStdout(fmt.Sprintf("  [pinned at %s] %s", pinned, name))
 			continue
 		}
-		entry, ok := byID[name]
-		if !ok {
-			if accumulator != nil {
-				accumulator.results = append(accumulator.results, updateJSONResult{ResourceName: name, Outcome: "skipped", Error: "resource missing from catalog"})
-				continue
+
+		resolvedProfile, resolveErr := a.client.ResolveGitHubProfile(context.Background(), profile)
+		if resolveErr != nil {
+			failures += len(group.names)
+			for _, name := range group.names {
+				a.reportUpdateFailure(accumulator, name, "failed", fmt.Errorf("unable to resolve update source: %w", resolveErr))
 			}
-			a.writeStderr(fmt.Sprintf("Resource '%s' is missing from the catalog; skipped.", name))
 			continue
 		}
-		resolvedVersion := ""
-		if !dryRun {
-			resolvedVersion = a.resolveCommitForEntry(context.Background(), cfg, providerID, entry, latestCache)
+		profile = resolvedProfile
+		groupConfig := cfg
+		groupConfig.Providers = append([]fs.ProviderEntry(nil), cfg.Providers...)
+		if strings.EqualFold(profile.Provider, "github") && len(profile.Ref) == 40 {
+			for providerIndex := range groupConfig.Providers {
+				if groupConfig.Providers[providerIndex].ID == group.providerID {
+					groupConfig.Providers[providerIndex].CatalogRef = profile.Ref
+				}
+			}
 		}
-		if err := a.installFanout(*profile, cfg, entry, providerID, resolvedVersion, dryRun, jsonOut, false); err != nil {
-			failures++
-			if accumulator != nil {
-				accumulator.results = append(accumulator.results, updateJSONResult{ResourceName: name, Outcome: "failed", Error: err.Error()})
+
+		var entries []fs.CatalogEntry
+		listErr := a.withAuthRecovery(context.Background(), func() error {
+			var innerErr error
+			entries, innerErr = a.client.ListCatalog(context.Background(), profile)
+			return innerErr
+		})
+		if listErr != nil {
+			failures += len(group.names)
+			for _, name := range group.names {
+				a.reportUpdateFailure(accumulator, name, "failed", fmt.Errorf("provider %s unavailable: %w", group.providerID, listErr))
+			}
+			continue
+		}
+		byID := make(map[string]fs.CatalogEntry, len(entries))
+		for _, entry := range entries {
+			entry.ProviderID = group.providerID
+			byID[entry.CatalogID] = entry
+		}
+
+		latestCache := make(map[string]string)
+		for _, name := range group.names {
+			if pinned := fs.PinnedVersion(cfg, name); pinned != "" {
+				if accumulator != nil {
+					accumulator.results = append(accumulator.results, updateJSONResult{ResourceName: name, Outcome: "pinned", PreviousVersion: pinned})
+					continue
+				}
+				a.writeStdout(fmt.Sprintf("  [pinned at %s] %s", pinned, name))
 				continue
 			}
-			a.writeStderr(fmt.Sprintf("Failed to update '%s': %v", name, err))
-			continue
+			entry, found := byID[name]
+			if !found {
+				if accumulator != nil {
+					accumulator.results = append(accumulator.results, updateJSONResult{ResourceName: name, Outcome: "skipped", Error: "resource missing from catalog"})
+					continue
+				}
+				a.writeStderr(fmt.Sprintf("Resource '%s' is missing from the catalog of provider %s; skipped.", name, group.providerID))
+				continue
+			}
+			resolvedVersion := ""
+			if !dryRun {
+				resolvedVersion = a.resolveCommitForEntry(context.Background(), groupConfig, group.providerID, entry, latestCache)
+			}
+			if installErr := a.installFanout(profile, group.stateDir, installedTargetConfig(cfg, states[group.stateDir], name, group.providerID), entry, group.providerID, resolvedVersion, dryRun, jsonOut, false); installErr != nil {
+				failures++
+				a.reportUpdateFailure(accumulator, name, "failed", installErr)
+				continue
+			}
 		}
 	}
 

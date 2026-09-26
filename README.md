@@ -14,8 +14,8 @@ Le flux actuel est centré sur le projet courant, pas sur une configuration part
 - `sth init` configure de manière interactive un dépôt hébergé supporté pour le projet courant
 - `sth login [<api-key>]` authentifie le CLI auprès de **STH Cloud** (provider SaaS) — clé stockée dans le keychain OS
 - `sth logout` supprime la clé STH Cloud du keychain
-- `sth list` lit `SKILLS.md` ou détecte les bundles compatibles et liste les ressources installables ; avec `--json`, retourne l'état des ressources installées (sémantique différente du mode texte)
-- `sth install <resource-ref>` installe une ressource du catalogue distant
+- `sth list` agrège le catalogue de **tous** les providers configurés (`SKILLS.md` ou bundles détectés) et préfixe chaque ressource de sa source quand il y en a plusieurs ; une source injoignable est signalée sur `stderr` sans faire échouer la commande ; avec `--json`, retourne l'état des ressources installées (sémantique différente du mode texte)
+- `sth install <resource-ref> [--provider <id>]` installe une ressource du catalogue distant ; avec plusieurs sources configurées, la référence peut être qualifiée (`internal:skills/analyse-risque`) et STH demande la source en terminal interactif quand un nom existe dans plusieurs catalogues
 - `sth update [--fail-on-changes]` met à jour les ressources suivies dans le projet courant ; affiche les entrées de `CHANGELOG.md` ajoutées depuis la version installée quand un bundle mis à jour en contient un ; `--fail-on-changes` exit 1 (sans rien modifier) si une ressource gérée a été éditée localement, utile comme gate CI
 - `sth new <category>/<name>` scaffolde un nouveau skill conforme (`SKILL.md` pré-rempli) — pour les mainteneurs de dépôts de skills
 - `sth catalog init [--force]` génère `SKILLS.md` à partir de la structure `category/skill/SKILL.md` du dépôt courant ; le catalogue produit est directement consommable par `sth list`
@@ -24,7 +24,8 @@ Le flux actuel est centré sur le projet courant, pas sur une configuration part
 - `sth mcp` expose `library_search`, `library_get`, `library_save`, `asset_search` et `asset_get`. Sans compte, les données restent sous `.sth/local/code/`; `STH_MCP_LOCAL_ONLY=1` force ce mode
 - `sth bridge --stdio` expose à STH Code le protocole JSON-RPC versionné (`status`, catalogue, preview/install/update/remove et `promote.preview`/`promote`). Toute mutation exige une confirmation explicite
 - `sth update self` vérifie et applique la dernière release GitHub stable compatible avec la plateforme courante
-- `sth status [--json]` montre l'état (à jour, obsolète, modifié-localement) de chaque ressource installée
+- `sth status [--json]` montre l'état (à jour, obsolète, modifié-localement) de chaque ressource installée, avec sa source quand plusieurs providers sont configurés
+- `sth provider <list|add|remove>` inspecte et gère les sources de catalogue du projet ; `list` affiche la santé de chaque source et le nombre de ressources qu'elle possède, `add` valide l'accès avant d'écrire, `remove` refuse de laisser des ressources orphelines sans `--force`
 - `sth doctor` diagnostique la configuration STH du projet courant (project.json, sth-state, credentials, accès provider) avec une remédiation par check
 - `sth completion <bash|zsh|powershell>` génère un script de complétion shell ; à `source` dans votre shell
 - `sth buddy` affiche l'état du projet courant sous forme de compagnon visuel
@@ -35,6 +36,22 @@ Le flux actuel est centré sur le projet courant, pas sur une configuration part
 
 - `--verbose` / `--debug` (alias) — émet sur `stderr` une trace `[verbose]` pour chaque requête HTTP (URL → status) et chaque chemin résolu (`project.json`, `sth-state-v2.json`). `stdout` reste propre.
 - `--json` — supporté par `list`, `status` et `version`. En cas d'erreur, le payload stdout devient `{"error": "<message>", "code": <int>}` et le process exit non-zero (FR-022).
+
+## Plusieurs sources dans un même projet
+
+`.sth/project.json` accepte plusieurs entrées dans `providers` (par exemple un dépôt public et un dépôt interne, ou un dépôt Git et STH Cloud). Chaque source est traitée indépendamment :
+
+- `sth list` interroge toutes les sources et étiquette chaque ressource ; une source injoignable est signalée sans interrompre les autres
+- `sth install` résout la ressource sur l'ensemble des catalogues. Si un nom existe dans plusieurs sources, STH demande laquelle utiliser en terminal interactif, et sinon exige `--provider <id>` ou une référence qualifiée `<provider>:<folder>/<name>`
+- l'état d'installation mémorise la source d'origine (`provider_id`) ; `sth update` regroupe les ressources par source et rafraîchit chacune depuis son dépôt d'origine
+- la résolution de version (dernier commit du chemin) fonctionne pour GitHub, GitLab, Azure DevOps et Bitbucket, avec authentification et cache par `(source, chemin)`
+
+```bash
+sth provider add internal --type gitlab --repo group/skills
+sth list
+sth install internal:agents/reviewer
+sth provider list
+```
 
 ## Provider STH Cloud (SaaS)
 
@@ -546,3 +563,21 @@ internal/http/      Accès provider-aware, lecture de SKILLS.md, téléchargemen
 specs/              Spécifications actives des fonctionnalités en cours ou de référence
 ```
 
+
+### First skill from the menu
+
+Run `sth` in your project, choose **Installer un skill**, select a skill and its assistant, inspect the file preview, then confirm. In an empty folder, the short setup asks for a public GitHub repository (default: `anthropics/skills`). Other repositories, credentials and configuration remain under **Réglages avancés**. After installation, the menu explains how to open a fresh assistant conversation and invoke the skill.
+
+**Mes skills** lists installed resources without network access. **Supprimer** previews the managed files before confirmation; personal modifications must be copied aside and the original restored before removal. **Diagnostic** checks configuration and access. A failed check leaves **connexion non vérifiée** visible. GitHub quota exhaustion is reported separately from authentication failure, without demanding a token for public access.
+
+`sth list` and `sth list --json` now return the same remote catalog. Scripts that previously used JSON to inspect installed resources must use `sth list --installed --json`; the text equivalent is `sth list --installed`. `sth status --local` inspects local state without fetching remote versions. A no-change skill install or update returns `unchanged` in JSON and **Déjà à jour** in text. Updating retains the assistant selection recorded at installation.
+
+Removal accepts `name`, `skills/name`, canonical IDs and source-qualified references; use `--provider <id>` when the name exists in more than one source. Both `sth remove` and `sth doctor` accept `--json`.
+
+### Contrôler les mises à jour des dépôts
+
+Le menu vérifie automatiquement les versions des skills installés, sans modifier leurs fichiers. Le résultat est conservé cinq minutes pendant la session ; « Vérifier les mises à jour » force un nouveau contrôle. « Mettre à jour » applique les changements à votre demande, en protégeant les éditions personnelles et les versions épinglées.
+
+`sth check-updates` donne le résultat par source ; `sth check-updates --json` fournit le même détail aux scripts. Une source inaccessible reste « non vérifiée » et ne masque pas les autres résultats.
+
+« Mes dépôts » permet d’ajouter une source publique ou privée et de retrouver le guide de création de clé. Pour plusieurs providers, configurez leurs variables dédiées (`GITHUB_TOKEN`, `GITLAB_TOKEN`, etc.) plutôt qu’une clé globale `STH_TOKEN`. Pour un dépôt GitLab privé, `read_api` permet la lecture du catalogue, de l’arborescence et des versions.

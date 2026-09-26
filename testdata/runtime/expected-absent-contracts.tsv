@@ -19,6 +19,10 @@ NON_EXECUTE	copilot-cli	command
 NON_EXECUTE	copilot-cli	instruction
 NON_EXECUTE	copilot-cli	skill
 NON_EXECUTE	copilot-ide	command-fixture
+NON_EXECUTE	cursor-ide	agent
+NON_EXECUTE	cursor-ide	instruction
+NON_EXECUTE	cursor-ide	rule
+NON_EXECUTE	cursor-ide	skill
 NON_EXECUTE	gemini	agent
 NON_EXECUTE	gemini	command
 NON_EXECUTE	gemini	instruction

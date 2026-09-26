@@ -34,7 +34,7 @@ func TestMaterializeGeminiCommandPreviewMatchesWrite(t *testing.T) {
 	}
 }
 
-func TestMaterializeCopilotCommandAcrossCLIRootAndIDERoot(t *testing.T) {
+func TestMaterializeCopilotCommandPrompt(t *testing.T) {
 	projectRoot := t.TempDir()
 	source := []byte("---\ndescription: Deploy safely\n---\nDeploy now.\n")
 	fetch := func(string) ([]byte, error) {
@@ -45,10 +45,10 @@ func TestMaterializeCopilotCommandAcrossCLIRootAndIDERoot(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(result.Files) != 2 {
-		t.Fatalf("materialized files = %+v, want two", result.Files)
+	if len(result.Files) != 1 {
+		t.Fatalf("materialized files = %+v, want one", result.Files)
 	}
-	for _, relativePath := range []string{".claude/commands/deploy.md", ".github/prompts/deploy.prompt.md"} {
+	for _, relativePath := range []string{".github/prompts/deploy.prompt.md"} {
 		if _, err := os.Stat(filepath.Join(projectRoot, filepath.FromSlash(relativePath))); err != nil {
 			t.Errorf("materialized path %s: %v", relativePath, err)
 		}

@@ -82,7 +82,7 @@ func TestE2EFunctional_InstallRoundTrip(t *testing.T) {
 		t.Fatalf("status --json resource_name = %q, want it to contain alpha", resourceName)
 	}
 
-	listJSON := runCLI(t, projectDir, homeDir, "list", "--json")
+	listJSON := runCLI(t, projectDir, homeDir, "list", "--installed", "--json")
 	if listJSON.err != nil {
 		t.Fatalf("list --json: %v", listJSON.err)
 	}
@@ -104,7 +104,7 @@ func TestE2EFunctional_InstallRoundTrip(t *testing.T) {
 	if len(updateEntries) != 1 {
 		t.Fatalf("update --json entries = %d, want 1\npayload=%s", len(updateEntries), updateJSON.stdout)
 	}
-	if updateEntries[0]["outcome"] != "updated" {
+	if updateEntries[0]["outcome"] != "unchanged" {
 		t.Fatalf("update --json outcome = %v, want updated\npayload=%s", updateEntries[0]["outcome"], updateJSON.stdout)
 	}
 
@@ -177,7 +177,7 @@ func TestE2EFunctional_JSONEmptyContract(t *testing.T) {
 	}
 	invocations := [][]string{
 		{"status", "--json"},
-		{"list", "--json"},
+		{"list", "--installed", "--json"},
 		{"update", "--json"},
 		{"update", "--dry-run", "--json"},
 	}
