@@ -1094,6 +1094,25 @@ func (a *app) updateFanout(primaryProfile *fs.ProjectProfile, cfg fs.ProjectConf
 			continue
 		}
 
+		resolvedProfile, resolveErr := a.client.ResolveGitHubProfile(context.Background(), profile)
+		if resolveErr != nil {
+			failures += len(group.names)
+			for _, name := range group.names {
+				a.reportUpdateFailure(accumulator, name, "failed", fmt.Errorf("unable to resolve update source: %w", resolveErr))
+			}
+			continue
+		}
+		profile = resolvedProfile
+		groupConfig := cfg
+		groupConfig.Providers = append([]fs.ProviderEntry(nil), cfg.Providers...)
+		if strings.EqualFold(profile.Provider, "github") && len(profile.Ref) == 40 {
+			for providerIndex := range groupConfig.Providers {
+				if groupConfig.Providers[providerIndex].ID == group.providerID {
+					groupConfig.Providers[providerIndex].CatalogRef = profile.Ref
+				}
+			}
+		}
+
 		var entries []fs.CatalogEntry
 		listErr := a.withAuthRecovery(context.Background(), func() error {
 			var innerErr error
@@ -1134,7 +1153,7 @@ func (a *app) updateFanout(primaryProfile *fs.ProjectProfile, cfg fs.ProjectConf
 			}
 			resolvedVersion := ""
 			if !dryRun {
-				resolvedVersion = a.resolveCommitForEntry(context.Background(), cfg, group.providerID, entry, latestCache)
+				resolvedVersion = a.resolveCommitForEntry(context.Background(), groupConfig, group.providerID, entry, latestCache)
 			}
 			if installErr := a.installFanout(profile, group.stateDir, installedTargetConfig(cfg, states[group.stateDir], name, group.providerID), entry, group.providerID, resolvedVersion, dryRun, jsonOut, false); installErr != nil {
 				failures++

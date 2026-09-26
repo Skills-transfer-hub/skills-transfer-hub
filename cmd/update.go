@@ -106,6 +106,24 @@ func (a *app) runUpdate(args []string) error {
 		return updateErr
 	}
 
+	if installedRecords, listErr := fs.ListInstalledResources(profile.TargetDir); listErr == nil && len(installedRecords) > 0 {
+		resolvedProfile, resolveErr := a.client.ResolveGitHubProfile(context.Background(), *profile)
+		if resolveErr != nil {
+			if jsonOut {
+				emitJSONError(a.stdout, resolveErr, 1)
+			}
+			return fmt.Errorf("unable to resolve update source: %w", resolveErr)
+		}
+		profile = &resolvedProfile
+		if len(profile.Ref) == 40 {
+			for providerIndex := range cfg.Providers {
+				if cfg.Providers[providerIndex].RepositoryID == profile.RepositoryID {
+					cfg.Providers[providerIndex].CatalogRef = profile.Ref
+				}
+			}
+		}
+	}
+
 	if dryRun {
 		v2State, err := fs.ReadInstalledStateV2(profile.TargetDir)
 		if err != nil {
