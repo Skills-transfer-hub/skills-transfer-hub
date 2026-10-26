@@ -183,7 +183,7 @@ func (a *app) askProvider(session *tui.Session, draft *wizardProfile) error {
 		if IsCloudProvider(chosen) {
 			a.narrateMood(session, tui.MoodWorried,
 				"STH Cloud repositories are not available during Alpha yet.",
-				"Join the waitlist: https://sth-dashboard.vercel.app/pricing",
+				"Join the waitlist: " + DashboardPricingURL(),
 				"For now, choose a Git provider below.",
 			)
 			continue
