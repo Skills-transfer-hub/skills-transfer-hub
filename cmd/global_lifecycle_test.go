@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -129,9 +130,23 @@ func TestGlobalInstallDryRunAndAllAgents(t *testing.T) {
 		if err != nil || string(content) != string([]byte{0, 255, 128, 1}) {
 			t.Fatalf("binary asset corrupted: %v %v", content, err)
 		}
-		info, err := os.Stat(filepath.Join(skillDirectory, "run.sh"))
-		if err != nil || info.Mode().Perm() != 0o755 {
-			t.Fatalf("executable permission lost: %v %v", info, err)
+		scriptPath := filepath.Join(skillDirectory, "run.sh")
+		scriptContent, err := os.ReadFile(scriptPath)
+		if err != nil || string(scriptContent) != "#!/bin/sh\nexit 91\n" {
+			t.Fatalf("script asset corrupted: %q %v", scriptContent, err)
+		}
+		info, err := os.Stat(scriptPath)
+		if err != nil {
+			t.Fatalf("inspect script asset: %v", err)
+		}
+		if !info.Mode().IsRegular() {
+			t.Fatalf("script asset is not a regular file: %v", info.Mode())
+		}
+		if info.Mode().Perm()&0o200 == 0 {
+			t.Fatalf("script asset is not writable: %v", info.Mode())
+		}
+		if runtime.GOOS != "windows" && info.Mode().Perm() != 0o755 {
+			t.Fatalf("executable permission lost: %v", info.Mode())
 		}
 	}
 	entries, err := os.ReadDir(fixture.project)

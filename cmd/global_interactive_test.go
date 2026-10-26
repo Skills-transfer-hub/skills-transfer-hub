@@ -20,7 +20,7 @@ func TestGlobalTextReportsConflictPath(t *testing.T) {
 		t.Fatal("local change accepted")
 	}
 	assertContains(t, result.stderr, "modified locally")
-	assertContains(t, result.stderr, "ponytail/SKILL.md")
+	assertContains(t, result.stderr, filepath.Join("ponytail", "SKILL.md"))
 }
 
 func TestGlobalInteractiveSelection(t *testing.T) {
