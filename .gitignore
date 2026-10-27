@@ -22,3 +22,4 @@ Thumbs.db
 # leave the working dir dirty and break GoReleaser's git-state validation.
 # Pattern without trailing slash so it covers both a file and a directory.
 /opt
+/output/
