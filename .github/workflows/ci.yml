@@ -35,7 +35,7 @@ jobs:
           go-version-file: go.mod
       - name: Download the authoritative STH Code contract
         id: contract-source
-        if: github.event_name == 'push'
+        if: github.repository == 'Skills-transfer-hub/skills-transfer-hub' && github.event_name == 'push'
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.STH_CODE_READ_TOKEN }}
@@ -225,6 +225,7 @@ jobs:
     name: Auto Release
     needs: ci-gate
     if: >-
+      github.repository == 'Skills-transfer-hub/skills-transfer-hub' &&
       github.event_name == 'push' &&
       github.ref == 'refs/heads/main' &&
       needs.ci-gate.result == 'success'

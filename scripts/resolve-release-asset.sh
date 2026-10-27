@@ -31,7 +31,7 @@ if [ ! -f "$asset_directory/artifacts.json" ]; then
 	exit 1
 fi
 case "$asset_name" in
- sth-code-engine.json|sth-capabilities-v1.json|sth-capabilities-v1.json.sha256|sth-capabilities-v1.md)
+ sth-code-engine.json|sth-capabilities-v1.json|sth-capabilities-v1.json.sha256|sth-capabilities-v1.md|LICENSE|THIRD_PARTY_NOTICES.md)
   metadata_directory="$asset_parent_directory/.release"
   metadata_path="$metadata_directory/$asset_name"
   if [ -d "$metadata_directory" ] && [ ! -L "$metadata_directory" ] && [ -f "$metadata_path" ] && [ ! -L "$metadata_path" ]; then

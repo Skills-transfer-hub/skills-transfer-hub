@@ -34,6 +34,7 @@ concurrency:
 jobs:
   chocolatey:
     name: Pack and push Chocolatey package
+    if: github.repository == 'Skills-transfer-hub/skills-transfer-hub'
     runs-on: windows-latest
     env:
       EXPECTED_SHA: ${{ inputs.expected_sha }}
