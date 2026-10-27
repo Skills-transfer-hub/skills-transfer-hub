@@ -1,7 +1,7 @@
 # GoReleaser config for sth.
 # Docs: https://goreleaser.com/customization/
 #
-# Architecture: source code on Skills-transfer-hub/skills-transfer-hub (PRIVATE),
+# Architecture: source code on Skills-transfer-hub/skills-transfer-hub,
 # binaries + manifests on Skills-transfer-hub/sth-releases (PUBLIC). All download URLs
 # referenced by the package managers point at sth-releases so users can install
 # without GitHub auth.
@@ -31,6 +31,7 @@ before:
     - sh scripts/write-sth-code-engine-manifest.sh "{{ .Version }}" .release/sth-code-engine.json
     - sh scripts/write-capabilities-manifest.sh "{{ .Version }}" .release/sth-capabilities-v1.json
     - sh scripts/write-capabilities-documentation.sh .release/sth-capabilities-v1.json .release/sth-capabilities-v1.md
+    - cp LICENSE THIRD_PARTY_NOTICES.md .release/
 
 builds:
   - id: sth
@@ -79,6 +80,7 @@ archives:
           - zip
     files:
       - LICENSE
+      - THIRD_PARTY_NOTICES.md
       - README.md
   - id: sth-code-engine
     ids:
@@ -99,6 +101,10 @@ checksum:
       name_template: "sth-capabilities-v1.json.sha256"
     - glob: ".release/sth-capabilities-v1.md"
       name_template: "sth-capabilities-v1.md"
+    - glob: ".release/LICENSE"
+      name_template: "LICENSE"
+    - glob: ".release/THIRD_PARTY_NOTICES.md"
+      name_template: "THIRD_PARTY_NOTICES.md"
 
 # Detached ed25519 signature of SHA256SUMS, uploaded as SHA256SUMS.sig. The CLI
 # verifies it (internal/fs/signing.go) before trusting any checksum, so a
@@ -160,6 +166,10 @@ release:
       name_template: "sth-capabilities-v1.json.sha256"
     - glob: ".release/sth-capabilities-v1.md"
       name_template: "sth-capabilities-v1.md"
+    - glob: ".release/LICENSE"
+      name_template: "LICENSE"
+    - glob: ".release/THIRD_PARTY_NOTICES.md"
+      name_template: "THIRD_PARTY_NOTICES.md"
 
 # The formula publisher is intentionally retained instead of homebrew_casks:
 # the existing tap supports both macOS and Linuxbrew, and changing package type
