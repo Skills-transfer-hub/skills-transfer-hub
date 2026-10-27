@@ -12,12 +12,12 @@ empty (or delete it) for PRs that ship no user-visible change.
 
 ## Why
 
-<!-- Internal context. NOT published. -->
+<!-- Context for reviewers. Visible in the PR, not included in release notes. -->
 
 ## What
 
-<!-- Internal implementation detail. NOT published. -->
+<!-- Implementation details. Visible in the PR, not included in release notes. -->
 
 ## Tests
 
-<!-- How it was verified. NOT published. -->
+<!-- How it was verified. Visible in the PR, not included in release notes. -->
