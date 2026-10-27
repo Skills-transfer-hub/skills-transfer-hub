@@ -44,7 +44,9 @@ sth-engine-windows-amd64.exe
 sth-code-engine.json
 sth-capabilities-v1.json
 sth-capabilities-v1.json.sha256
-sth-capabilities-v1.md'
+sth-capabilities-v1.md
+LICENSE
+THIRD_PARTY_NOTICES.md'
 
 resolve_asset_path() {
 	asset_name=$1
@@ -77,7 +79,7 @@ for asset_name in $expected_assets; do
 done
 
 checksum_entries=$(awk 'NF >= 2 { count++ } END { print count + 0 }' "$asset_directory/SHA256SUMS")
-if [ "$checksum_entries" -ne 12 ]; then
+if [ "$checksum_entries" -ne 14 ]; then
 	printf 'unexpected checksum entry count: %s\n' "$checksum_entries" >&2
 	exit 1
 fi
@@ -154,6 +156,33 @@ verify_tar_pair() {
 		printf 'engine binary differs from archive binary: %s\n' "$binary_name" >&2
 		exit 1
 	fi
+	verify_archive_notices "$archive_name"
+}
+
+verify_archive_notices() {
+	archive_name=$1
+	archive_path=$(resolve_asset_path "$archive_name")
+	for notice_name in LICENSE THIRD_PARTY_NOTICES.md; do
+		notice_path=$(resolve_asset_path "$notice_name")
+		case "$archive_name" in
+			*.zip)
+				if ! unzip -p "$archive_path" "$notice_name" > "$temporary_directory/notice" 2>/dev/null; then
+					printf 'missing archive notice: %s/%s\n' "$archive_name" "$notice_name" >&2
+					exit 1
+				fi
+				;;
+			*)
+				if ! tar -xOf "$archive_path" "$notice_name" > "$temporary_directory/notice" 2>/dev/null; then
+					printf 'missing archive notice: %s/%s\n' "$archive_name" "$notice_name" >&2
+					exit 1
+				fi
+				;;
+		esac
+		if ! cmp -s "$temporary_directory/notice" "$notice_path"; then
+			printf 'archive notice differs from release notice: %s/%s\n' "$archive_name" "$notice_name" >&2
+			exit 1
+		fi
+	done
 }
 
 verify_tar_pair sth-linux-amd64.tar.gz sth-engine-linux-amd64 linux-amd64
@@ -166,5 +195,6 @@ if ! cmp -s "$temporary_directory/windows-amd64.exe" "$windows_binary_path"; the
 	printf 'engine binary differs from archive binary: sth-engine-windows-amd64.exe\n' >&2
 	exit 1
 fi
+verify_archive_notices sth-windows-amd64.zip
 
 printf 'release assets verified: %s\n' "$normalized_version"

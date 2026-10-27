@@ -12,6 +12,8 @@ trap cleanup EXIT HUP INT TERM
 asset_directory="$temporary_directory/assets"
 mkdir -p "$asset_directory"
 (cd "$repository_directory" && go build -trimpath -o "$temporary_directory/sth" .)
+cp "$repository_directory/LICENSE" "$asset_directory/LICENSE"
+cp "$repository_directory/THIRD_PARTY_NOTICES.md" "$asset_directory/THIRD_PARTY_NOTICES.md"
 
 for engine_name in \
 	sth-engine-linux-amd64 \
@@ -29,8 +31,9 @@ create_tar_archive() {
 	mkdir -p "$staging_directory"
 	cp "$temporary_directory/sth" "$staging_directory/sth"
 	cp "$repository_directory/LICENSE" "$staging_directory/LICENSE"
+	cp "$repository_directory/THIRD_PARTY_NOTICES.md" "$staging_directory/THIRD_PARTY_NOTICES.md"
 	cp "$repository_directory/README.md" "$staging_directory/README.md"
-	(cd "$staging_directory" && tar -czf "$asset_directory/$archive_name" sth LICENSE README.md)
+	(cd "$staging_directory" && tar -czf "$asset_directory/$archive_name" sth LICENSE THIRD_PARTY_NOTICES.md README.md)
 }
 
 create_tar_archive sth-linux-amd64.tar.gz linux-amd64
@@ -41,8 +44,9 @@ windows_directory="$temporary_directory/windows-amd64"
 mkdir -p "$windows_directory"
 cp "$temporary_directory/sth" "$windows_directory/sth.exe"
 cp "$repository_directory/LICENSE" "$windows_directory/LICENSE"
+cp "$repository_directory/THIRD_PARTY_NOTICES.md" "$windows_directory/THIRD_PARTY_NOTICES.md"
 cp "$repository_directory/README.md" "$windows_directory/README.md"
-(cd "$windows_directory" && zip -q "$asset_directory/sth-windows-amd64.zip" sth.exe LICENSE README.md)
+(cd "$windows_directory" && zip -q "$asset_directory/sth-windows-amd64.zip" sth.exe LICENSE THIRD_PARTY_NOTICES.md README.md)
 
 sh "$script_directory/write-sth-code-engine-manifest.sh" v1.2.3 "$asset_directory/sth-code-engine.json"
 sh "$script_directory/write-capabilities-manifest.sh" v1.2.3 "$asset_directory/sth-capabilities-v1.json"
@@ -59,16 +63,9 @@ sth-engine-windows-amd64.exe
 sth-code-engine.json
 sth-capabilities-v1.json
 sth-capabilities-v1.json.sha256
-sth-capabilities-v1.md'
-
-: > "$asset_directory/SHA256SUMS"
-for asset_name in $expected_assets; do
-	if command -v sha256sum >/dev/null 2>&1; then
-		(cd "$asset_directory" && sha256sum "$asset_name") >> "$asset_directory/SHA256SUMS"
-	else
-		(cd "$asset_directory" && shasum -a 256 "$asset_name") >> "$asset_directory/SHA256SUMS"
-	fi
-done
+sth-capabilities-v1.md
+LICENSE
+THIRD_PARTY_NOTICES.md'
 
 key_output=$(cd "$repository_directory" && go run ./tools/release-sign -genkey)
 private_key=$(printf '%s\n' "$key_output" | sed -n 's/^STH_RELEASE_SIGNING_KEY=//p')
@@ -79,7 +76,80 @@ if [ -z "$private_key" ] || [ -z "$public_key" ]; then
 fi
 export STH_RELEASE_SIGNING_KEY=$private_key
 export STH_RELEASE_SIGNING_PUBKEY=$public_key
-(cd "$repository_directory" && go run ./tools/release-sign --in "$asset_directory/SHA256SUMS" --out "$asset_directory/SHA256SUMS.sig")
+
+sign_checksums() {
+	: > "$asset_directory/SHA256SUMS"
+	for asset_name in $expected_assets; do
+		if command -v sha256sum >/dev/null 2>&1; then
+			(cd "$asset_directory" && sha256sum "$asset_name") >> "$asset_directory/SHA256SUMS"
+		else
+			(cd "$asset_directory" && shasum -a 256 "$asset_name") >> "$asset_directory/SHA256SUMS"
+		fi
+	done
+	(cd "$repository_directory" && go run ./tools/release-sign --in "$asset_directory/SHA256SUMS" --out "$asset_directory/SHA256SUMS.sig")
+}
+
+expect_failure() {
+	expected_message=$1
+	if sh "$script_directory/verify-release-assets.sh" "$asset_directory" v1.2.3 >"$temporary_directory/failure.log" 2>&1; then
+		printf 'invalid release assets accepted: %s\n' "$expected_message" >&2
+		exit 1
+	fi
+	if ! grep -Fq "$expected_message" "$temporary_directory/failure.log"; then
+		cat "$temporary_directory/failure.log" >&2
+		printf 'expected failure message missing: %s\n' "$expected_message" >&2
+		exit 1
+	fi
+}
+
+sign_checksums
+
+sh "$script_directory/verify-release-assets.sh" "$asset_directory" v1.2.3
+
+for notice_name in LICENSE THIRD_PARTY_NOTICES.md; do
+	mv "$asset_directory/$notice_name" "$temporary_directory/$notice_name"
+	expect_failure "missing release asset: $notice_name"
+	cp "$temporary_directory/$notice_name" "$asset_directory/$notice_name"
+	printf 'tampered\n' >> "$asset_directory/$notice_name"
+	expect_failure "checksum mismatch: $notice_name"
+	mv "$temporary_directory/$notice_name" "$asset_directory/$notice_name"
+
+	cp "$asset_directory/sth-linux-amd64.tar.gz" "$temporary_directory/original.tar.gz"
+	cp "$asset_directory/sth-windows-amd64.zip" "$temporary_directory/original.zip"
+	for archive_format in tar zip; do
+		if [ "$archive_format" = tar ]; then
+			staging_directory="$temporary_directory/linux-amd64"
+			archive_name=sth-linux-amd64.tar.gz
+		else
+			staging_directory="$windows_directory"
+			archive_name=sth-windows-amd64.zip
+		fi
+		mv "$staging_directory/$notice_name" "$temporary_directory/missing-notice"
+		if [ "$archive_format" = tar ]; then
+			(cd "$staging_directory" && tar -czf "$asset_directory/$archive_name" *)
+		else
+			zip -qd "$asset_directory/$archive_name" "$notice_name"
+		fi
+		sign_checksums
+		expect_failure "missing archive notice: $archive_name/$notice_name"
+		mv "$temporary_directory/missing-notice" "$staging_directory/$notice_name"
+		printf 'tampered\n' >> "$staging_directory/$notice_name"
+		if [ "$archive_format" = tar ]; then
+			(cd "$staging_directory" && tar -czf "$asset_directory/$archive_name" *)
+		else
+			(cd "$staging_directory" && zip -q "$asset_directory/$archive_name" "$notice_name")
+		fi
+		sign_checksums
+		expect_failure "archive notice differs from release notice: $archive_name/$notice_name"
+		cp "$repository_directory/$notice_name" "$staging_directory/$notice_name"
+		if [ "$archive_format" = tar ]; then
+			cp "$temporary_directory/original.tar.gz" "$asset_directory/$archive_name"
+		else
+			cp "$temporary_directory/original.zip" "$asset_directory/$archive_name"
+		fi
+	done
+	sign_checksums
+done
 
 sh "$script_directory/verify-release-assets.sh" "$asset_directory" v1.2.3
 
@@ -131,7 +201,7 @@ fi
 cp "$temporary_directory/artifacts.json" "$asset_directory/artifacts.json"
 
 mkdir -p "$temporary_directory/.release"
-for metadata_name in sth-code-engine.json sth-capabilities-v1.json sth-capabilities-v1.json.sha256 sth-capabilities-v1.md; do
+for metadata_name in sth-code-engine.json sth-capabilities-v1.json sth-capabilities-v1.json.sha256 sth-capabilities-v1.md LICENSE THIRD_PARTY_NOTICES.md; do
  mv "$asset_directory/$metadata_name" "$temporary_directory/.release/$metadata_name"
 done
 sh "$script_directory/verify-release-assets.sh" "$asset_directory" v1.2.3

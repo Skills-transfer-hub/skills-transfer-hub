@@ -4,7 +4,9 @@
 
 # STH — Skills Transfer Hub
 
-STH est un moteur et CLI Go MIT, distribué en binaire unique, pour connecter un projet à un dépôt Git de ressources IA, lire un catalogue `SKILLS.md`, matérialiser des bundles multi-fichiers pour plusieurs agents, puis les maintenir à jour.
+STH est un moteur et CLI Go sous [licence MIT](LICENSE), distribué en binaire unique, pour connecter un projet à un dépôt Git de ressources IA, lire un catalogue `SKILLS.md`, matérialiser des bundles multi-fichiers pour plusieurs agents, puis les maintenir à jour.
+
+Ce dépôt contient le CLI. STH Code, le dashboard et le backend STH Cloud sont des projets séparés ; leur code n'est pas couvert par la licence de ce dépôt. Voir [CONTRIBUTING.md](CONTRIBUTING.md) pour contribuer et [SECURITY.md](SECURITY.md) pour signaler une vulnérabilité.
 
 Le flux actuel est centré sur le projet courant, pas sur une configuration partagée entre tous les dépôts. STH écrit donc un profil local dans `.sth/project.json` et ne stocke jamais de secret privé dans ce fichier.
 
@@ -96,6 +98,21 @@ Starter Cloud comprend une organisation personnelle, trois packages hébergés e
 
 ## Installation
 
+### Depuis les sources
+
+Prérequis : Git et Go 1.25.0 ou plus récent (version déclarée dans `go.mod`). Aucun compte STH ni secret de publication n'est requis pour compiler et tester ; le premier téléchargement des modules Go nécessite un accès réseau.
+
+```bash
+git clone https://github.com/Skills-transfer-hub/skills-transfer-hub.git
+cd skills-transfer-hub
+go build -o sth .
+./sth version
+go test ./...
+go vet ./...
+```
+
+Sous Windows, utilisez `go build -o sth.exe .` puis `.\sth.exe version`. Lancez ensuite le binaire depuis votre projet ; les packs et le MCP local fonctionnent sans compte. Les binaires distribués et leurs mises à jour restent disponibles sur [sth-releases](https://github.com/Skills-transfer-hub/sth-releases/releases).
+
 ### Via un gestionnaire de paquets
 
 Sous macOS ou Linux (Homebrew tap personnel) :
@@ -135,10 +152,12 @@ STH est publié sur GitHub Releases avec les archives suivantes :
 - `sth-darwin-arm64.tar.gz`
 - `sth-engine-{linux-amd64,darwin-amd64,darwin-arm64,windows-amd64.exe}`
 - `sth-code-engine.json`
+- `LICENSE`
+- `THIRD_PARTY_NOTICES.md`
 - `SHA256SUMS`
 - `SHA256SUMS.sig`
 
-Chaque build stable embarque aussi les métadonnées de release nécessaires à `sth update self`.
+Chaque archive inclut la licence MIT et les notices des dépendances. Les mêmes fichiers sont aussi distribués séparément pour les moteurs bruts ; ils sont couverts par `SHA256SUMS` et sa signature. Chaque build stable embarque aussi les métadonnées de release nécessaires à `sth update self`.
 
 ### Vérifier une archive
 
@@ -194,9 +213,7 @@ Les relances manuelles de `release.yml` exigent elles aussi un tag stable ou RC 
 
 ### Secrets requis
 
-Sur l'organisation GitHub Free actuelle avec ce dépôt privé, les Environments ne sont pas configurables. Les secrets de publication ci-dessous vivent donc comme secrets Actions du dépôt ; les appels vers les workflows réutilisables transmettent uniquement les secrets dont ils ont besoin. `STH_CODE_READ_TOKEN`, en lecture seule, n'est utilisé que sur les pushes, jamais dans les jobs de pull request.
-
-Après un passage à une offre permettant les Environments sur les dépôts privés, créer un Environment `release`, le limiter à `main` et aux tags de release, migrer les secrets de publication, puis rattacher les jobs Auto Release, Release et Chocolatey à cet Environment.
+Ces secrets sont réservés aux mainteneurs du dépôt canonique. Ils vivent dans les secrets Actions du dépôt ; les appels vers les workflows réutilisables transmettent uniquement les secrets dont ils ont besoin. Les PR et les forks n'en ont pas besoin. `STH_CODE_READ_TOKEN`, en lecture seule, sert au contrôle consommateur privé sur les pushes mainteneurs et les releases, jamais dans les jobs de pull request.
 
 | Secret | Usage | Type / Permissions |
 |---|---|---|
@@ -477,12 +494,17 @@ STH peut aussi créer un cache machine-local pour les checks automatiques de mis
 
 ## Validation locale
 
-Tests et lint Go :
+Compilation, tests et lint Go, sans compte ni accès au dépôt privé STH Code :
 
 ```bash
+go build ./...
 go test ./...
 go vet ./...
 ```
+
+La CI des PR exécute les tests bridge locaux. Les pushes mainteneurs et les releases ajoutent un contrat consommateur épinglé provenant de `sth-code-private-archive` ; ce contrôle utilise Node.js et un token de lecture réservé aux mainteneurs. Il n'est pas requis pour contribuer.
+
+Les contrôles de compatibilité ci-dessous sont complémentaires. Les tests hermétiques utilisent des fixtures locales ; la certification réelle nécessite les CLI, IDE et accès fournisseurs indiqués, et ne fait pas partie du démarrage contributeur.
 
 Certification de compatibilité Claude, Codex, Copilot, Antigravity et Gemini :
 
