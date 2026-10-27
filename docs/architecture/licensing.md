@@ -152,21 +152,9 @@ const plan: PlanTier = sub?.status === "active"
 
 Une org sans subscription Stripe active (cas `starter` gratuit ou `past_due`) retombe sur `organizations.plan_tier`. Pas de grace period.
 
-### 3.4. État commercial actuel
+### 3.4. Facturation
 
-- **Starter** : ouvert, gratuit, CTA actif
-- **Pro** : `comingSoon: true` dans `PLANS.pro` — badge affiché, CTA désactivé, mailto waitlist
-- **Team** : `comingSoon: true` dans `PLANS.team` — idem
-
-Source : `sth-dashboard/src/lib/billing/plans.ts:27-42`. La fonction `isPlanPurchasable(tier)` (`plans.ts:45-48`) combine `active && !free && !comingSoon` — actuellement renvoie `false` pour tous.
-
-### 3.5. Stripe
-
-- **Checkout** : `createCheckoutSessionAction` dans `sth-dashboard/src/app/[locale]/(dashboard)/dashboard/billing/actions.ts`
-- **Customer Portal** : `createPortalSessionAction` (change plan, payment method, cancel)
-- **Webhooks** : `sth-dashboard/src/app/api/webhooks/stripe/route.ts` — 5 events gérés (`checkout.session.completed`, `customer.subscription.updated`, `customer.subscription.deleted`, `invoice.payment_succeeded`, `invoice.payment_failed`)
-- **Idempotency** : table `stripe_events (event_id, event_type, processed_at)`
-- **Price IDs** : env vars `STRIPE_PRICE_ID_PRO_MONTHLY`, `STRIPE_PRICE_ID_TEAM_ANNUAL`
+La disponibilité commerciale des plans et l'intégration du prestataire de paiement vivent dans le dashboard, hors de ce dépôt. Le CLI ne connaît que le plan effectif renvoyé par le back.
 
 ---
 
@@ -343,14 +331,3 @@ Liste des chantiers explicitement non décidés, à arbitrer indépendamment.
 - `functions/cli/routes/access_check.ts:4-11` — payload de réponse
 - `functions/cli/routes/catalog_get.ts:34-56` — quota check (`402`)
 - `shared/errors.ts:1-49` — codes d'erreur
-
-### Dashboard (`sth-dashboard`)
-
-- `src/lib/services/license-key.ts:15-27` — génération de clé
-- `src/lib/services/license-key.ts:43-59` — implémentation base32
-- `src/lib/services/license.service.ts:13-18` — `computeLicenseStatus`
-- `src/lib/services/license.service.ts:46-75` — `createLicense`
-- `src/lib/billing/plans.ts:7,19-43,45-48` — `PlanTier`, `PLANS`, `isPlanPurchasable`
-- `src/app/api/webhooks/stripe/route.ts` — webhooks Stripe
-- `supabase/migrations/0001_init.sql` — schéma initial
-- `supabase/migrations/0011_drop_license_plaintext.sql` — suppression `key_value`
