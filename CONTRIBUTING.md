@@ -123,6 +123,18 @@ getting the PR title right covers the common case.
 
 ## What ships where
 
+### Release approval and test releases
+
+Pull requests targeting `main` require a passing CI gate and an approval from
+`@Skills-transfer-hub/sth-release-approvers`. That team contains only
+`@Grandpied33` and `@jeremy-guilpin`; adding a repository collaborator does not
+add them to this approval team. Authors cannot approve their own pull requests.
+
+For a release validation run, add the `prerelease` label before merging the
+approved pull request into `main`. The release workflow generates an `-rc.N`
+version and skips stable package-manager publication and dashboard dispatch.
+Verify the signed assets before promoting any change to a stable release.
+
 - **CLI code & history**, under MIT, live on `Skills-transfer-hub/skills-transfer-hub`.
 - **Binaries, archives, SHA256SUMS, release notes** live on
   `Skills-transfer-hub/sth-releases` (public).
