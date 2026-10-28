@@ -20,6 +20,7 @@ concurrency:
 jobs:
   goreleaser:
     name: Build & publish via GoReleaser
+    if: github.repository == 'Skills-transfer-hub/skills-transfer-hub'
     runs-on: ubuntu-latest
     env:
       RELEASE_EVENT_SHA: ${{ github.event_name == 'release' && github.sha || '' }}
@@ -242,7 +243,7 @@ jobs:
   dashboard-sync:
     name: Sync the capabilities manifest to the dashboard
     needs: goreleaser
-    if: needs.goreleaser.outputs.prerelease == 'false'
+    if: github.repository == 'Skills-transfer-hub/skills-transfer-hub' && needs.goreleaser.outputs.prerelease == 'false'
     runs-on: ubuntu-latest
     steps:
       # The release already carries sth-capabilities-v1.json and its .sha256
@@ -271,7 +272,7 @@ jobs:
   chocolatey:
     name: Publish to Chocolatey
     needs: goreleaser
-    if: needs.goreleaser.outputs.prerelease == 'false'
+    if: github.repository == 'Skills-transfer-hub/skills-transfer-hub' && needs.goreleaser.outputs.prerelease == 'false'
     uses: ./.github/workflows/publish-chocolatey.yml
     with:
       expected_sha: ${{ needs.goreleaser.outputs.sha }}

@@ -24,6 +24,7 @@ jobs:
   release-eligibility:
     name: Verify tested main head
     if: >-
+      github.repository == 'Skills-transfer-hub/skills-transfer-hub' &&
       github.event_name == 'push' &&
       github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
@@ -59,6 +60,7 @@ jobs:
     name: Create release after merge
     needs: release-eligibility
     if: >-
+      github.repository == 'Skills-transfer-hub/skills-transfer-hub' &&
       github.event_name == 'push' &&
       github.ref == 'refs/heads/main' &&
       needs.release-eligibility.outputs.current == 'true'

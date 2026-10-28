@@ -539,7 +539,7 @@ func (model initFlowModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			model.mood = tui.MoodWorried
 			model.narration = []string{
 				"STH Cloud repositories are not available during Alpha yet.",
-				"Join the waitlist: https://sth-dashboard.vercel.app/pricing",
+				"Join the waitlist: " + DashboardPricingURL(),
 				"For now, choose a Git provider below.",
 			}
 			model.selectM.Reset(tui.SelectConfig{

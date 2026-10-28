@@ -4,7 +4,7 @@ import (
 	"strings"
 )
 
-const defaultDashboardBaseURL = "https://sth-dashboard.vercel.app"
+const defaultDashboardBaseURL = "https://www.skillsth.com"
 
 const defaultDocsBaseURL = defaultDashboardBaseURL
 
@@ -25,3 +25,5 @@ func dashboardBaseURL() string {
 func DashboardURL() string { return dashboardBaseURL() }
 
 func DashboardLicensesURL() string { return dashboardBaseURL() + "/dashboard/licenses" }
+
+func DashboardPricingURL() string { return dashboardBaseURL() + "/pricing" }

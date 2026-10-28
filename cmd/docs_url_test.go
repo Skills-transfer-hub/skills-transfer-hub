@@ -11,12 +11,13 @@ func TestDocsAndDashboardURLs_defaultToProductionDashboard(t *testing.T) {
 		got  string
 		want string
 	}{
-		{"DocsBaseURL", DocsBaseURL(), "https://sth-dashboard.vercel.app"},
-		{"DocsURL", DocsURL(), "https://sth-dashboard.vercel.app/docs"},
-		{"TelemetryDocsURL", TelemetryDocsURL(), "https://sth-dashboard.vercel.app/docs/telemetry"},
-		{"AlphaLimitsDocsURL", AlphaLimitsDocsURL(), "https://sth-dashboard.vercel.app/docs#alphaLimits"},
-		{"DashboardURL", DashboardURL(), "https://sth-dashboard.vercel.app"},
-		{"DashboardLicensesURL", DashboardLicensesURL(), "https://sth-dashboard.vercel.app/dashboard/licenses"},
+		{"DocsBaseURL", DocsBaseURL(), "https://www.skillsth.com"},
+		{"DocsURL", DocsURL(), "https://www.skillsth.com/docs"},
+		{"TelemetryDocsURL", TelemetryDocsURL(), "https://www.skillsth.com/docs/telemetry"},
+		{"AlphaLimitsDocsURL", AlphaLimitsDocsURL(), "https://www.skillsth.com/docs#alphaLimits"},
+		{"DashboardPricingURL", DashboardPricingURL(), "https://www.skillsth.com/pricing"},
+		{"DashboardURL", DashboardURL(), "https://www.skillsth.com"},
+		{"DashboardLicensesURL", DashboardLicensesURL(), "https://www.skillsth.com/dashboard/licenses"},
 	}
 	for _, check := range checks {
 		if check.got != check.want {
@@ -29,6 +30,15 @@ func TestDocsAndDashboardURLs_honorEnvOverrides(t *testing.T) {
 	t.Setenv("STH_DOCS_URL", "https://docs.dev.local/")
 	t.Setenv("STH_DASHBOARD_URL", "https://dash.dev.local/")
 
+	if got := DocsBaseURL(); got != "https://docs.dev.local" {
+		t.Fatalf("DocsBaseURL = %q, want https://docs.dev.local", got)
+	}
+	if got := AlphaLimitsDocsURL(); got != "https://docs.dev.local/docs#alphaLimits" {
+		t.Fatalf("AlphaLimitsDocsURL = %q, want https://docs.dev.local/docs#alphaLimits", got)
+	}
+	if got := DashboardPricingURL(); got != "https://dash.dev.local/pricing" {
+		t.Fatalf("DashboardPricingURL = %q, want https://dash.dev.local/pricing", got)
+	}
 	if got := DocsURL(); got != "https://docs.dev.local/docs" {
 		t.Fatalf("DocsURL = %q, want https://docs.dev.local/docs", got)
 	}
