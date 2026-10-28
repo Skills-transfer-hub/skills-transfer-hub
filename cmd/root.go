@@ -55,24 +55,25 @@ var commandCatalog = []commandSpec{
 	},
 	{
 		name:    "list",
-		usage:   "sth list [--installed] [--type <kind>] [--scope <scope>] [--target <target>] [--status <status>] [--json]",
+		usage:   "sth list [--global|-g] [--installed] [--type <kind>] [--scope <scope>] [--target <target>] [--status <status>] [--json]",
 		summary: "List the configured remote provider repository catalog (requires `sth init`)",
 		details: []string{
 			"Text mode reads SKILLS.md from the remote provider repository (GitHub, GitLab, and others). If it is missing, STH scans the remote tree and infers category/folder bundles. Requires `sth init` and network access.",
 			"To generate a local SKILLS.md from the current repository, use `catalog init` instead.",
 			"Text and JSON list the same remote catalog. Add --installed for local installed resources in either format.",
 			"When an artifact filter is present, scans local native artifacts and reports their dialect, scope, state, and compatibility plans.",
+			"--global lists installed user skills offline, in the same inventory for text and JSON, without sth init.",
 		},
 		examples: []string{
 			"sth list",
 			"sth list --json",
 			"sth list --type agent --target codex --json",
 		},
-		flags: []string{"--installed", "--type", "--scope", "--target", "--status", "--json"},
+		flags: []string{"--installed", "--type", "--scope", "--target", "--status", "--json", "--global", "-g"},
 	},
 	{
 		name:    "install",
-		usage:   "sth install <resource-ref> [--provider <id>] [--kind <kind>] [--target <target>] [--allow exact,lossy] [--dry-run] [--force]",
+		usage:   "sth install <resource-ref> [--global|-g] [--provider <id>] [--kind <kind>] [--target <target>] [--allow exact,lossy] [--dry-run] [--force]",
 		summary: "Install a remote catalog resource or compatible bundle in the current project",
 		details: []string{
 			"Accepts a standard catalog name or a canonical category/folder bundle reference.",
@@ -80,6 +81,12 @@ var commandCatalog = []commandSpec{
 			"With several providers configured, qualify the source with --provider <id> or the provider:folder/name form; STH asks in a TTY when a name exists in several catalogs.",
 			"Without a resource reference, --kind installs every catalog artifact of that kind. --target accepts target IDs or kinds.",
 			"Non-interactive installs accept exact conversions only unless --allow exact,lossy is supplied.",
+			"--global installs user skills without project configuration. Source: HTTPS GitHub repository URL or github:owner/repo.",
+			"--agent <id> and --skill <name> are repeatable; --all-agents selects every documented global surface. --skill '*' selects all skills in scope.",
+			"Global agent IDs: claude, codex, cursor, gemini, copilot-cli, copilot-vscode, antigravity-ide, antigravity-cli. Families copilot and antigravity expand to their surfaces.",
+			"--path <subdir> selects a repository directory; --ref <branch|tag|sha> pins the resolved commit. Without --ref, adding agents preserves the installed revision.",
+			"Global --dry-run writes nothing; --force backs up modified owned files and never adopts third-party files. --yes skips prompts but does not choose agents or skills.",
+			"Global --json emits one versioned envelope. Exit codes: 0 success, 1 operation/conflict, 2 syntax/selection. Files installed does not mean agent discovery verified; reload or open a new session.",
 		},
 		examples: []string{
 			"sth install react/form-wizard",
@@ -88,8 +95,10 @@ var commandCatalog = []commandSpec{
 			"sth install skills/analyse-risque --provider internal",
 			"sth install skills/analyse-risque --dry-run",
 			"sth install agents/reviewer --target codex --allow exact,lossy",
+			"sth install https://github.com/DietrichGebert/ponytail --skill ponytail --global --all-agents",
+			"sth install github:owner/repo -g --agent claude --agent codex --path skills --skill '*' --dry-run --json",
 		},
-		flags: []string{"--dry-run", "--force", "--json", "--provider", "--kind", "--target", "--allow"},
+		flags: []string{"--dry-run", "--force", "--json", "--provider", "--kind", "--target", "--allow", "--global", "-g", "--all-agents", "--agent", "--skill", "--path", "--ref", "--yes"},
 	},
 	{
 		name:    "provider",
@@ -109,10 +118,11 @@ var commandCatalog = []commandSpec{
 	},
 	{
 		name:    "update",
-		usage:   "sth update [self] [--dry-run] [--fail-on-changes] [--json]",
+		usage:   "sth update [self|skill-id] [--global|-g] [--dry-run] [--fail-on-changes] [--json]",
 		summary: "Update tracked resources or the STH binary itself",
 		details: []string{
 			"--fail-on-changes exits with status 1 without updating when a managed resource has local changes (its SHA-256 no longer matches).",
+			"--global updates installed user skills independently, preserving consumers and pinned SHAs; accepts --force and --yes. Global local modifications block by default. update self --global is invalid.",
 		},
 		examples: []string{
 			"sth update",
@@ -120,17 +130,18 @@ var commandCatalog = []commandSpec{
 			"sth update --fail-on-changes",
 			"sth update self",
 		},
-		flags: []string{"--dry-run", "--fail-on-changes", "--json"},
+		flags: []string{"--dry-run", "--fail-on-changes", "--json", "--global", "-g", "--force", "--yes"},
 	},
 	{
 		name:    "status",
-		usage:   "sth status [--json]",
+		usage:   "sth status [skill-id] [--global|-g] [--json]",
 		summary: "Show the status of each installed resource (current, outdated, or locally modified)",
+		details: []string{"--global checks user files and their permissions locally; when remote access fails, remote status is unknown and local findings remain available. It does not determine project/user priority inside an agent."},
 		examples: []string{
 			"sth status",
 			"sth status --json",
 		},
-		flags: []string{"--json"},
+		flags: []string{"--json", "--global", "-g"},
 	},
 	{
 		name:    "inspect",
@@ -163,13 +174,14 @@ var commandCatalog = []commandSpec{
 	},
 	{
 		name:    "remove",
-		usage:   "sth remove <resource-ref> [--provider <id>] [--yes] [--json]",
+		usage:   "sth remove <resource-ref> [--global|-g] [--provider <id>] [--yes] [--json]",
 		summary: "Remove an installed resource and its managed files",
+		details: []string{"--global removes every owned placement offline, preserving foreign files. Supports --dry-run, --json and --force (backup modified owned files)."},
 		examples: []string{
 			"sth remove skills/analyse-risque",
 			"sth remove skills/analyse-risque --yes",
 		},
-		flags: []string{"--yes", "--provider", "--json"},
+		flags: []string{"--yes", "--provider", "--json", "--global", "-g", "--dry-run", "--force"},
 	},
 	{
 		name:    "buddy",
@@ -434,6 +446,9 @@ func Run(args []string) error {
 
 func (a *app) run(args []string) error {
 	args = a.applyGlobalFlags(args)
+	if len(args) > 0 && hasGlobalScope(args[1:]) {
+		return a.runGlobal(args[0], args[1:])
+	}
 
 	if len(args) == 0 {
 		if a.isInteractiveSession() {

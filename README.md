@@ -175,7 +175,21 @@ $actual = (Get-FileHash .\sth-windows-amd64.zip -Algorithm SHA256).Hash.ToLower(
 if ($expected -ne $actual) { throw 'Checksum mismatch' }
 ```
 
-### Installation globale
+### Skills globaux pour les agents
+
+Sans `sth init`, depuis n’importe quel dossier :
+
+```sh
+sth install https://github.com/DietrichGebert/ponytail --skill ponytail --global --all-agents
+sth list --global
+sth status --global --json
+sth update ponytail --global
+sth remove ponytail --global
+```
+
+La portée utilisateur copie les skills dans les emplacements documentés, avec suivi, sauvegarde et restauration. Elle n’installe ni hooks ni plugins et ne certifie pas leur chargement par les agents. Voir [le guide des skills globaux](docs/global-skills.md) et [les preuves de validation](docs/architecture/global-validation.md).
+
+### Installation globale du binaire
 
 Sous macOS ou Linux :
 
